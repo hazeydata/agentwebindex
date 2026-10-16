@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-15T23:32:29+00:00",
+ "generated_at": "2026-10-16T09:28:11+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -7,7 +7,7 @@
    "http": 200,
    "n_prices": 23,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "tavily",
@@ -15,7 +15,7 @@
    "http": 200,
    "n_prices": 3,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "brave",
@@ -23,7 +23,7 @@
    "http": 200,
    "n_prices": 4,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "linkup",
@@ -31,15 +31,15 @@
    "http": 200,
    "n_prices": 6,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "parallel",
    "status": "ok",
    "http": 200,
-   "n_prices": 29,
+   "n_prices": 28,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "serper",
@@ -47,7 +47,7 @@
    "http": 200,
    "n_prices": 31,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "firecrawl",
@@ -55,7 +55,7 @@
    "http": 200,
    "n_prices": 15,
    "error": null,
-   "changed": null
+   "changed": true
   },
   {
    "provider": "jina",
@@ -63,7 +63,7 @@
    "http": 200,
    "n_prices": 0,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "brightdata",
@@ -71,15 +71,15 @@
    "http": 200,
    "n_prices": 16,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "apify",
    "status": "ok",
    "http": 200,
-   "n_prices": 58,
+   "n_prices": 56,
    "error": null,
-   "changed": null
+   "changed": true
   },
   {
    "provider": "hyperbrowser",
@@ -87,7 +87,7 @@
    "http": 200,
    "n_prices": 17,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "scrapingbee",
@@ -95,7 +95,7 @@
    "http": 200,
    "n_prices": 10,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "browserbase",
@@ -103,7 +103,7 @@
    "http": 200,
    "n_prices": 20,
    "error": null,
-   "changed": null
+   "changed": false
   },
   {
    "provider": "steel",
@@ -111,7 +111,7 @@
    "http": 200,
    "n_prices": 14,
    "error": null,
-   "changed": null
+   "changed": true
   },
   {
    "provider": "browserless",
@@ -119,7 +119,7 @@
    "http": 200,
    "n_prices": 7,
    "error": null,
-   "changed": null
+   "changed": false
   }
  ]
 }

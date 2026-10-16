@@ -2,10 +2,10 @@
  "provider": "steel",
  "name": "Steel",
  "url": "https://steel.dev/pricing",
- "fetched_at": "2026-10-15T23:32:29+00:00",
+ "fetched_at": "2026-10-16T09:28:11+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "f84357df9b6471d95674636ca7a7ab22c048c8a5fe715f03d571f371b11f4bbe",
+ "text_sha256": "9dedd92d1b41ae2641ed35b72f6aa760535b06bce00de2b31666ab04e4ded233",
  "text_lines": 239,
  "prices_found": [
   "$0 per month",
@@ -24,7 +24,10 @@
   "$6/GB"
  ],
  "diff": {
-  "previous_fetched_at": null,
-  "changed": null
+  "previous_fetched_at": "2026-10-15T23:32:29+00:00",
+  "changed": true,
+  "prices_added": [],
+  "prices_removed": [],
+  "text_diff": "previous page text not in cache; compare by sha256 only"
  }
 }

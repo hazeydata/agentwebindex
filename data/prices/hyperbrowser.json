@@ -2,7 +2,7 @@
  "provider": "hyperbrowser",
  "name": "Hyperbrowser",
  "url": "https://www.hyperbrowser.ai/pricing",
- "fetched_at": "2026-10-15T23:32:29+00:00",
+ "fetched_at": "2026-10-16T09:28:11+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "98893a8fd0e764159b6cae551ff7be43e3eefc4b052062c5b6e568b7689dfa3e",
@@ -27,7 +27,10 @@
   "$30 per month"
  ],
  "diff": {
-  "previous_fetched_at": null,
-  "changed": null
+  "previous_fetched_at": "2026-10-15T23:32:29+00:00",
+  "changed": false,
+  "prices_added": [],
+  "prices_removed": [],
+  "text_diff": "previous page text not in cache; compare by sha256 only"
  }
 }

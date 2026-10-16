@@ -2,7 +2,7 @@
  "provider": "brave",
  "name": "Brave Search API",
  "url": "https://brave.com/search/api/",
- "fetched_at": "2026-10-15T23:32:29+00:00",
+ "fetched_at": "2026-10-16T09:28:11+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "fa46d52fd5a21ed5c7757a9326d5c82bfbfc679d989426435f64afc11ba9b6b3",
@@ -14,7 +14,10 @@
   "$5 per million input"
  ],
  "diff": {
-  "previous_fetched_at": null,
-  "changed": null
+  "previous_fetched_at": "2026-10-15T23:32:29+00:00",
+  "changed": false,
+  "prices_added": [],
+  "prices_removed": [],
+  "text_diff": "previous page text not in cache; compare by sha256 only"
  }
 }
