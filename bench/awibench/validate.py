@@ -118,7 +118,7 @@ def validate_by_set(sets_dir, cfg, only=None):
     if only != "news":
         for name, (fname, fn) in fixed.items():
             e, w = [], []
-            if not (sd / fname).exists(): e.append(f"missing {sd / fname}")
+            if not (sd / fname).exists(): e.append(f"missing {fname}")
             else:
                 try: fn(sd / fname, e, w)
                 except ValueError as ex: e.append(f"{fname}: parse error: {ex}")

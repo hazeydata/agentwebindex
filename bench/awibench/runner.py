@@ -92,7 +92,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                 summary["providers"].append(base | {"status": "skipped_not_month1", "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"}); continue
             key = env.get(p["key_env"])
             fn = (adapters.get(pid) or {}).get(kind)
-            if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": f"{p['key_env']} not set"}); continue
+            if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": "not run (no key)"}); continue
             if fn is None: summary["providers"].append(base | {"status": "not_implemented"}); continue
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue

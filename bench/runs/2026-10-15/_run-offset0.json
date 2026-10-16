@@ -7,19 +7,19 @@
    "provider": "exa",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "EXA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "exa",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "EXA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "tavily",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "TAVILY_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "brave",
@@ -55,13 +55,13 @@
    "provider": "firecrawl",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "FIRECRAWL_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "firecrawl",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "FIRECRAWL_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "jina",
@@ -73,13 +73,13 @@
    "provider": "brightdata",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "BRIGHTDATA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "apify",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "APIFY_API_TOKEN not set"
+   "reason": "not run (no key)"
   },
   {
    "provider": "hyperbrowser",
@@ -115,7 +115,7 @@
    "provider": "browserless",
    "category": "browser",
    "status": "skipped_no_key",
-   "reason": "BROWSERLESS_API_KEY not set"
+   "reason": "not run (no key)"
   }
  ]
 }
