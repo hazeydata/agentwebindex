@@ -1,0 +1,32 @@
+{
+ "provider": "brightdata",
+ "name": "Bright Data Web Unlocker",
+ "url": "https://brightdata.com/pricing/web-unlocker",
+ "fetched_at": "2026-10-15T23:32:29+00:00",
+ "status": "ok",
+ "http_status": 200,
+ "text_sha256": "2345e5ebf701aad69b621a90ded88bfa207872e21d7f1021f411fcf08f08d644",
+ "text_lines": 371,
+ "prices_found": [
+  "$ 1.3 /1K additional reques",
+  "$ 1.5 /1K requests",
+  "$ 499 /month",
+  "$0.2/1k HTML",
+  "$0.75/1k rec",
+  "$0.9/IP",
+  "$1",
+  "$1.3/IP",
+  "$1/1k req",
+  "$1500/mo",
+  "$2.5/GB",
+  "$2000/mo",
+  "$250/100K rec",
+  "$5",
+  "$5/GB",
+  "$500"
+ ],
+ "diff": {
+  "previous_fetched_at": null,
+  "changed": null
+ }
+}
