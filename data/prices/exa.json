@@ -1,0 +1,39 @@
+{
+ "provider": "exa",
+ "name": "Exa",
+ "url": "https://exa.ai/pricing",
+ "fetched_at": "2026-10-15T23:32:29+00:00",
+ "status": "ok",
+ "http_status": 200,
+ "text_sha256": "acddaa14665b7565c65b07a303694c9b885310b9d2a111b60877b5ba69bdd5d7",
+ "text_lines": 321,
+ "prices_found": [
+  "$0.005 / search",
+  "$0.012",
+  "$0.012 / request",
+  "$0.02 / email",
+  "$0.025 / request",
+  "$0.07 / phone number",
+  "$0.10 / ACU",
+  "$0.10 / request",
+  "$0.50 / request",
+  "$1",
+  "$1 /1k pages per content",
+  "$1.00 / request",
+  "$1.00 /run",
+  "$10",
+  "$1000",
+  "$12",
+  "$120",
+  "$15",
+  "$15 /1k requests",
+  "$4",
+  "$4 /1k requests",
+  "$5",
+  "$7"
+ ],
+ "diff": {
+  "previous_fetched_at": null,
+  "changed": null
+ }
+}
