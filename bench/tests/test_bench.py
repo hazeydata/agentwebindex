@@ -279,6 +279,20 @@ class T(unittest.TestCase):
     def test_missing_key_and_adapter(self):
         kw, _, _ = self._setup_run(); kw["env"] = {}; self.assertTrue(all(p["status"] == "skipped_no_key" for p in runner.run(**kw)["providers"]))
         kw, _, _ = self._setup_run(); kw["adapters"] = {}; self.assertTrue(all(p["status"] == "not_implemented" for p in runner.run(**kw)["providers"]))
+    def test_no_key_reason_hides_env_name(self):
+        kw, _, _ = self._setup_run(); kw["env"] = {}
+        for p in runner.run(**kw)["providers"]: self.assertEqual(p["reason"], "not run (no key)")
+    def test_missing_set_reason_has_no_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = validate.validate_by_set(td, {"task_site_allowlist": []})
+            for name in ("search_evergreen", "scrape_urls", "browser_tasks"):
+                self.assertTrue(out[name][0], name)
+                for e in out[name][0]: self.assertNotIn("/", e); self.assertNotIn(td, e)
+    def test_published_benchmark_json_has_no_paths_or_env_names(self):
+        import re
+        txt = (SITE / "data" / "benchmarks" / "latest.json").read_text()
+        self.assertIsNone(re.search(r"/(workspace|home|Users|root|tmp)/", txt))
+        self.assertIsNone(re.search(r"[A-Z][A-Z0-9_]*_API_(KEY|TOKEN)", txt))
     def test_ac12_skipped_tos_never_a_failure(self):
         kw, _, sd = self._setup_run(units_per_month=100000, tos_allowed="no"); runner.run(**kw); doc = tables.build(kw["runs_dir"], kw["pricing"], sd)
         r = doc["tables"]["scrape"][0]; self.assertEqual(r["skipped_tos"]["count"], 30)

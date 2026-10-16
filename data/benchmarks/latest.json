@@ -27,19 +27,19 @@
     "provider": "exa",
     "category": "search",
     "status": "skipped_no_key",
-    "reason": "EXA_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "exa",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "EXA_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "tavily",
     "category": "search",
     "status": "skipped_no_key",
-    "reason": "TAVILY_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "brave",
@@ -75,13 +75,13 @@
     "provider": "firecrawl",
     "category": "search",
     "status": "skipped_no_key",
-    "reason": "FIRECRAWL_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "firecrawl",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "FIRECRAWL_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "jina",
@@ -93,13 +93,13 @@
     "provider": "brightdata",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "BRIGHTDATA_API_KEY not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "apify",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "APIFY_API_TOKEN not set"
+    "reason": "not run (no key)"
    },
    {
     "provider": "hyperbrowser",
@@ -135,7 +135,7 @@
     "provider": "browserless",
     "category": "browser",
     "status": "skipped_no_key",
-    "reason": "BROWSERLESS_API_KEY not set"
+    "reason": "not run (no key)"
    }
   ]
  },
@@ -146,40 +146,40 @@
    "scope": "set",
    "set": "search_evergreen",
    "status": "skipped_invalid_set",
-   "reason": "missing /workspace/agentwebindex/site/bench/sets/search_evergreen.jsonl"
+   "reason": "missing search_evergreen.jsonl"
   },
   {
    "scope": "set",
    "set": "scrape_urls",
    "status": "skipped_invalid_set",
-   "reason": "missing /workspace/agentwebindex/site/bench/sets/scrape_urls.jsonl"
+   "reason": "missing scrape_urls.jsonl"
   },
   {
    "scope": "set",
    "set": "browser_tasks",
    "status": "skipped_invalid_set",
-   "reason": "missing /workspace/agentwebindex/site/bench/sets/browser_tasks.yaml"
+   "reason": "missing browser_tasks.yaml"
   },
   {
    "scope": "provider",
    "provider": "exa",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "EXA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
    "provider": "exa",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "EXA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
    "provider": "tavily",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "TAVILY_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
@@ -221,14 +221,14 @@
    "provider": "firecrawl",
    "category": "search",
    "status": "skipped_no_key",
-   "reason": "FIRECRAWL_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
    "provider": "firecrawl",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "FIRECRAWL_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
@@ -242,14 +242,14 @@
    "provider": "brightdata",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "BRIGHTDATA_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
    "provider": "apify",
    "category": "scrape",
    "status": "skipped_no_key",
-   "reason": "APIFY_API_TOKEN not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
@@ -291,7 +291,7 @@
    "provider": "browserless",
    "category": "browser",
    "status": "skipped_no_key",
-   "reason": "BROWSERLESS_API_KEY not set"
+   "reason": "not run (no key)"
   },
   {
    "scope": "run",
