@@ -1,0 +1,125 @@
+{
+ "generated_at": "2026-10-15T23:32:29+00:00",
+ "providers": [
+  {
+   "provider": "exa",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 23,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "tavily",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 3,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "brave",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 4,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "linkup",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 6,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "parallel",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 29,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "serper",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 31,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "firecrawl",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 15,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "jina",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 0,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "brightdata",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 16,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "apify",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 58,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "hyperbrowser",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 17,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "scrapingbee",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 10,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "browserbase",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 20,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "steel",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 14,
+   "error": null,
+   "changed": null
+  },
+  {
+   "provider": "browserless",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 7,
+   "error": null,
+   "changed": null
+  }
+ ]
+}
