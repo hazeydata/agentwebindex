@@ -1,0 +1,144 @@
+{
+ "_note": "Provider ids, pricing URLs and API-key env var NAMES only. Quotas and costs live ONLY in bench/pricing.yaml (single source).",
+ "providers": [
+  {
+   "id": "exa",
+   "name": "Exa",
+   "categories": [
+    "search",
+    "scrape"
+   ],
+   "pricing_url": "https://exa.ai/pricing",
+   "key_env": "EXA_API_KEY"
+  },
+  {
+   "id": "tavily",
+   "name": "Tavily",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://www.tavily.com/pricing",
+   "key_env": "TAVILY_API_KEY"
+  },
+  {
+   "id": "brave",
+   "name": "Brave Search API",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://brave.com/search/api/",
+   "key_env": "BRAVE_API_KEY"
+  },
+  {
+   "id": "linkup",
+   "name": "Linkup",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://www.linkup.so/pricing",
+   "key_env": "LINKUP_API_KEY"
+  },
+  {
+   "id": "parallel",
+   "name": "Parallel",
+   "categories": [
+    "search",
+    "scrape"
+   ],
+   "pricing_url": "https://parallel.ai/pricing",
+   "key_env": "PARALLEL_API_KEY"
+  },
+  {
+   "id": "serper",
+   "name": "Serper",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://serper.dev/",
+   "key_env": "SERPER_API_KEY"
+  },
+  {
+   "id": "firecrawl",
+   "name": "Firecrawl",
+   "categories": [
+    "search",
+    "scrape"
+   ],
+   "pricing_url": "https://www.firecrawl.dev/pricing",
+   "key_env": "FIRECRAWL_API_KEY"
+  },
+  {
+   "id": "jina",
+   "name": "Jina Reader",
+   "categories": [
+    "scrape"
+   ],
+   "pricing_url": "https://jina.ai/reader/",
+   "key_env": "JINA_API_KEY"
+  },
+  {
+   "id": "brightdata",
+   "name": "Bright Data Web Unlocker",
+   "categories": [
+    "scrape"
+   ],
+   "pricing_url": "https://brightdata.com/pricing/web-unlocker",
+   "key_env": "BRIGHTDATA_API_KEY"
+  },
+  {
+   "id": "apify",
+   "name": "Apify",
+   "categories": [
+    "scrape"
+   ],
+   "pricing_url": "https://apify.com/pricing",
+   "key_env": "APIFY_API_TOKEN"
+  },
+  {
+   "id": "hyperbrowser",
+   "name": "Hyperbrowser",
+   "categories": [
+    "scrape",
+    "browser"
+   ],
+   "pricing_url": "https://www.hyperbrowser.ai/pricing",
+   "key_env": "HYPERBROWSER_API_KEY"
+  },
+  {
+   "id": "scrapingbee",
+   "name": "ScrapingBee",
+   "categories": [
+    "scrape"
+   ],
+   "pricing_url": "https://www.scrapingbee.com/pricing/",
+   "key_env": "SCRAPINGBEE_API_KEY"
+  },
+  {
+   "id": "browserbase",
+   "name": "Browserbase",
+   "categories": [
+    "browser"
+   ],
+   "pricing_url": "https://www.browserbase.com/pricing",
+   "key_env": "BROWSERBASE_API_KEY"
+  },
+  {
+   "id": "steel",
+   "name": "Steel",
+   "categories": [
+    "browser"
+   ],
+   "pricing_url": "https://steel.dev/pricing",
+   "key_env": "STEEL_API_KEY"
+  },
+  {
+   "id": "browserless",
+   "name": "Browserless",
+   "categories": [
+    "browser"
+   ],
+   "pricing_url": "https://www.browserless.io/pricing",
+   "key_env": "BROWSERLESS_API_KEY"
+  }
+ ]
+}
