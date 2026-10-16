@@ -1,0 +1,49 @@
+name: benchmark
+on:
+  schedule:
+    - cron: "41 10 * * *"   # daily smoke, 10:41 UTC
+    - cron: "23 11 * * 1"   # weekly full, Mondays 11:23 UTC (after the news set is frozen at 10:00)
+    - cron: "23 17 * * 1"   # news re-probe +6 h
+    - cron: "23 11 * * 2"   # news re-probe +24 h
+    - cron: "23 11 * * 4"   # news re-probe +72 h
+  workflow_dispatch:
+    inputs: {mode: {type: choice, options: [smoke, full], default: smoke}}
+permissions: {contents: write}
+concurrency: {group: benchmark, cancel-in-progress: false}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      MONTHLY_CAP_USD: "0"   # D4: hard $0 cap in month one; the runner refuses any other value
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      LINKUP_API_KEY: ${{ secrets.LINKUP_API_KEY }}
+      PARALLEL_API_KEY: ${{ secrets.PARALLEL_API_KEY }}
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+      BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
+      APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+      HYPERBROWSER_API_KEY: ${{ secrets.HYPERBROWSER_API_KEY }}
+      SCRAPINGBEE_API_KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      STEEL_API_KEY: ${{ secrets.STEEL_API_KEY }}
+      BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Unit tests + secrets scan (mock only)
+        run: cd bench && python -m unittest tests.test_bench && python -m awibench.secrets_scan
+      - name: Run harness
+        run: |
+          MODE="${{ inputs.mode }}"
+          case "${{ github.event.schedule }}" in
+            "23 17 * * 1") ARGS="--reprobe-offset 6";; "23 11 * * 2") ARGS="--reprobe-offset 24";; "23 11 * * 4") ARGS="--reprobe-offset 72";;
+            "23 11 * * 1") ARGS="--mode full";; *) ARGS="--mode ${MODE:-smoke}";;
+          esac
+          python collectors/benchmark.py $ARGS
+      - run: |
+          git config user.name "agentwebindex-bot"; git config user.email "actions@users.noreply.github.com"
+          git add data/benchmarks data/spend bench/runs && (git diff --cached --quiet || git commit -m "bench: $(date -u +%F)") && git push

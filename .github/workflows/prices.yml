@@ -1,0 +1,26 @@
+name: daily-price-snapshot
+on:
+  schedule: [{cron: "17 9 * * *"}]   # 09:17 UTC daily
+  workflow_dispatch: {}
+permissions: {contents: write}
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Restore previous page-text cache (for text diffs)
+        uses: actions/cache/restore@v4
+        with: {path: data/cache/prices, key: "price-text-${{ github.run_id }}", restore-keys: "price-text-"}
+      - run: python collectors/snapshot_prices.py
+      - name: Save page-text cache
+        uses: actions/cache/save@v4
+        with: {path: data/cache/prices, key: "price-text-${{ github.run_id }}"}
+      - name: Upload full page text as artifact (never committed)
+        uses: actions/upload-artifact@v4
+        with: {name: "price-page-text-${{ github.run_id }}", path: data/cache/prices, retention-days: 90}
+      - name: Commit snapshot (git history = price ledger)
+        run: |
+          git config user.name "agentwebindex-bot"; git config user.email "actions@users.noreply.github.com"
+          git add data/prices && (git diff --cached --quiet || git commit -m "prices: snapshot $(date -u +%F)") && git push

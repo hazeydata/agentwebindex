@@ -1,0 +1,21 @@
+name: weekly-news-set
+on:
+  schedule:
+    - cron: "0 10 * * 1"   # Mondays 10:00 UTC = 06:00 ET during EDT (use "0 11 * * 1" during EST; see README)
+  workflow_dispatch: {}
+permissions: {contents: write}
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Generate and freeze news_YYYY-WW.jsonl (before any provider runs)
+        run: |
+          cd bench
+          python -m awibench.newsgen --live --seed "${{ vars.NEWS_SEED || '0' }}" --date "$(TZ=America/Toronto date +%Y-%m-%dT06:00:00%:z)"
+          python -m awibench.validate --only news   # real errors (caps, meta missing, count mismatch) fail the job; a short week only warns and is flagged
+      - run: |
+          git config user.name "agentwebindex-bot"; git config user.email "actions@users.noreply.github.com"
+          git add bench/sets && (git diff --cached --quiet || git commit -m "news set $(date -u +%G-%V)") && git push
