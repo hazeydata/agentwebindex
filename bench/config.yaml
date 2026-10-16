@@ -1,0 +1,40 @@
+# AgentWebIndex bench config (JSON-compatible YAML). SPEC-bench §1b, D1, D2, D4.
+{
+ "monthly_cap_usd": 0,
+ "ceo_free_tier_allowlist": [],
+ "news": {"total": 50, "min_total": 25, "per_feed": 15, "min_age_h": 24, "max_age_h": 72,
+          "query_max_words": 14, "schedule": "Mondays 06:00 America/Toronto"},
+ "news_feeds": [
+  {"id": "hn", "name": "Hacker News front page", "url": "https://news.ycombinator.com/rss", "section": "tech", "url_verified": true, "verified_date": "2026-10-15"},
+  {"id": "bbc_world", "name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "section": "world", "url_verified": true, "verified_date": "2026-10-15"},
+  {"id": "npr", "name": "NPR News", "url": "https://feeds.npr.org/1001/rss.xml", "section": "news", "url_verified": true, "verified_date": "2026-10-15"},
+  {"id": "ap_top", "name": "AP top news", "url": null, "section": "news",
+   "drop_reason": "no official AP RSS URL confirmed (D1: only if AP publishes one); dropped. 2026-10-15: https://apnews.com/index.rss returned 403 HTML and feeds.apnews.com did not resolve; no official AP RSS found, still dropped"},
+  {"id": "github_changelog", "name": "GitHub blog changelog", "url": "https://github.blog/changelog/feed/", "section": "dev", "url_verified": true, "verified_date": "2026-10-15"}
+ ],
+ "challenge_signatures": ["Just a moment...", "Checking your browser before accessing", "Attention Required! | Cloudflare",
+                          "cf-chl-", "Please enable JS and disable any ad blocker", "px-captcha", "Access to this page has been denied",
+                          "verify you are human", "Request unsuccessful. Incapsula"],
+ "task_site_allowlist": ["the-internet.herokuapp.com", "books.toscrape.com", "quotes.toscrape.com", "practicetestautomation.com", "webscraper.io"],
+ "task_site_allowlist_decision": "Side Hustle CEO 2026-10-15: demoqa.com dropped; webscraper.io only on /test-sites/ paths its robots.txt does not block (see task_site_path_rules and task_site_robots_check_2026_10_15)",
+ "task_site_path_rules": {"webscraper.io": {"allow_prefix": ["/test-sites/"],
+                          "disallow_prefix": ["/test-sites/product/", "/test-sites/pagination/", "/test-sites/pagination", "/test-sites/scroll/", "/test-sites/load-more/"],
+                          "note": "robots.txt also has 'Disallow: /test-sites/pagination*?page='; the bare '/test-sites/pagination' prefix blocks that pattern conservatively"}},
+ "month1_free_tier_providers": ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"],
+ "month1_decision": "Side Hustle CEO 2026-10-15: month one runs only on the free monthly quotas of these providers; all others are skipped with a logged reason",
+ "browser_unit_seconds": {"browserless": 30},
+ "worst_case_units_per_call": {
+  "tavily": {"search": 2, "verified": false, "reason": "credits per call by request type not captured from Tavily's pricing page; guard assumes 2 until verified"},
+  "apify": {"scrape": 2, "verified": false, "reason": "Actor compute units per call vary and are not verified; guard assumes 2 CU until verified"}},
+ "browser_unit_seconds_source": "bench/pricing.yaml browserless free_tier.note: 'unit = up to 30 s per browser connection'",
+ "task_site_robots_check_2026_10_15": {
+  "the-internet.herokuapp.com": "ok: robots.txt has 'User-agent: *' with no Disallow",
+  "books.toscrape.com": "ok: no robots.txt (404)",
+  "quotes.toscrape.com": "ok: no robots.txt (404)",
+  "demoqa.com": "unclear: /robots.txt returns the SPA HTML (200), no real robots file; treat as no restrictions but review",
+  "practicetestautomation.com": "ok: 'User-agent: *' 'Disallow:' (empty)",
+  "webscraper.io": "partial: Disallow /test-sites/product/, /test-sites/pagination/, /test-sites/pagination*?page=, /test-sites/scroll/, /test-sites/load-more/ (only other /test-sites/ paths allowed)"
+ },
+ "task_site_allowlist_proposed_needs_review": ["the-internet.herokuapp.com", "books.toscrape.com", "quotes.toscrape.com",
+                                               "demoqa.com", "practicetestautomation.com", "webscraper.io"]
+}

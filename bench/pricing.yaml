@@ -1,0 +1,561 @@
+# AgentWebIndex pricing (JSON-compatible YAML). Filled 2026-10-15; null/NOT CAPTURED where the vendor page did not state a value.
+{
+ "_doc": "SPEC-bench \u00a72. Every value must be read from the vendor's own pricing page and dated in checked_at. Unknown = \"NOT CAPTURED\" (no cost score; free tier unknown = provider skipped). See awibench/cost.py for fields per model. Filled 2026-10-15 from official pricing pages (source_url per entry); free quotas given only when the page states a monthly figure, else null + note.",
+ "providers": {
+  "exa": {
+   "search": {
+    "pricing_url": "https://exa.ai/pricing",
+    "source_url": "https://exa.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1428,
+     "needs_card": false,
+     "pool": "exa",
+     "note": "Starter: 'Free $10 credits every month ... No payment method required'. 1,428 = floor($10 / $7 per 1k Fast/Auto search); shared $10 pool with contents."
+    },
+    "tiers": {
+     "entry": {
+      "name": "Developer pay-as-you-go, Fast/Auto search (<=10 results)",
+      "unit_price": 0.007
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "Only Enterprise (custom) above PAYG; no published volume price"
+     }
+    },
+    "note": "Instant search $4/1k; Deep $12/1k; +$1/1k per result above 10"
+   },
+   "scrape": {
+    "pricing_url": "https://exa.ai/pricing",
+    "source_url": "https://exa.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1428,
+     "needs_card": false,
+     "pool": "exa",
+     "note": "Shared $10/month pool with search; capped at the search-derived figure to stay conservative ($10 / $1 per 1k pages = 10,000 pages if used for contents only)."
+    },
+    "tiers": {
+     "entry": {
+      "name": "Developer pay-as-you-go, Contents",
+      "unit_price": 0.001
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "Enterprise custom only"
+     }
+    },
+    "note": null
+   }
+  },
+  "tavily": {
+   "search": {
+    "pricing_url": "https://www.tavily.com/pricing",
+    "source_url": "https://www.tavily.com/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "credits",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "tavily",
+     "note": "Researcher: '1,000 API credits / month ... No credit card required'; resets the 1st of each month"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Pay As You Go",
+      "usd_per_credit": 0.008
+     },
+     "volume": {
+      "name": "Project $30/month (4,000 credits; slider default)",
+      "usd_per_credit": 0.0075,
+      "note": "larger slider steps not captured from static page; credits-per-call by request type is in the docs, not captured"
+     }
+    },
+    "note": null
+   }
+  },
+  "brave": {
+   "search": {
+    "pricing_url": "https://brave.com/search/api/",
+    "source_url": "https://brave.com/search/api/",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": true,
+     "pool": "brave",
+     "note": "'Includes $5 in free credits every month' at '$5 per 1,000 requests' = 1,000 requests; FAQ: a credit card is required for free plans (anti-fraud, not charged)"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Search",
+      "unit_price": 0.005
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "no volume tier on page"
+     }
+    },
+    "note": null
+   }
+  },
+  "linkup": {
+   "search": {
+    "pricing_url": "https://www.linkup.so/pricing",
+    "source_url": "https://www.linkup.so/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": null,
+     "pool": "linkup",
+     "note": "'Run 4,000 queries for free' \u2014 page does not say monthly or one-time, nor card requirement"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Pay as you go Search (Fast..Deep low end)",
+      "unit_price": 0.005,
+      "note": "page shows $0.005 - $0.006 per request"
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "Enterprise custom pricing only"
+     }
+    },
+    "note": null
+   }
+  },
+  "parallel": {
+   "search": {
+    "pricing_url": "https://parallel.ai/pricing",
+    "source_url": "https://parallel.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 5000,
+     "needs_card": null,
+     "pool": "parallel",
+     "note": "'Run up to 5,000 requests per month for free'; also '$5 in free credits per month'; card requirement not stated"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Search API pay as you go",
+      "unit_price": 0.005,
+      "note": "page: $0.001 - $0.005 for 10 results; upper bound used"
+     },
+     "volume": {
+      "name": "NOT CAPTURED"
+     }
+    },
+    "note": null
+   },
+   "scrape": {
+    "pricing_url": "https://parallel.ai/pricing",
+    "source_url": "https://parallel.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 5000,
+     "needs_card": null,
+     "pool": "parallel",
+     "note": "Same 5,000 requests/month pool as search; card requirement not stated"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Extract API pay as you go",
+      "unit_price": 0.001
+     },
+     "volume": {
+      "name": "NOT CAPTURED"
+     }
+    },
+    "note": null
+   }
+  },
+  "serper": {
+   "search": {
+    "pricing_url": "https://serper.dev/",
+    "source_url": "https://serper.dev/",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "credits",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": false,
+     "pool": "serper",
+     "note": "'Get 2,500 free queries \u2014 No credit card required' is a one-time grant, not monthly"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Starter $50 / 50k credits",
+      "usd_per_credit": 0.001
+     },
+     "volume": {
+      "name": "Ultimate $3,750 / 12.5M credits",
+      "usd_per_credit": 0.0003
+     }
+    },
+    "note": "top-up packs, credits valid 6 months, excl. tax"
+   }
+  },
+  "firecrawl": {
+   "search": {
+    "pricing_url": "https://www.firecrawl.dev/pricing",
+    "source_url": "https://www.firecrawl.dev/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "tier",
+    "credits_per_call": {
+     "search": 2,
+     "scrape": 1
+    },
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "firecrawl",
+     "note": "Free Plan: '1,000 credits / month ... no card' (500 searches or 1,000 pages)"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Hobby $19/month billed monthly (5,000 credits)",
+      "plan_fee": 19,
+      "included_units": 5000,
+      "overage_per_unit": 0.005,
+      "note": "overage '1,000 extra credits per $5'; $16/mo billed yearly"
+     },
+     "volume": {
+      "name": "Scale $599/month billed yearly (1,000,000 credits)",
+      "plan_fee": 599,
+      "included_units": 1000000,
+      "overage_per_unit": "NOT CAPTURED"
+     }
+    },
+    "note": null
+   },
+   "scrape": {
+    "pricing_url": "https://www.firecrawl.dev/pricing",
+    "source_url": "https://www.firecrawl.dev/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "tier",
+    "credits_per_call": {
+     "search": 2,
+     "scrape": 1
+    },
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "firecrawl",
+     "note": "Free Plan: '1,000 credits / month ... no card'"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Hobby $19/month billed monthly (5,000 credits)",
+      "plan_fee": 19,
+      "included_units": 5000,
+      "overage_per_unit": 0.005,
+      "note": "overage '1,000 extra credits per $5'; $16/mo billed yearly"
+     },
+     "volume": {
+      "name": "Scale $599/month billed yearly (1,000,000 credits)",
+      "plan_fee": 599,
+      "included_units": 1000000,
+      "overage_per_unit": "NOT CAPTURED"
+     }
+    },
+    "note": null
+   }
+  },
+  "jina": {
+   "scrape": {
+    "pricing_url": "https://jina.ai/reader/",
+    "source_url": "https://jina.ai/reader/",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "NOT CAPTURED",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": null,
+     "pool": "jina",
+     "note": "'Every new API key comes with 10M free tokens' (one-time per key); keyless use is free at 20 RPM \u2014 no monthly quota"
+    },
+    "tiers": {
+     "entry": {
+      "name": "NOT CAPTURED",
+      "note": "token price table rendered client-side; not captured"
+     },
+     "volume": {
+      "name": "NOT CAPTURED"
+     }
+    },
+    "note": null
+   }
+  },
+  "brightdata": {
+   "scrape": {
+    "pricing_url": "https://brightdata.com/pricing/web-unlocker",
+    "source_url": "https://brightdata.com/pricing/web-unlocker",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 5000,
+     "needs_card": false,
+     "pool": "brightdata",
+     "note": "Web Unlocker Free Tier: '5K requests per month, No credit card required'"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Pay as you go",
+      "unit_price": 0.0015
+     },
+     "volume": {
+      "name": "Scale $499/month (383K requests)",
+      "unit_price": 0.0013,
+      "note": "$1.3/1K additional requests; volume uses the additional-request rate"
+     }
+    },
+    "note": null
+   }
+  },
+  "apify": {
+   "scrape": {
+    "pricing_url": "https://apify.com/pricing",
+    "source_url": "https://apify.com/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "credits",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 25,
+     "needs_card": false,
+     "pool": "apify",
+     "note": "Free: '$5 to spend' monthly at '$0.2 per compute unit' = 25 CU/month, no credit card; Actor CU per call varies"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Starter $19/month",
+      "usd_per_credit": 0.2,
+      "note": "credit = compute unit"
+     },
+     "volume": {
+      "name": "Business $999/month",
+      "usd_per_credit": 0.13
+     }
+    },
+    "note": null
+   }
+  },
+  "hyperbrowser": {
+   "scrape": {
+    "pricing_url": "https://www.hyperbrowser.ai/pricing",
+    "source_url": "https://www.hyperbrowser.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "credits",
+    "credits_per_call": {
+     "scrape": 1
+    },
+    "proxy_per_gb": 10,
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": null,
+     "pool": "hyperbrowser",
+     "note": "Free: '$0 to start \u00b7 5,000 credits included' \u2014 one-time, not monthly"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Startup $30/month",
+      "usd_per_credit": 0.001
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "same unit rates on Free/Startup/Scale; Enterprise volume via sales"
+     }
+    },
+    "note": null
+   },
+   "browser": {
+    "pricing_url": "https://www.hyperbrowser.ai/pricing",
+    "source_url": "https://www.hyperbrowser.ai/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_hour_browser",
+    "credits_per_call": {},
+    "proxy_per_gb": 10,
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": null,
+     "pool": "hyperbrowser",
+     "note": "Free: '$0 to start \u00b7 5,000 credits included' \u2014 one-time, not monthly"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Startup $30/month",
+      "usd_per_hour": 0.1
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "note": "same unit rates on Free/Startup/Scale; Enterprise volume via sales"
+     }
+    },
+    "note": null
+   }
+  },
+  "scrapingbee": {
+   "scrape": {
+    "pricing_url": "https://www.scrapingbee.com/pricing/",
+    "source_url": "https://www.scrapingbee.com/pricing/",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "tier",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": false,
+     "pool": "scrapingbee",
+     "note": "'1,000 free API credits, no credit card required' is a one-time free trial (Terms: Free Trial), not monthly"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Hobby $19/mo (75,000 credits)",
+      "plan_fee": 19,
+      "included_units": 75000,
+      "overage_per_unit": "NOT CAPTURED"
+     },
+     "volume": {
+      "name": "Enterprise 120 $5,799/mo (120,000,000 credits)",
+      "plan_fee": 5799,
+      "included_units": 120000000,
+      "overage_per_unit": "NOT CAPTURED"
+     }
+    },
+    "note": "credits per call (JS render/premium proxy multipliers) not on pricing page"
+   }
+  },
+  "browserbase": {
+   "browser": {
+    "pricing_url": "https://www.browserbase.com/pricing",
+    "source_url": "https://www.browserbase.com/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_hour_browser",
+    "credits_per_call": {},
+    "proxy_per_gb": 12,
+    "free_tier": {
+     "units_per_month": 60,
+     "needs_card": null,
+     "pool": "browserbase",
+     "note": "Free Plan $0/mo: '1 browser hour' (=60 min); card requirement not stated"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Developer $20/mo (100 h incl.)",
+      "usd_per_hour": 0.12,
+      "min_minutes": "NOT CAPTURED",
+      "rounding_minutes": "NOT CAPTURED"
+     },
+     "volume": {
+      "name": "Startup $99/mo (500 h incl.)",
+      "usd_per_hour": 0.1
+     }
+    },
+    "note": null
+   }
+  },
+  "steel": {
+   "browser": {
+    "pricing_url": "https://steel.dev/pricing",
+    "source_url": "https://steel.dev/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "per_hour_browser",
+    "credits_per_call": {},
+    "proxy_per_gb": 10,
+    "free_tier": {
+     "units_per_month": null,
+     "needs_card": false,
+     "pool": "steel",
+     "note": "Launch: '$30 of credits, one time ... No credit card needed' \u2014 not monthly"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Launch $0/mo + usage",
+      "usd_per_hour": 0.1
+     },
+     "volume": {
+      "name": "Scale $250/mo + usage",
+      "usd_per_hour": 0.08
+     }
+    },
+    "note": null
+   }
+  },
+  "browserless": {
+   "browser": {
+    "pricing_url": "https://www.browserless.io/pricing",
+    "source_url": "https://www.browserless.io/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "tier",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "browserless",
+     "note": "Free: '1k units/month', 'No card required'; unit = up to 30 s per browser connection"
+    },
+    "tiers": {
+     "entry": {
+      "name": "Prototyping $25/mo billed annually (20k units)",
+      "plan_fee": 25,
+      "included_units": 20000,
+      "overage_per_unit": 0.002,
+      "note": "monthly-billing price not captured"
+     },
+     "volume": {
+      "name": "Scale $350/mo billed annually (500k units)",
+      "plan_fee": 350,
+      "included_units": 500000,
+      "overage_per_unit": 0.0015
+     }
+    },
+    "note": null
+   }
+  }
+ }
+}
