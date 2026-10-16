@@ -1,0 +1,231 @@
+# AgentWebIndex ToS matrix (JSON-compatible YAML).
+{
+ "_doc": "D2. allowed must be \"yes\" or \"no\" after reading the provider's terms; null = unchecked (treated as not allowed for anti_bot pairs). Filled 2026-10-15. benchmarking/anti_bot_scraping status: allowed|forbidden|unclear with quotes. allowed stays null (not allowed for anti_bot pairs) unless terms clearly permit; 'no' where terms forbid.",
+ "providers": {
+  "exa": {
+   "terms_url": "https://exa.ai/assets/Exa_Labs_Terms_of_Service.pdf",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms. Closest: 'access, use or exploit the Services (including Output) to develop any competitive product or service'"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Only covers Exa's own service: 'circumvent, remove, alter, deactivate, degrade or thwart any technological measure or content protections of the Services'; nothing on target sites' anti-bot measures"
+   },
+   "note": null
+  },
+  "tavily": {
+   "terms_url": "https://www.tavily.com/terms",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms. Closest: '(v) access the Services in order to build a competitive product or service; (vi) compete with Tavily or its business'"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Search-only provider; no clause on third-party anti-bot pages"
+   },
+   "note": null
+  },
+  "brave": {
+   "terms_url": "https://api-dashboard.search.brave.com/documentation/resources/terms-of-service",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "forbidden",
+    "quote": "'(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties'"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Search-only; '(v) circumvent or bypass rate limits or service limits' concerns Brave's own limits"
+   },
+   "note": "Benchmark clause targets using Search Results to benchmark AI models/services; whether a provider comparison is covered needs legal review — treated as forbidden"
+  },
+  "linkup": {
+   "terms_url": "https://www.linkup.so/terms-of-use",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Search-only; terms say Linkup honours robots.txt/TDMRep opt-outs for Open Web Content"
+   },
+   "note": null
+  },
+  "parallel": {
+   "terms_url": "https://parallel.ai/terms-of-service",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms. (static fetch returned limited text)"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "No anti-bot clause found in fetched text"
+   },
+   "note": null
+  },
+  "serper": {
+   "terms_url": "https://serper.dev/terms",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Search-only; 'Attempt to circumvent any restrictions or limits placed on your Serper API key or account' concerns Serper's own limits"
+   },
+   "note": null
+  },
+  "firecrawl": {
+   "terms_url": "https://www.firecrawl.dev/terms-of-service",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "No clause on circumventing target-site anti-bot measures found"
+   },
+   "note": null
+  },
+  "jina": {
+   "terms_url": "https://jina.ai/legal/",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Reader FAQ (https://jina.ai/reader/): 'Reader does not actively circumvent or bypass any website defense mechanisms, anti-bot systems... You remain responsible for ensuring your use of Reader respects ... the terms of the sites you access.' (behaviour statement, not a prohibition)"
+   },
+   "note": null
+  },
+  "brightdata": {
+   "terms_url": "https://brightdata.com/acceptable-use-policy",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "Acceptable Use Policy / MSA text is rendered client-side and could not be read statically; https://brightdata.com/legal/master-service-agreement returned 404"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Not captured (AUP rendered client-side); product page markets 'Say goodbye to blocks and CAPTCHAs' (marketing, not terms)"
+   },
+   "note": null
+  },
+  "apify": {
+   "terms_url": "https://docs.apify.com/legal/general-terms-and-conditions",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "§6.3 circumvention clause concerns 'mechanisms that may serve to protect our rights' (Apify's IP), not target sites; use must follow the Acceptable Use Policy (not reviewed)"
+   },
+   "note": null
+  },
+  "hyperbrowser": {
+   "terms_url": "https://www.hyperbrowser.ai/terms",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Only restricts automated access to Hyperbrowser's own Service: 'Use any robot, spider, or other automatic device... to access Service'"
+   },
+   "note": null
+  },
+  "scrapingbee": {
+   "terms_url": "https://www.scrapingbee.com/terms-and-conditions/",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Circumvention clauses only concern account/trial limits: 'strictly forbidden to create multiple Accounts to circumvent limitations'"
+   },
+   "note": null
+  },
+  "browserbase": {
+   "terms_url": "https://www.browserbase.com/terms-of-service",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": null,
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Circumvention language concerns Browserbase's own usage limits and platform"
+   },
+   "note": null
+  },
+  "steel": {
+   "terms_url": "https://steel.dev/terms",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": "no",
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "forbidden",
+    "quote": "'Use the Services to bypass security measures, access controls, or authentication systems without authorization'; 'Use the Services to violate any website's terms of service, robots.txt, or similar access restrictions'"
+   },
+   "note": null
+  },
+  "browserless": {
+   "terms_url": "https://www.browserless.io/terms-of-service",
+   "checked_at": "2026-10-15",
+   "verified_date": "2026-10-15",
+   "allowed": "no",
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+   },
+   "anti_bot_scraping": {
+    "status": "forbidden",
+    "quote": "'(k) to interfere with or circumvent the security features of the Service or any related website, other websites, or the Internet' (same list also includes '(i) to spam, phish, pharm, pretext, spider, crawl, or scrape')"
+   },
+   "note": null
+  }
+ }
+}
