@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-15T23:55:50+00:00",
+ "generated_at": "2026-10-16T10:48:20+00:00",
  "source": "run logs only (SPEC-bench \u00a74)",
  "tables": {
   "search": [],
@@ -19,7 +19,7 @@
  ],
  "has_results": false,
  "run_summary": {
-  "run_date": "2026-10-15",
+  "run_date": "2026-10-16",
   "mock": false,
   "offset_h": 0,
   "providers": [
@@ -139,7 +139,7 @@
    }
   ]
  },
- "run_date": "2026-10-15",
+ "run_date": "2026-10-16",
  "sets_valid": [],
  "skips": [
   {

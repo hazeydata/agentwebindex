@@ -1,0 +1,161 @@
+{
+ "skips": [
+  {
+   "scope": "set",
+   "set": "search_evergreen",
+   "status": "skipped_invalid_set",
+   "reason": "missing search_evergreen.jsonl"
+  },
+  {
+   "scope": "set",
+   "set": "scrape_urls",
+   "status": "skipped_invalid_set",
+   "reason": "missing scrape_urls.jsonl"
+  },
+  {
+   "scope": "set",
+   "set": "browser_tasks",
+   "status": "skipped_invalid_set",
+   "reason": "missing browser_tasks.yaml"
+  },
+  {
+   "scope": "provider",
+   "provider": "exa",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "exa",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "tavily",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "brave",
+   "category": "search",
+   "status": "excluded_tos_benchmarking",
+   "reason": "terms forbid benchmarking: '(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties' (https://api-dashboard.search.brave.com/documentation/resources/terms-of-service, checked 2026-10-15)"
+  },
+  {
+   "scope": "provider",
+   "provider": "linkup",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "parallel",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "parallel",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "serper",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "firecrawl",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "firecrawl",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "jina",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "brightdata",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "apify",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "hyperbrowser",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "hyperbrowser",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "scrapingbee",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "browserbase",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "steel",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "browserless",
+   "category": "browser",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "run",
+   "status": "no_valid_sets",
+   "reason": "no test set passed validation; no provider calls made"
+  }
+ ],
+ "flags": []
+}
