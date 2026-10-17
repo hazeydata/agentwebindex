@@ -2,7 +2,7 @@
  "provider": "serper",
  "name": "Serper",
  "url": "https://serper.dev/",
- "fetched_at": "2026-10-16T09:28:11+00:00",
+ "fetched_at": "2026-10-17T09:24:39+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "39ea33e96e7a31aef94f424463f3f9777abafd00b21d855bcfa6a077e3526d92",
@@ -41,10 +41,10 @@
   "$95.00"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-15T23:32:29+00:00",
+  "previous_fetched_at": "2026-10-16T09:28:11+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": "previous page text not in cache; compare by sha256 only"
+  "text_diff": []
  }
 }

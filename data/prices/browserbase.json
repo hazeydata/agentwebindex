@@ -2,11 +2,11 @@
  "provider": "browserbase",
  "name": "Browserbase",
  "url": "https://www.browserbase.com/pricing",
- "fetched_at": "2026-10-16T09:28:11+00:00",
+ "fetched_at": "2026-10-17T09:24:39+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "0681705b2ad0d381a2263e31fd15109e5d6d033a77b41f526e2038b06b0f32b4",
- "text_lines": 428,
+ "text_sha256": "ff4b1015d6ae3fc87fdf54d7245ef0b1cd8e01c67a428a1029b2360992639bbd",
+ "text_lines": 432,
  "prices_found": [
   "$0.10/browser hr",
   "$0.12/browser hr",
@@ -30,10 +30,21 @@
   "$99/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-15T23:32:29+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-16T09:28:11+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": "previous page text not in cache; compare by sha256 only"
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -68,0 +69 @@",
+   "+Start for free",
+   "@@ -90,0 +92 @@",
+   "+Get Developer",
+   "@@ -120,0 +123 @@",
+   "+Get Startup",
+   "@@ -149,0 +153 @@",
+   "+Contact sales"
+  ]
  }
 }
