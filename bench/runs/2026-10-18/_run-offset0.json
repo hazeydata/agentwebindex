@@ -1,0 +1,121 @@
+{
+ "run_date": "2026-10-18",
+ "mock": false,
+ "offset_h": 0,
+ "providers": [
+  {
+   "provider": "exa",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "exa",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "tavily",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "brave",
+   "category": "search",
+   "status": "excluded_tos_benchmarking",
+   "reason": "terms forbid benchmarking: '(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties' (https://api-dashboard.search.brave.com/documentation/resources/terms-of-service, checked 2026-10-15)"
+  },
+  {
+   "provider": "linkup",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "parallel",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "parallel",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "serper",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "firecrawl",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "firecrawl",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "jina",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "brightdata",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "apify",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "provider": "hyperbrowser",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "hyperbrowser",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "scrapingbee",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "browserbase",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "steel",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "provider": "browserless",
+   "category": "browser",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  }
+ ]
+}
