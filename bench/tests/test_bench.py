@@ -516,15 +516,68 @@ class OwnerRulingsStage2(unittest.TestCase):
         for pid in ("firecrawl", "someprovider"):
             with tempfile.TemporaryDirectory() as d:
                 recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + \
-                       [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] * 5 + [{"status": "fail", "http_status": 429, "reason": "x"}]
+                       [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] + [{"status": "fail", "http_status": 429, "reason": "x"}]
                 doc = tables.build(self._log(d, pid, recs), {}, None, {})
                 r = doc["tables"]["search"][0]
-                self.assertEqual((r["attempted"]["v"], r["passed"]["v"], r["failed"]["v"], r["rate_limited"]["v"]), (10, 5, 5, 6))
+                self.assertEqual((r["attempted"]["v"], r["passed"]["v"], r["failed"]["v"], r["rate_limited"]["v"]), (10, 5, 5, 2))
                 self.assertEqual(r["success_rate"]["v"], 0.5)
-                self.assertEqual(r["answered_display"], "5/10 answered + 6 rate-limited (free tier)")
+                self.assertEqual(r["answered_display"], "5/10 answered + 2 rate-limited (free tier)")
                 self.assertIn("free-tier rate limit is the cause", r["rate_limited"]["note"])
-                self.assertIn("below minimum (n=16)", r["flags"])
+                self.assertIn("below minimum (n=12)", r["flags"])
                 self.assertEqual(tables.untraced_cells(doc, Path(d)), [])
+
+    RL = {"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}
+
+    def test_rule3_6_of_16_429_is_quota_degraded(self):
+        with tempfile.TemporaryDirectory() as d:
+            recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + [self.RL] * 5 + [{"status": "fail", "http_status": 429, "reason": "x"}]
+            self.assertTrue(runner.quota_degraded(recs))
+            self.assertEqual(tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"], [])
+
+    def test_rule3_skipped_tos_lines_are_not_calls(self):
+        recs = [{"status": "pass"}] * 12 + [self.RL] * 4 + [{"status": "skipped_tos"}] * 4
+        self.assertTrue(runner.quota_degraded(recs))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"], [])
+
+    def test_rule3_collect_counts_only_offset0_call_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            recs = [{"status": "pass"}] * 13 + [self.RL] * 3
+            runs = self._log(d, "firecrawl", recs)
+            f = runs / "2026-10-15" / "firecrawl" / "news_2099-01.jsonl"
+            extra = [{"ts": "2026-10-16T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": 16, "offset_h": 24, "mock": True,
+                      "item_id": f"i{n}", "billed_units": 1} | self.RL for n in range(13)]
+            f.write_text(f.read_text() + "".join(json.dumps(r) + "\n" for r in extra))
+            self.assertIn(("firecrawl", "news_2099-01"), tables.collect(runs))
+            f.write_text(f.read_text() + json.dumps(extra[0] | {"offset_h": 0}) + "\n")
+            self.assertNotIn(("firecrawl", "news_2099-01"), tables.collect(runs))
+
+    def test_rule3_rebuild_dropped_provider_absent_from_table_and_not_run_yet(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        with tempfile.TemporaryDirectory() as d:
+            runs = self._log(d, "firecrawl", [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + [self.RL] * 6)
+            f = Path(d) / "runs" / "2026-10-15" / "exa" / "news_2099-01.jsonl"; f.parent.mkdir(parents=True)
+            f.write_text("".join(json.dumps({"ts": "2026-10-15T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": 16, "offset_h": 0,
+                                             "mock": True, "latency_ms": 1, "billed_units": 1, "item_id": f"i{n}", "status": "pass"}) + "\n" for n in range(16)))
+            doc = tables.build(runs, {}, None, {}); skips = []
+            s = {"providers": [{"provider": "exa", "category": "search", "status": "ran", "calls": 16, "data_calls": 16},
+                               {"provider": "firecrawl", "category": "search", "status": "ran", "calls": 16, "data_calls": 10},
+                               {"provider": "brightdata", "category": "search", "status": "skipped_no_key", "reason": "not run (no key)"}]}
+            latest = Path(d) / "latest.json"; latest.write_text(json.dumps({"tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}))
+            B.finish_doc(doc, s, CFG, latest, skips)
+            self.assertEqual([r["provider"] for r in doc["tables"]["search"]], ["exa"])
+            self.assertEqual([n["provider"] for n in doc["not_run_yet"]], ["brightdata"])
+            self.assertNotIn("firecrawl", {k.get("provider") for k in skips})
+
+    def test_rule3_rebuild_drops_unstamped_old_log_over_20pct_429(self):
+        rl = {"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}
+        for n429, n_ok, shown in ((6, 10, False), (4, 12, False), (3, 12, True), (2, 14, True), (0, 16, True)):
+            with tempfile.TemporaryDirectory() as d:
+                recs = [{"status": "pass"}] * n_ok + [rl] * n429
+                rows = tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"]
+                self.assertEqual(bool(rows), shown, (n429, n_ok))
+        keys = tables.collect(SITE / "bench" / "runs")
+        self.assertNotIn(("firecrawl", "news_2026-42"), keys); self.assertIn(("exa", "news_2026-42"), keys)
 
     def test_no_429_has_no_rate_limited_value(self):
         with tempfile.TemporaryDirectory() as d:
@@ -775,6 +828,37 @@ class Rulings3(unittest.TestCase):
         self.assertTrue(s["providers"][0]["reason"].endswith("not published; previous row kept"))
         lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")   # stale run log still written
         self.assertEqual((len(lines), {l["run_status"] for l in lines}), (3, {"stale_quota"}))
+
+    def _r3_run(self, tmp, day, n429):
+        rows = [{"id": f"r{i}", "query": f"r {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(40)]
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if len(n) <= n429: raise RuntimeError('HTTP 429: {"error":"Rate limit"}')
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+        pricing = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}}}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+                       adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
+                       run_date=day, env={"EXA_API_KEY": "d"}, mock=True)
+        return s["providers"][0], json.loads((tmp / "quota.json").read_text())["used"]["exa"]
+
+    def test_rule3_429_share_over_20pct_is_stale_quota(self):
+        for n429, st in ((37, "stale_quota"), (9, "stale_quota"), (8, "ran"), (0, "ran")):
+            tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+            self._r3_run(tmp, "2026-10-12", 0)
+            prev = json.loads(json.dumps(tables.build(tmp / "runs", self.PRICING)))
+            p, used = self._r3_run(tmp, "2026-10-19", n429)
+            self.assertEqual((p["status"], p["calls"], used), (st, 40, 80), n429)
+            doc, skips, s = self._publish(tmp, p, prev)
+            row = doc["tables"]["search"][0]
+            if st == "stale_quota":
+                self.assertEqual(json.dumps(doc["tables"]["search"], indent=1), json.dumps(prev["tables"]["search"], indent=1), n429)
+                self.assertIn(f"{n429}/40 calls answered HTTP 429", p["reason"])
+                self.assertTrue(s["providers"][0]["reason"].endswith("not published; previous row kept"))
+                lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
+                self.assertEqual({l["run_status"] for l in lines}, {"stale_quota"})
+            else:
+                self.assertEqual((row["run_date"], row["attempted"]["v"]), ("2026-10-19", 40 - n429), n429)
 
     def test_timeout_is_stale_timeout(self):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp); t = iter(range(0, 10000, 10))

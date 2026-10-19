@@ -135,7 +135,7 @@ def finish_doc(doc, s, cfg, prev_path, skips):
     for p in s["providers"]:
         if is_stale(p) and not p.get("reason", "").endswith(("previous row kept", "not shown")):
             p["reason"] = p.get("reason", p["status"]) + ("; previous row kept" if p["provider"] in kept else "; no previous row, not shown")
-    doc["not_run_yet"] = [n for n in tables.not_run_yet(s, cfg, doc) if n["provider"] not in stale]
+    doc["not_run_yet"] = tables.not_run_yet(s, cfg, doc)
     for n in doc["not_run_yet"]:   # owner-set reasons (config not_run_yet_reasons) replace the bare status
         n["reason"] = (cfg.get("not_run_yet_reasons") or {}).get(n["provider"], n["reason"])
     for p in s["providers"]:

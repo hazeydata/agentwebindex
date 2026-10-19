@@ -46,6 +46,15 @@ def _http_code(e):
     h = e if isinstance(e, urllib.error.HTTPError) else getattr(e, "reason", None)
     return f"HTTP {h.code}: " if isinstance(h, urllib.error.HTTPError) else ""
 
+def is_rate_limited(r):
+    """Owner ruling 2: any provider's HTTP 429 is a rate_limited outcome, not a quality fail; excluded from the pass-rate denominator."""
+    return r.get("status") in ("fail", "rate_limited") and (r.get("http_status") == 429 or "HTTP 429" in str(r.get("reason") or ""))
+
+def quota_degraded(recs):
+    """CEO rule 3 (2026-10-19): more than 20% of a provider's calls answered HTTP 429; exactly 20% still publishes."""
+    calls = [r for r in recs if r.get("status") != "skipped_tos"]
+    return 5 * sum(map(is_rate_limited, calls)) > len(calls)
+
 def stale(reason, status, why):
     assert reason in STALE_REASONS, reason
     return {"status": f"stale_{reason}", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"{why}; not published"}
@@ -132,7 +141,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
-            status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []
+            status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             for set_name, s in sets.items():
                 if set_kind(set_name) != kind: continue
@@ -175,7 +184,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
                     elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached
-                    fh.append(json.dumps(rec) + "\n"); reached += rec["status"] in REACHED
+                    fh.append(json.dumps(rec) + "\n"); recs.append(rec); reached += rec["status"] in REACHED
                     if auth:   # stop this provider now; not published, its spend is kept
                         status = stale("auth_error", status, f"HTTP 40{auth.group(1)} on {item['id']} ({set_name})")
                         break
@@ -189,6 +198,9 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                 status = stale("error", status, "every call errored")
             elif status["status"] == "ran" and short:
                 status = stale("error", status, "incomplete set: " + ", ".join(short))
+            elif status["status"] == "ran" and quota_degraded(recs):
+                n429 = sum(map(is_rate_limited, recs))
+                status = stale("quota", status, f"quota-degraded: {n429}/{status['calls']} calls answered HTTP 429 (more than 20%)")
             if not status["data_calls"] and not billed:   # nothing returned and nothing billed: no run lines, no ledger entry
                 if not ledger.used(pool): ledger.d["used"].pop(pool, None)
                 pending = {}

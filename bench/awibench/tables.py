@@ -8,15 +8,11 @@ from collections import defaultdict
 from pathlib import Path
 from .util import BENCH, load_yaml, read_jsonl
 from . import cost, freshness
-from .runner import set_kind
+from .runner import set_kind, is_rate_limited, quota_degraded
 
 def _cell(v, refs, **extra): return {"v": v, "src": refs, **extra} if v is not None else {"v": None, "src": [], **extra}
 
 def _refs(rel, lines): return [{"file": rel, "lines": sorted(lines)}] if lines else []
-
-def is_rate_limited(r):
-    """Owner ruling 2: any provider's HTTP 429 is a rate_limited outcome, not a quality fail; excluded from the pass-rate denominator."""
-    return r.get("status") in ("fail", "rate_limited") and (r.get("http_status") == 429 or "HTTP 429" in str(r.get("reason") or ""))
 
 def is_timeout(r):
     """A fail whose reason is a timeout (the provider's own 'Timed out.' or our client read timeout). Still a fail; counted for display."""
@@ -36,8 +32,10 @@ def week_labels(n, cfg=None):
     return week_flags(n or 0, {"total": nw.get("total", 50), "min_total": nw.get("min_total", 25)})
 
 def not_run_yet(summary, cfg, doc):
-    """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'."""
+    """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'.
+    A provider that ran (status ran or stale_<reason>) is never 'not run yet', even when collect dropped its log."""
     shown = {r["provider"] for t in doc["tables"].values() for r in t}; out = []
+    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith("stale_")}
     for p in (summary or {}).get("providers", []):
         pid = p["provider"]
         if pid in (cfg.get("month1_free_tier_providers") or []) and pid not in shown and pid not in {o["provider"] for o in out}:
@@ -48,12 +46,12 @@ def not_run_yet(summary, cfg, doc):
 def collect(runs_dir):
     """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
     CEO ruling 2026-10-19: a log that did not cover the full set (fewer pass/fail/skipped_tos items at offset 0 than set_rows,
-    any auth_error line, or any line the runner stamped run_status=stale_<reason>) is never used; the earlier complete log stays in force."""
+    any auth_error line, any line the runner stamped run_status=stale_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
         lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
-        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]): continue
+        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
         out[key] = (rel, lines)   # sorted() => later dates win
     return out
 
