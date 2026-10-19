@@ -32,8 +32,10 @@ def week_labels(n, cfg=None):
     return week_flags(n or 0, {"total": nw.get("total", 50), "min_total": nw.get("min_total", 25)})
 
 def not_run_yet(summary, cfg, doc):
-    """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'."""
+    """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'.
+    A provider that ran (status ran or stale_<reason>) is never 'not run yet', even when collect dropped its log."""
     shown = {r["provider"] for t in doc["tables"].values() for r in t}; out = []
+    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith("stale_")}
     for p in (summary or {}).get("providers", []):
         pid = p["provider"]
         if pid in (cfg.get("month1_free_tier_providers") or []) and pid not in shown and pid not in {o["provider"] for o in out}:
