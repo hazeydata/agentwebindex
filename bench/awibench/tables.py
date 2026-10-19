@@ -26,7 +26,7 @@ PARTIAL_STATUSES = ("pass", "fail", "skipped_tos")
 
 def is_partial(main):
     """Fewer set items reached than the set holds. Only pass/fail/skipped_tos lines count as reached."""
-    reached = {r["item_id"] for _, r in main if r.get("status") in PARTIAL_STATUSES}
+    reached = {r.get("item_id") for _, r in main if r.get("status") in PARTIAL_STATUSES}
     return bool(main) and len(reached) < (main[0][1].get("set_rows") or 0)
 
 def week_labels(n, cfg=None):
@@ -47,12 +47,13 @@ def not_run_yet(summary, cfg, doc):
 
 def collect(runs_dir):
     """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
-    A log holding any auth_error line (runner stale_auth_error, HTTP 401/403) is never used: the earlier log stays in force."""
+    CEO ruling 2026-10-19: a log that did not cover the full set (fewer pass/fail/skipped_tos items at offset 0 than set_rows,
+    any auth_error line, or any line the runner stamped run_status=stale_<reason>) is never used; the earlier complete log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
         lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
-        if any(r.get("status") == "auth_error" for _, r in lines): continue
+        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]): continue
         out[key] = (rel, lines)   # sorted() => later dates win
     return out
 

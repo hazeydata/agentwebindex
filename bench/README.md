@@ -9,7 +9,7 @@ Stdlib-only Python package `awibench`. Run commands from `site/bench/`.
 | checks.py | §1 pass rules | search / news / scrape (marker, min_chars, challenge list) / browser |
 | cost.py | §2, D3, AC5, AC6, AC14 | entry + volume tier columns, per 1k and per 1k successful |
 | freshness.py | §3, AC7 | fresh_hit@10, median_lag_h, censored_share, `misses_due()` for re-probes |
-| runner.py | §4, D2, D4, AC11, AC12 | free-tier-only, $0 cap, `halted_quota`, `skipped_no_free_tier`, `skipped_tos`, `stale_auth_error` (any HTTP 401/403: run stops, its row is not published and the previous `latest.json` row is kept; every billed call stays in the ledger, 401 = 0 units by assumption, 403 = estimate), `skipped_all_errors`, line status `auth_error` (not scored); table rows carry `partial` (fewer set items reached than `set_rows`; only pass/fail/skipped_tos lines count) |
+| runner.py | §4, D2, D4, AC11, AC12 | free-tier-only, $0 cap, `skipped_no_free_tier`, `skipped_tos`, and `stale_<reason>` with reason `quota`, `timeout` (config `run_budget_s`), `auth_error` (any HTTP 401/403; 401 = 0 units by assumption, 403 = estimate) or `error` (every call errored, or an incomplete set). CEO ruling 2026-10-19: a row publishes only when the run covered the full set; a stale provider keeps its previous `latest.json` row in tables and freshness, and with no previous row it is left off the site (not in tables, not_run_yet or skips). Billed spend is always logged. Line status `auth_error` (not scored) |
 | tables.py | §4, AC8 | `python -m awibench.tables RUNS_DIR OUT.json`; refuses untraced cells and mock output into published dirs |
 | secrets_scan.py | AC10 | `python -m awibench.secrets_scan` |
 
@@ -26,3 +26,5 @@ Mock dry run of the full pipeline: `python tests/dry_run.py` (writes to /tmp onl
 - browser: `{"final_url"?, "extracted_value"?, "dom_text"?, "file_bytes"?}`
 
 Marker `selector_text` value format: `"<selector>::<text>"`, with selector = `tag`, `#id`, `.class` or `tag.class`.
+
+**Stale runs still write their run log.** A `stale_<reason>` run's lines go to `bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl` stamped `run_status: stale_<reason>` (spend audit); `tables.collect` never publishes a stamped or incomplete log. Only a provider with no data call and nothing billed writes no lines.
