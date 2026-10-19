@@ -1,0 +1,102 @@
+{
+ "caps": {
+  "per_feed": 15
+ },
+ "count": 40,
+ "feed_log": [
+  {
+   "event": "feed_read",
+   "feed": "hn",
+   "items": 30
+  },
+  {
+   "event": "feed_read",
+   "feed": "bbc_world",
+   "items": 28
+  },
+  {
+   "event": "feed_read",
+   "feed": "npr",
+   "items": 10
+  },
+  {
+   "event": "feed_dropped",
+   "feed": "ap_top",
+   "reason": "no official AP RSS URL confirmed (D1: only if AP publishes one); dropped. 2026-10-15: https://apnews.com/index.rss returned 403 HTML and feeds.apnews.com did not resolve; no official AP RSS found, still dropped"
+  },
+  {
+   "event": "feed_read",
+   "feed": "github_changelog",
+   "items": 30
+  },
+  {
+   "event": "feed_read",
+   "feed": "bbc_tech",
+   "items": 21
+  },
+  {
+   "event": "feed_read",
+   "feed": "bbc_business",
+   "items": 44
+  },
+  {
+   "event": "feed_read",
+   "feed": "bbc_science",
+   "items": 42
+  },
+  {
+   "event": "feed_read",
+   "feed": "npr_world",
+   "items": 10
+  },
+  {
+   "event": "feed_read",
+   "feed": "npr_business",
+   "items": 10
+  },
+  {
+   "event": "feed_read",
+   "feed": "npr_tech",
+   "items": 10
+  },
+  {
+   "event": "feed_read",
+   "feed": "github_blog",
+   "items": 10
+  },
+  {
+   "below_min": false,
+   "event": "generated",
+   "min": 25,
+   "pool": 40,
+   "rows": 40,
+   "target": 50
+  }
+ ],
+ "flags": [
+  "short week (n=40)"
+ ],
+ "meets_min": true,
+ "min": 25,
+ "per_feed_counts": {
+  "bbc_business": 8,
+  "bbc_science": 7,
+  "bbc_tech": 3,
+  "bbc_world": 8,
+  "github_changelog": 1,
+  "hn": 6,
+  "npr_business": 2,
+  "npr_tech": 1,
+  "npr_world": 4
+ },
+ "run_at": "2026-10-19T06:00:00-04:00",
+ "seed": "0",
+ "set": "news_2026-43",
+ "sha256": "3e8f36679160057c38894e75a1efad9e7ed2ddb23cf4d06c3429cc1dcf22ecbe",
+ "short_week": true,
+ "target_max": 50,
+ "window_h": [
+  24,
+  72
+ ]
+}
