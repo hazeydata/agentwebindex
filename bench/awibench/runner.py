@@ -13,7 +13,7 @@ latest.json row (or omits the provider entirely when it has none). Billed spend 
 The run log of a stale run is still written; only a provider with no data call and nothing billed writes no lines.
 With no data from any provider and no ledger change, the ledger and run summary are not written.
 Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored),
-unbilled_no_response (no response at all; 0 units, not scored; CEO billing ruling 2026-10-19).
+unbilled_no_response (no HTTP status line arrived; 0 units, not scored; CEO billing ruling 2026-10-19, status-line rule).
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """

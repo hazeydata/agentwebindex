@@ -692,7 +692,6 @@ class Rulings3(unittest.TestCase):
         return json.loads(led.read_text())["used"]
 
     def test_late_401_keeps_data_rows_and_spend(self):
-        # pre 33 + 5 billed exa calls, the 401 bills 0 (assumption); the 10 errored tavily calls stay billed at the estimate (CEO: spend always logged)
         self.assertEqual(self._late_auth_run(401), {"exa": 38, "tavily": 76})
 
     def test_late_403_is_charged_the_estimate(self):   # a 403 may mean quota used up, so it is charged
@@ -724,7 +723,7 @@ class Rulings3(unittest.TestCase):
         p = s["providers"][0]
         self.assertEqual((p["status"], p["calls"], p["data_calls"], ncalls), ("stale_auth_error", 6, 5, 6))
         used = json.loads((tmp / "quota.json").read_text())["used"]["exa"]
-        self.assertEqual(used - before, 5)   # all 5 pre-401 calls billed; the 401 = 0 units (main's assumption)
+        self.assertEqual(used - before, 5)
         doc = tables.build(tmp / "runs", self.PRICING); doc["run_summary"] = s
         self.assertEqual(doc["tables"]["search"][0]["run_date"], "2026-10-12")   # stale log ignored by collect
         doc["tables"]["search"][0]["generated_marker"] = "rebuilt"   # prove the kept row is the file's row, not a rebuild
@@ -810,7 +809,6 @@ class Rulings3(unittest.TestCase):
         self.assertEqual((r["run_date"], r["attempted"]["v"], r["partial"]), ("2026-10-19", 8, False))
         self.assertNotIn("run_status", read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")[0])
 
-    # ---------- CEO billing ruling 2026-10-19: no response 0 (unbilled_no_response), 401 0, 403/429/5xx estimate ----------
     def _bill(self, exc_at, exc, n_rows=8, ledger=None):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
         if ledger is not None: led.write_text(ledger)
@@ -1008,7 +1006,7 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(out.read_bytes(), before)   # generated_at and run_summary unchanged
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
-        self.assertEqual(json.loads(led.read_text())["used"]["exa"] - used0, 2 * 1)   # both pre-401 billed calls kept; 401 = 0
+        self.assertEqual(json.loads(led.read_text())["used"]["exa"] - used0, 2 * 1)
         self.assertFalse(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}]}))
         self.assertTrue(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}, {"provider": "tavily", "status": "ran", "data_calls": 1}]}))
 
