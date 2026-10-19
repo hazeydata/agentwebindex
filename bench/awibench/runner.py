@@ -173,7 +173,7 @@ def _request(kind, item):
 def _grade(kind, set_name, item, out, cfg):
     if kind == "search":
         return checks.news_check(item, out.get("results", [])) if set_name.startswith("news_") else checks.search_check(item["check"], out.get("results", []))
-    if kind == "scrape": return checks.scrape_check(item, out, cfg["challenge_signatures"])
+    if kind == "scrape": return checks.scrape_check(item, out, cfg["challenge_signatures"], cfg.get("challenge_html_signatures", ()))
     return checks.browser_check(item, out)
 
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,

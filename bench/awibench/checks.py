@@ -15,7 +15,7 @@ def search_check(check, results, published_at=None, now=None):
             hits = [r for r in hits if r.get("published_at") and abs((dt.datetime.fromisoformat(r["published_at"]) - ref).total_seconds()) <= check["within_h"] * 3600]
         return bool(hits), "domain in top5" if hits else "domain not in top5"
     if t == "snippet_contains":
-        nv = norm_text(v); ok = any(nv in norm_text(r.get("title", "") + " " + r.get("snippet", "")) for r in results[:5])
+        nv = norm_text(v); ok = any(nv in norm_text((r.get("title") or "") + " " + (r.get("snippet") or "")) for r in results[:5])
         return ok, "snippet match" if ok else "snippet not found in top5"
     return False, f"unknown check {t}"
 
@@ -40,12 +40,15 @@ class _Sel(HTMLParser):
     def handle_data(self, d):
         if self.depth: self.buf.append(d)
 
-def scrape_check(row, output, challenge_signatures):
-    """output: {text, html?}. Pass = marker found AND len(text) >= min_chars AND no challenge signature."""
+def scrape_check(row, output, challenge_signatures, html_signatures=()):
+    """output: {text, html?}. Pass = marker found AND len(text) >= min_chars AND no challenge signature
+    (challenge_signatures match the text, html_signatures match the raw html)."""
     text = output.get("text") or ""
-    low = text.casefold()
+    low, hlow = text.casefold(), (output.get("html") or "").casefold()
     for sig in challenge_signatures:
         if sig.casefold() in low: return False, f"challenge page signature: {sig}"
+    for sig in html_signatures:
+        if sig.casefold() in hlow: return False, f"challenge page signature: {sig}"
     m = row["marker"]
     if m["type"] == "text_contains": found = norm_text(m["value"]) in norm_text(text)
     else:

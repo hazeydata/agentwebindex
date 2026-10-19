@@ -28,6 +28,8 @@ class T(unittest.TestCase):
             self.assertEqual(validate.main([str(d), "--config", str(cfgp)]), 1, mutate)
     def test_ac1_real_sets_dir_currently_fails(self):
         errs, _ = validate.validate(BENCH / "sets", CFG); self.assertTrue(any("missing" in e for e in errs))
+    def test_search_check_tolerates_null_title_and_snippet(self):
+        self.assertEqual(checks.search_check({"type": "snippet_contains", "value": "x"}, [{"url": "https://a.example/", "title": None, "snippet": None}]), (False, "snippet not found in top5"))
     def test_ac4_robots_and_allowlist(self):
         ev, sc, ts = mocks.make_sets(self.tmp); sc[0]["robots_ok"] = False; ts[0]["start_url"] = "https://shop.example/buy"
         (self.tmp / "scrape_urls.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sc))
@@ -1496,6 +1498,45 @@ class BrightDataBudget(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
             self.assertEqual(B._brightdata_scrape("k", {"url": "https://a.example/"})["billed_units"], 0)
         self.assertIn("brightdata", B.ADAPTERS)
+
+
+class ChallengeInterstitial(unittest.TestCase):
+    PAGE = (Path(__file__).parent / "fixtures" / "challenge" / "nature_client_challenge.html").read_text()
+    ROW = {"id": "sc-x", "url": "https://www.nature.com/articles/nature14539", "marker": {"type": "text_contains", "value": "Deep learning"}, "min_chars": 10}
+    def sigs(self): return CFG["challenge_signatures"], CFG["challenge_html_signatures"]
+    def test_fixture_fails_on_html(self):
+        ok, why = checks.scrape_check(self.ROW, {"text": "Deep learning " + freeze.html_text(self.PAGE), "html": self.PAGE}, *self.sigs())
+        self.assertFalse(ok); self.assertIn("challenge page signature", why)
+    def test_fixture_text_only_fails(self):
+        ok, why = checks.scrape_check(self.ROW, {"text": "Deep learning " + freeze.html_text(self.PAGE)}, *self.sigs())
+        self.assertFalse(ok); self.assertIn("A required part of this site couldn", why)
+    def test_real_article_passes(self):
+        html = "<html><head><title>Deep learning | Nature</title></head><body><p>Deep learning allows computational models.</p><a href='/challenge'>x</a></body></html>"
+        self.assertEqual(checks.scrape_check(self.ROW, {"text": freeze.html_text(html), "html": html}, *self.sigs()), (True, "marker found, length ok"))
+    def test_runner_uses_html_signatures(self):
+        ok, why = runner._grade("scrape", "scrape_urls", self.ROW, {"text": "Deep learning everywhere", "html": self.PAGE}, CFG)
+        self.assertFalse(ok); self.assertIn("challenge page signature", why)
+    def test_freeze_logs_interstitial_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "scrape_urls.jsonl").write_text(json.dumps(self.ROW) + "\n"); (Path(d) / "search_evergreen.jsonl").write_text("")
+            log = freeze.freeze(d, CFG, lambda u: 200, lambda u: {"text": "Deep learning " + freeze.html_text(self.PAGE), "html": self.PAGE}, "2026-10-19")
+        self.assertEqual(len(log["failures"]), 1); self.assertIn("sc-x: marker health check failed (challenge page signature", log["failures"][0])
+    def test_html_text_skips_script_and_noscript(self):
+        t = freeze.html_text("<p>a</p><script>b()</script><noscript>c</noscript><style>d{}</style><p>e</p>")
+        self.assertEqual(t.split(), ["a", "e"])
+    def test_chrome_reference_browser_hook(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "chrome"; seen = Path(d) / "argv"
+            fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(seen)!r}, 'w').write(' '.join(sys.argv[1:]))\nprint('<html><body><p>Deep learning</p><script>x</script></body></html>')\n")
+            fake.chmod(0o755)
+            out = freeze.chrome_reference_browser("https://www.nature.com/articles/nature14539", binary=str(fake))
+            argv = seen.read_text()
+        self.assertEqual(out["text"].split(), ["Deep", "learning"]); self.assertIn("<p>Deep learning</p>", out["html"])
+        self.assertIn("--headless=new", argv); self.assertIn("--dump-dom https://www.nature.com/articles/nature14539", argv)
+        ud = argv.split("--user-data-dir=")[1].split()[0]; self.assertFalse(Path(ud).exists())
+    def test_live_freeze_cli_needs_live(self):
+        with self.assertRaises(SystemExit): freeze.main([])
+
 
 
 if __name__ == "__main__": unittest.main()
