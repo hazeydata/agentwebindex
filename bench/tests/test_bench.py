@@ -652,6 +652,21 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file()), snap)
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
 
+    def test_invalid_key_401_skips_and_writes_nothing(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error, io
+        dirs = [SITE / "data" / "benchmarks", SITE / "bench" / "runs", SITE / "data" / "spend"]
+        snap = lambda: sorted((str(f), hashlib.sha256(f.read_bytes()).hexdigest()) for d in dirs for f in d.rglob("*") if f.is_file())
+        before = snap(); calls = []
+        def deny(req, **kw): calls.append(req.full_url); raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error":"invalid api key"}'))
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"EXA_API_KEY": "invalid-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
+             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr:
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(snap(), before)   # latest.json, bench/runs and data/spend byte-identical
+        self.assertEqual(len(calls), 1)    # stopped at the first auth error
+        self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
+        self.assertTrue(any('"skipped_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
+
     def test_keyed_providers(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         provs = [{"id": "exa", "key_env": "EXA_API_KEY"}, {"id": "steel", "key_env": "STEEL_API_KEY"}, {"id": "tavily", "key_env": "TAVILY_API_KEY"}]
@@ -673,6 +688,8 @@ class Rulings3(unittest.TestCase):
         self.assertFalse(newsgen.robots_allows("https://news.ycombinator.com/r?id=1", hn))
         self.assertFalse(newsgen.robots_allows("https://a.example/feed", "User-agent: AgentWebIndexBot\nDisallow: /\n\nUser-agent: *\nAllow: /"))
         self.assertTrue(newsgen.robots_allows("https://a.example/a/b.xml", "User-agent: *\nDisallow: /*.xml$\nAllow: /a/b.xml$"))
+        self.assertTrue(newsgen.robots_allows("https://a.example/feed", "User-agent: *\nAllow: /feed\nDisallow: /feed"))   # equal length: Allow wins ties (M8)
+        self.assertTrue(newsgen.robots_allows("https://a.example/feed", "User-agent: *\nDisallow: /feed\nAllow: /feed"))
         log = []; cfg = {"news": CFG["news"], "news_feeds": [{"id": "f", "url": "https://a.example/f"}]}
         newsgen.generate(cfg, __import__("datetime").datetime(2026, 10, 26, 6), "0", lambda f: "<html>nope</html>", log)
         self.assertEqual(log[0]["event"], "feed_skipped")

@@ -1,12 +1,14 @@
 """Benchmark runner: free-tier only, hard $0 cap (D4), quota halting (AC11), ToS skips (D2/AC12),
 run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 
-Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, halted_quota, ran.
+Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, halted_quota, ran,
+skipped_auth_error (HTTP 401/403: stopped at the first one), skipped_all_errors. A provider with no call that returned data
+writes no run lines and logs no spend; with no data from any provider the ledger and run summary are not written.
 Line statuses: pass, fail, skipped_tos.
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
-import datetime as dt, hashlib, json, math, os, time
+import datetime as dt, hashlib, json, math, os, re, time
 from pathlib import Path
 from .util import PUBLISHED_DIRS, is_under, not_captured
 from . import checks, cost
@@ -99,48 +101,57 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
-            status = {"status": "ran", "calls": 0}
+            status = {"status": "ran", "calls": 0, "data_calls": 0}; used0 = ledger.d["used"].get(pool); pending = {}
             for set_name, s in sets.items():
                 if set_kind(set_name) != kind: continue
-                out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; out_f.parent.mkdir(parents=True, exist_ok=True)
-                with open(out_f, "a") as fh:
-                    for item in s["rows"]:
-                        if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
-                        line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
-                                "set_sha": s["sha"], "set_rows": len(s["rows"]), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
-                        if item.get("class") == "anti_bot" or item.get("category") == "anti_bot":
-                            t = tos.get(pid) or {}
-                            if not anti_bot_allowed(t):
-                                ab = (t.get("anti_bot_scraping") or {})
-                                fh.write(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
-                                                            "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
-                                continue
-                        est = estimate_units(pr, kind, item, pid, cfg)
-                        wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
-                        if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
-                        if ledger.used(pool) + est > quota:
-                            status = {"status": "halted_quota", "calls": status["calls"], "reason": f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})"}
-                            break
-                        t0 = clock()
-                        try: out = fn(key, item)
-                        except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}
-                        lat = (clock() - t0) * 1000
-                        units = out.get("billed_units", est)
-                        if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
-                        ledger.add(pool, units); status["calls"] += 1
-                        passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
-                        body = json.dumps({k: v for k, v in out.items() if k != "file_bytes"}, sort_keys=True, default=str)
-                        rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
-                                      "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
-                                      "response_hash": hashlib.sha256(body.encode()).hexdigest()}
-                        if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
-                        fh.write(json.dumps(rec) + "\n")
-                        if ledger.used(pool) > quota:
-                            over = ledger.used(pool) - quota
-                            ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
-                            ledger.save(); raise CapViolation(f"{pid}: billed units exceeded free quota by {over}; $0 cap violated")
-                if status["status"] == "halted_quota": break
+                out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, [])
+                for item in s["rows"]:
+                    if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
+                    line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
+                            "set_sha": s["sha"], "set_rows": len(s["rows"]), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
+                    if item.get("class") == "anti_bot" or item.get("category") == "anti_bot":
+                        t = tos.get(pid) or {}
+                        if not anti_bot_allowed(t):
+                            ab = (t.get("anti_bot_scraping") or {})
+                            fh.append(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
+                                                        "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
+                            continue
+                    est = estimate_units(pr, kind, item, pid, cfg)
+                    wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
+                    if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
+                    if ledger.used(pool) + est > quota:
+                        status = {"status": "halted_quota", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})"}
+                        break
+                    t0 = clock()
+                    try: out = fn(key, item)
+                    except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}
+                    lat = (clock() - t0) * 1000
+                    units = out.get("billed_units", est)
+                    if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
+                    ledger.add(pool, units); status["calls"] += 1; status["data_calls"] += "error" not in out
+                    passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
+                    body = json.dumps({k: v for k, v in out.items() if k != "file_bytes"}, sort_keys=True, default=str)
+                    rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
+                                  "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
+                                  "response_hash": hashlib.sha256(body.encode()).hexdigest()}
+                    if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
+                    fh.append(json.dumps(rec) + "\n")
+                    if re.match(r"\S+: HTTP 40[13]\b", str(out.get("error", ""))):   # bad or unauthorised key: stop now, publish nothing
+                        status = {"status": "skipped_auth_error", "calls": status["calls"], "data_calls": 0, "reason": "not run (auth error from provider)"}; break
+                    if ledger.used(pool) > quota:
+                        over = ledger.used(pool) - quota
+                        ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
+                        ledger.save(); raise CapViolation(f"{pid}: billed units exceeded free quota by {over}; $0 cap violated")
+                if status["status"] in ("halted_quota", "skipped_auth_error"): break
+            if status["calls"] and not status["data_calls"]:   # every call errored: not run, no run lines, no spend
+                if status["status"] != "skipped_auth_error": status = {"status": "skipped_all_errors", "calls": status["calls"], "data_calls": 0, "reason": "not run (every call errored)"}
+                if used0 is None: ledger.d["used"].pop(pool, None)
+                else: ledger.d["used"][pool] = used0
+                pending = {}
+            for out_f, lines in pending.items():
+                if lines: out_f.parent.mkdir(parents=True, exist_ok=True); out_f.open("a").write("".join(lines))
             summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota})
+    if not any(p.get("data_calls") for p in summary["providers"]): return summary   # nothing returned data: leave ledger and runs untouched
     ledger.save()
     if ledger.d.get("over_free_units", 0) > 0: raise CapViolation("ledger shows usage past the free tier (billed $ > 0)")
     sp = Path(runs_dir) / run_date / f"_run-offset{offset_h}.json"; sp.parent.mkdir(parents=True, exist_ok=True)

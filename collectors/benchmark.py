@@ -173,8 +173,8 @@ def main():
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
     doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
-    if not a.rebuild_only and not any(p["status"] == "ran" for p in s["providers"]):
-        print(f"SKIP publish: no provider ran ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
+    if not a.rebuild_only and not any(p.get("data_calls") for p in s["providers"]):   # at least one call must have returned data
+        print(f"SKIP publish: no provider call returned data ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)
     (BENCH / "runs" / today / f"_skips-offset{a.reprobe_offset or 0}.json").write_text(json.dumps({"skips": skips, "flags": flags}, indent=1))
     out = ROOT / "data" / "benchmarks" / "latest.json"; out.parent.mkdir(parents=True, exist_ok=True)
