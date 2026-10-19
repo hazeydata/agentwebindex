@@ -1312,11 +1312,11 @@ class BrightDataBudget(unittest.TestCase):
         p = self._run(2); self.assertEqual((p["status"], self._spend()["requests"], self._spend()["est_usd"]), ("ran", 2, 0.003))
         self.assertNotIn("rolled_over_to", self._spend())
 
-    def _mixed(self, n=3):
+    def _mixed(self, n=3, now=None):
         prov = self.PROV + [{"id": "exa", "categories": ["scrape"], "key_env": "EXA_API_KEY"}]
         pricing = self.PRICING | {"exa": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False}}}}
         ps = self._run(n, providers=prov, adapters={"brightdata": {"scrape": self._ok}, "exa": {"scrape": lambda k, i: {"http_status": 200, "billed_units": 1, "text": "hello world page"}}},
-                       pricing=pricing, env={"BRIGHTDATA_API_KEY": "d", "EXA_API_KEY": "d"})
+                       pricing=pricing, env={"BRIGHTDATA_API_KEY": "d", "EXA_API_KEY": "d"}, now=now)
         return {p["provider"]: p for p in ps}
 
     def _refused(self, st, why):
@@ -1370,6 +1370,11 @@ class BrightDataBudget(unittest.TestCase):
             st = self._mixed(); self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["calls"]), ("stale_budget", 0, 3), bad)
             self.assertIn("unreadable, corrupt or invalid", st["brightdata"]["reason"]); self.assertEqual(f.read_text(), txt); self.assertIsNone(self._spend())
         self.setUp(); self._seed("2026-09", 4, 0.006); self.assertEqual(self._mixed()["brightdata"]["status"], "ran")
+        self.setUp(); f = self.tmp / "spend" / "brightdata-2026-10.json"
+        txt = json.dumps({"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": 4, "est_usd": 0.006, "rolled_over_to": "2026-12"}); f.write_text(txt)
+        st = self._mixed(now=dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc))
+        self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], self.calls, st["exa"]["status"], st["exa"]["calls"]), ("stale_budget", 0, [], "ran", 3))
+        self.assertIn("rolled over to 2026-12, not 2026-11", st["brightdata"]["reason"]); self.assertEqual(f.read_text(), txt); self.assertIsNone(self._spend("2026-11"))
 
     def test_rule6_current_month_file_full_validation(self):
         for bad in ({"provider": "exa"}, {"rolled_over_to": 5}):
