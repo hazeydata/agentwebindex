@@ -1567,6 +1567,30 @@ class ChallengeInterstitial(unittest.TestCase):
             seen = []
             log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 200, None)
         self.assertEqual(seen, ["https://a.example/"]); self.assertEqual(log["source_url"][0]["attempts"], [403, 200]); self.assertEqual(log["failures"], [])
+    def test_status_retry_fail_fail_fails_with_two_attempts(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (Path(d) / "scrape_urls.jsonl").write_text("")
+            seen = []
+            log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 503, None)
+        self.assertEqual(len(seen), 1); self.assertEqual(log["source_url"][0]["attempts"], [403, 503]); self.assertNotEqual(log["source_url"][0]["status"], 200)
+        self.assertEqual(log["failures"], ["s1: source_url status 403 / 503"])
+    def test_live_status_retry_uses_harness_ua(self):
+        import io, urllib.error
+        uas = []
+        def fake(req, timeout=None):
+            uas.append(req.get_header("User-agent")); raise urllib.error.HTTPError(req.full_url, 403, "x", {}, io.BytesIO(b""))
+        with tempfile.TemporaryDirectory() as d:
+            sd = Path(d); (sd / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (sd / "scrape_urls.jsonl").write_text("")
+            with mock.patch("urllib.request.urlopen", fake), mock.patch("builtins.print"): rc = freeze.main(["--live", "--sets", str(sd)])
+        self.assertEqual(rc, 1); self.assertEqual(uas, [freeze.UA, "AgentWebIndexBot/1.0"])
+    def _html_only(self, html):
+        return checks.scrape_check(self.ROW, {"text": "Deep learning is here", "html": html}, CFG["challenge_signatures"], CFG["challenge_html_signatures"])
+    def test_html_signature_title_alone_fails(self):
+        html = self.PAGE.replace("/_fs-ch-", "/assets-")
+        self.assertNotIn("_fs-ch-", html); self.assertEqual(self._html_only(html), (False, "challenge page signature: <title>Client Challenge</title>"))
+    def test_html_signature_fs_ch_path_alone_fails(self):
+        html = self.PAGE.replace("<title>Client Challenge</title>", "<title>Nature</title>")
+        self.assertNotIn("Client Challenge", html); self.assertEqual(self._html_only(html), (False, "challenge page signature: /_fs-ch-"))
     def test_live_freeze_cli_needs_live(self):
         with self.assertRaises(SystemExit): freeze.main([])
 
