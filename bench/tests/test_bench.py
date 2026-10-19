@@ -1286,6 +1286,14 @@ class BrightDataBudget(unittest.TestCase):
         for v in ("0", "0.0", "3.9975"):
             self.setUp(); self._seed("2026-10", 0, json.loads(v)); self.assertEqual(self._run(1)["status"], "ran", v)
 
+    def test_negative_requests_in_spend_file_fails_closed(self):
+        for v in (-1, -2667):
+            self.setUp(); f = self.tmp / "spend" / "brightdata-2026-10.json"
+            txt = json.dumps({"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": v, "est_usd": 0.0015}); f.write_text(txt)
+            p = self._run(2)
+            self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, []), v)
+            self.assertIn("empty, corrupt or unreadable", p["reason"]); self.assertIn("failing closed", p["reason"]); self.assertEqual(f.read_text(), txt)
+
     def test_spend_write_is_atomic(self):
         import pathlib
         f = self._seed("2026-10", 10, 0.015); old = f.read_text()
