@@ -75,27 +75,52 @@ def _usd_ok(v): return type(v) in (int, float) and math.isfinite(v) and v >= 0
 
 def _count_ok(v): return type(v) is int and v >= 0
 
+def valid_spend(d, pid, month):
+    return (isinstance(d, dict) and d.get("provider") == pid and d.get("month") == month and _count_ok(d.get("requests")) and _usd_ok(d.get("est_usd"))
+            and ("rolled_over_to" not in d or (isinstance(d["rolled_over_to"], str) and re.fullmatch(r"\d{4}-\d{2}", d["rolled_over_to"]) is not None and d["rolled_over_to"] > month)))
+
 class SpendFile:
     def __init__(self, spend_dir, pid, month, usd_per_1k):
         d = Path(spend_dir)
         if not d.is_dir() or not os.access(d, os.R_OK | os.W_OK | os.X_OK): raise SpendError(f"spend dir {d.name}/ missing or unreadable; failing closed")
         self.path = d / f"{pid}-{month}.json"; self.rate = usd_per_1k; self.lock = None
         try:
-            self.lock = open(d / f".{self.path.name}.lock", "a"); fcntl.flock(self.lock, fcntl.LOCK_EX)
+            self.lock = open(d / f".{pid}.lock", "a"); fcntl.flock(self.lock, fcntl.LOCK_EX)
         except OSError as e: self.release(); raise SpendError(f"cannot lock {self.path.name}: {type(e).__name__}; failing closed") from None
         try:
-            if not self.path.exists(): self.d = {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
+            if not self.path.exists():
+                why = self._seed_refusal(d, pid, month)
+                if why: self.release(); raise SpendError(f"spend file {self.path.name} missing: {why}; failing closed (rule 6)")
+                self.d = {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
+                self._write(self.path, self.d)
             else:
                 self.d = json.loads(self.path.read_text())
-                if not isinstance(self.d, dict) or self.d.get("month") != month or not _count_ok(self.d.get("requests")) or not _usd_ok(self.d.get("est_usd")):
-                    raise ValueError("bad fields")
+                if not valid_spend(self.d, pid, month): raise ValueError("bad fields")
         except (OSError, ValueError) as e:
             self.release(); raise SpendError(f"spend file {self.path.name} empty, corrupt or unreadable ({type(e).__name__}); failing closed") from None
+    @staticmethod
+    def _write(path, d):
+        tmp = path.with_name(path.name + ".tmp"); tmp.write_text(json.dumps(d, indent=1, sort_keys=True)); os.replace(tmp, path)
+    def _seed_refusal(self, d, pid, month):
+        months = sorted(f.stem[len(pid) + 1:] for f in d.glob(f"{pid}-*.json") if re.fullmatch(r"\d{4}-\d{2}", f.stem[len(pid) + 1:]))
+        if not months: return None
+        if months[-1] > month: return f"a later month file exists ({months[-1]})"
+        y, m = map(int, month.split("-")); prev_m = f"{y - (m == 1)}-{12 if m == 1 else m - 1:02d}"
+        prev = d / f"{pid}-{prev_m}.json"
+        if not prev.exists(): return f"other spend files exist but the previous month {prev_m} is absent (gap or deletion)"
+        try:
+            pd = json.loads(prev.read_text())
+            if not valid_spend(pd, pid, prev_m): raise ValueError("bad fields")
+        except (OSError, ValueError): return f"previous month file {prev.name} is unreadable, corrupt or invalid"
+        if pd.get("rolled_over_to") == month: return f"{prev.name} already rolled over to {month}, so this month's file was deleted"
+        if "rolled_over_to" in pd: return f"{prev.name} rolled over to {pd['rolled_over_to']}, not {month}"
+        self._write(prev, pd | {"rolled_over_to": month})
+        return None
     def mtd(self): return self.d["est_usd"]
     def next_usd(self, units): return round(self.mtd() + units * self.rate / 1000, 6)
     def add(self, units):
         self.d["requests"] += units; self.d["est_usd"] = self.next_usd(units)
-        tmp = self.path.with_name(self.path.name + ".tmp"); tmp.write_text(json.dumps(self.d, indent=1, sort_keys=True)); os.replace(tmp, self.path)
+        self._write(self.path, self.d)
     def release(self):
         if self.lock: fcntl.flock(self.lock, fcntl.LOCK_UN); self.lock.close(); self.lock = None
 
