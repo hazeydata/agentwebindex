@@ -1,5 +1,5 @@
 """AC9 dry run: mock providers -> run logs -> tables, all under a temp dir. No network, no spend."""
-import json, sys, tempfile, datetime as dt
+import json, shutil, sys, tempfile, datetime as dt
 from pathlib import Path
 B = Path(__file__).resolve().parent.parent; sys.path[:0] = [str(B), str(Path(__file__).parent)]
 import mocks
@@ -30,4 +30,5 @@ for cat, t in doc["tables"].items():
               f"entry/1k={r['entry_tier_cost_per_1k']['display']} entry/succ1k={r['entry_tier_cost_per_successful_1k']['display']} "
               f"vol/1k={r['volume_tier_cost_per_1k']['display']} vol/succ1k={r['volume_tier_cost_per_successful_1k']['display']} | {r['free_quota_note']}")
 for f in doc["freshness"]: print("MOCK freshness", f["provider"], f["week"], "n", f["n"], {k: f[k]["v"] for k in ("fresh_hit_at_10", "median_lag_h", "censored_share")})
-print("news log:", [l for l in log if l["event"] != "feed_read"]); print("out dir:", tmp)
+print("news log:", [l for l in log if l["event"] != "feed_read"])
+shutil.rmtree(tmp)
