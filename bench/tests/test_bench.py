@@ -1271,6 +1271,41 @@ class BrightDataBudget(unittest.TestCase):
             self.assertIn("empty, corrupt or unreadable", st["brightdata"]["reason"]); self.assertIn("failing closed", st["brightdata"]["reason"])
             self.assertEqual(f.read_text(), content); self.assertEqual(len(self.calls), 3)
 
+    def test_bad_numbers_in_spend_file_fail_closed(self):
+        bad = ["NaN", "Infinity", "-Infinity", "true", "false", '"0.5"', "-0.0015", "null"]
+        for field in ("est_usd", "requests"):
+            for v in bad + (["1.0", "1e400"] if field == "requests" else ["1e400"]):
+                self.setUp(); f = self.tmp / "spend" / "brightdata-2026-10.json"
+                d = {"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": 1, "est_usd": "0.0015"}
+                txt = json.dumps(d).replace('"0.0015"', "0.0015")
+                txt = txt.replace('"requests": 1', f'"requests": {v}') if field == "requests" else txt.replace('"est_usd": 0.0015', f'"est_usd": {v}')
+                f.write_text(txt); p = self._run(2)
+                self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, []), (field, v))
+                self.assertIn("failing closed", p["reason"]); self.assertEqual(f.read_text(), txt)
+        for v in ("0", "0.0", "3.9975"):
+            self.setUp(); self._seed("2026-10", 0, json.loads(v)); self.assertEqual(self._run(1)["status"], "ran", v)
+
+    def test_spend_write_is_atomic(self):
+        import pathlib
+        f = self._seed("2026-10", 10, 0.015); old = f.read_text()
+        def crash(*a, **k): raise OSError("simulated crash before rename")
+        with mock.patch("os.replace", crash), self.assertRaises(OSError): self._run(1)
+        self.assertEqual(f.read_text(), old); self.assertEqual(json.loads(f.read_text())["requests"], 10)
+        real = pathlib.Path.write_text
+        def partial(path, data, *a, **k):
+            if path.name.startswith("brightdata-"):
+                with open(path, "w") as fh: fh.write(data[:7])
+                raise OSError("simulated crash mid-write")
+            return real(path, data, *a, **k)
+        def partial_open(file, mode="r", *a, **k):
+            fh = open_real(file, mode, *a, **k)
+            if Path(file).name == "brightdata-2026-10.json" and any(c in mode for c in "wa+"):
+                fh.truncate(0); fh.close(); raise OSError("simulated crash after truncate")
+            return fh
+        import builtins; open_real = builtins.open
+        with mock.patch.object(pathlib.Path, "write_text", partial), mock.patch("builtins.open", partial_open), self.assertRaises(OSError): self._run(1)
+        self.assertEqual(f.read_text(), old); self.assertEqual(self._run(1)["status"], "ran"); self.assertEqual(self._spend()["requests"], 11)
+
     def test_missing_spend_file_starts_at_zero(self):
         self.assertFalse(any((self.tmp / "spend").glob("*.json")))
         p = self._run(2); self.assertEqual((p["status"], self._spend()["requests"], self._spend()["est_usd"]), ("ran", 2, 0.003))

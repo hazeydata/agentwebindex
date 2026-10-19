@@ -71,6 +71,10 @@ class QuotaLedger:
 
 class SpendError(RuntimeError): pass
 
+def _usd_ok(v): return type(v) in (int, float) and math.isfinite(v) and v >= 0
+
+def _count_ok(v): return type(v) is int and v >= 0
+
 class SpendFile:
     def __init__(self, spend_dir, pid, month, usd_per_1k):
         d = Path(spend_dir)
@@ -83,7 +87,7 @@ class SpendFile:
             if not self.path.exists(): self.d = {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
             else:
                 self.d = json.loads(self.path.read_text())
-                if not isinstance(self.d, dict) or self.d.get("month") != month or not isinstance(self.d.get("requests"), int) or not isinstance(self.d.get("est_usd"), (int, float)) or self.d["requests"] < 0 or self.d["est_usd"] < 0:
+                if not isinstance(self.d, dict) or self.d.get("month") != month or not _count_ok(self.d.get("requests")) or not _usd_ok(self.d.get("est_usd")):
                     raise ValueError("bad fields")
         except (OSError, ValueError) as e:
             self.release(); raise SpendError(f"spend file {self.path.name} empty, corrupt or unreadable ({type(e).__name__}); failing closed") from None
