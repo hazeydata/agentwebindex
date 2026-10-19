@@ -9,7 +9,7 @@ Stdlib-only Python package `awibench`. Run commands from `site/bench/`.
 | checks.py | §1 pass rules | search / news / scrape (marker, min_chars, challenge list) / browser |
 | cost.py | §2, D3, AC5, AC6, AC14 | entry + volume tier columns, per 1k and per 1k successful |
 | freshness.py | §3, AC7 | fresh_hit@10, median_lag_h, censored_share, `misses_due()` for re-probes |
-| runner.py | §4, D2, D4, AC11, AC12 | free-tier-only, $0 cap, `halted_quota`, `skipped_no_free_tier`, `skipped_tos` |
+| runner.py | §4, D2, D4, AC11, AC12 | free-tier-only, $0 cap, `halted_quota`, `skipped_no_free_tier`, `skipped_tos`, `skipped_auth_error`, `skipped_all_errors`, line status `auth_error` (not scored); table rows carry `auth_error` and `partial` (fewer set items reached than `set_rows`) |
 | tables.py | §4, AC8 | `python -m awibench.tables RUNS_DIR OUT.json`; refuses untraced cells and mock output into published dirs |
 | secrets_scan.py | AC10 | `python -m awibench.secrets_scan` |
 

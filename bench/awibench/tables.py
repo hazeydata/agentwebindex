@@ -75,6 +75,8 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
         run_date = Path(rel).parts[-3]   # runs/<YYYY-MM-DD>/<provider>/<set>.jsonl
         row = {"provider": pid, "set": set_name, "run_date": run_date, "set_sha": main[0][1]["set_sha"] if main else None, "set_rows": main[0][1].get("set_rows") if main else None,
                "flags": (week_labels(main[0][1].get("set_rows"), cfg) if set_name.startswith("news_") else main[0][1].get("set_flags", [])) if main else [], "mock": any(r.get("mock") for _, r in lines),
+               "auth_error": any(r["status"] == "auth_error" for _, r in main),   # run stopped by a provider 401/403
+               "partial": bool(main) and len({r["item_id"] for _, r in main}) < (main[0][1].get("set_rows") or 0),   # fewer set items reached than the set holds
                "attempted": _cell(len(alln) or None, _refs(rel, alln)),
                "passed": _cell(len(passn) if alln else None, _refs(rel, alln)),
                "failed": _cell(len(alln) - len(passn) if alln else None, _refs(rel, alln)),

@@ -1,6 +1,7 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
 import datetime as dt, hashlib, json, math, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
+from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
 from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks
 from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
@@ -636,5 +637,105 @@ class Collectors2(unittest.TestCase):
         self.assertGreaterEqual(len(live), 11); self.assertEqual(CFG["news"]["per_feed"], 15); self.assertEqual(CFG["news"]["total"], 50)
         self.assertEqual((CFG["news"]["min_age_h"], CFG["news"]["max_age_h"]), (24, 72))
         self.assertTrue(all(f["url"].startswith("https://") and f.get("url_verified") for f in live))
+
+class Rulings3(unittest.TestCase):
+    """CEO rulings 2026-10-19: no-key runs never overwrite published data; feeds must be RSS/Atom and robots-allowed; Browserless kept."""
+    def test_no_key_run_writes_nothing(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        out = SITE / "data" / "benchmarks" / "latest.json"; before = out.read_bytes()
+        runs = SITE / "bench" / "runs"; snap = sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file())
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
+             mock.patch("builtins.print") as pr:
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(out.read_bytes(), before)
+        self.assertEqual(sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file()), snap)
+        self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
+
+    def test_invalid_key_401_skips_and_writes_nothing(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error, io
+        dirs = [SITE / "data" / "benchmarks", SITE / "bench" / "runs", SITE / "data" / "spend"]
+        snap = lambda: sorted((str(f), hashlib.sha256(f.read_bytes()).hexdigest()) for d in dirs for f in d.rglob("*") if f.is_file())
+        before = snap(); calls = []
+        def deny(req, **kw): calls.append(req.full_url); raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error":"invalid api key"}'))
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"EXA_API_KEY": "invalid-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
+             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr:
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(snap(), before)   # latest.json, bench/runs and data/spend byte-identical
+        self.assertEqual(len(calls), 1)    # stopped at the first auth error
+        self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
+        self.assertTrue(any('"skipped_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
+
+    def _late_auth_run(self, code):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        providers = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}, {"id": "tavily", "key_env": "TAVILY_API_KEY", "categories": ["search"]}]
+        pricing = {pid: {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}} for pid in ("exa", "tavily")}
+        rows = [{"id": f"q{i}", "query": f"q {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(10)]
+        n = []
+        def exa(key, item):   # 5 data calls (3 pass, 2 fail), then an auth error
+            n.append(1)
+            if len(n) > 5: raise RuntimeError(f"HTTP {code}: invalid api key")
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) <= 3 else "https://b.example/y", "title": "x"}]}
+        def tavily(key, item): raise RuntimeError("HTTP 500: upstream error")   # every call errors, none is an auth error
+        led = tmp / "quota.json"; led.write_text(json.dumps({"month": "2026-10", "used": {"exa": 33, "tavily": 66}, "over_free_units": 0}))
+        s = runner.run(providers=providers, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+                       adapters={"exa": {"search": exa}, "tavily": {"search": tavily}}, cfg={},
+                       runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d", "TAVILY_API_KEY": "d"}, mock=True)
+        p = {x["provider"]: x for x in s["providers"]}
+        self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"], p["exa"].get("auth_error")), ("ran", 6, 5, True))
+        self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("skipped_all_errors", 10))
+        lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
+        self.assertEqual([l["status"] for l in lines], ["pass"] * 3 + ["fail"] * 2 + ["auth_error"]); self.assertIn(f"HTTP {code}", lines[-1]["reason"])
+        self.assertFalse((tmp / "runs" / "2026-10-19" / "tavily").exists())
+        row = tables.build(tmp / "runs", pricing)["tables"]["search"][0]
+        self.assertEqual((row["provider"], row["passed"]["v"], row["attempted"]["v"], row["partial"], row["auth_error"]), ("exa", 3, 5, True, True))
+        return json.loads(led.read_text())["used"]
+
+    def test_late_401_keeps_data_rows_and_spend(self):
+        # pre 33 + 5 billed exa calls, the 401 bills 0 (assumption); the 10 errored tavily calls are restored (kills N3)
+        self.assertEqual(self._late_auth_run(401), {"exa": 38, "tavily": 66})
+
+    def test_late_403_is_charged_the_estimate(self):   # a 403 may mean quota used up, so it is charged
+        self.assertEqual(self._late_auth_run(403), {"exa": 39, "tavily": 66})
+
+    def test_keyed_providers(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        provs = [{"id": "exa", "key_env": "EXA_API_KEY"}, {"id": "steel", "key_env": "STEEL_API_KEY"}, {"id": "tavily", "key_env": "TAVILY_API_KEY"}]
+        self.assertEqual(B.keyed_providers(provs, {}), [])
+        self.assertEqual(B.keyed_providers(provs, {"EXA_API_KEY": "", "STEEL_API_KEY": "x"}), [])   # empty key, and steel has no collector
+        self.assertEqual(B.keyed_providers(provs, {"TAVILY_API_KEY": "x"}), ["tavily"])
+
+    def test_workflow_guards_published_data(self):
+        w = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
+        self.assertIn("SKIP publish", w); self.assertIn("git checkout -- data/benchmarks", w)
+
+    def test_feed_format_and_robots_guards(self):
+        from awibench import newsgen
+        self.assertTrue(newsgen.is_feed_xml('<?xml version="1.0"?>\n<rss version="2.0"><channel>'))
+        self.assertTrue(newsgen.is_feed_xml('<?xml version="1.0"?><!-- c --><feed xmlns="http://www.w3.org/2005/Atom">'))
+        self.assertFalse(newsgen.is_feed_xml("<!DOCTYPE html><html><body>Access denied</body></html>"))
+        hn = "User-Agent: *\nCrawl-delay: 30\nDisallow: /login\nDisallow: /r?\nDisallow: /x?\n"
+        self.assertTrue(newsgen.robots_allows("https://news.ycombinator.com/rss", hn))     # stdlib robotparser gets this wrong
+        self.assertFalse(newsgen.robots_allows("https://news.ycombinator.com/r?id=1", hn))
+        self.assertFalse(newsgen.robots_allows("https://a.example/feed", "User-agent: AgentWebIndexBot\nDisallow: /\n\nUser-agent: *\nAllow: /"))
+        self.assertTrue(newsgen.robots_allows("https://a.example/a/b.xml", "User-agent: *\nDisallow: /*.xml$\nAllow: /a/b.xml$"))
+        self.assertTrue(newsgen.robots_allows("https://a.example/feed", "User-agent: *\nAllow: /feed\nDisallow: /feed"))   # equal length: Allow wins ties (M8)
+        self.assertTrue(newsgen.robots_allows("https://a.example/feed", "User-agent: *\nDisallow: /feed\nAllow: /feed"))
+        log = []; cfg = {"news": CFG["news"], "news_feeds": [{"id": "f", "url": "https://a.example/f"}]}
+        newsgen.generate(cfg, __import__("datetime").datetime(2026, 10, 26, 6), "0", lambda f: "<html>nope</html>", log)
+        self.assertEqual(log[0]["event"], "feed_skipped")
+
+    def test_feeds_recorded_as_checked(self):
+        live = [f for f in CFG["news_feeds"] if f.get("url")]
+        self.assertTrue(all(f.get("feed_format") in ("rss", "atom") and f.get("robots_checked") for f in live))
+
+    def test_browserless_kept_with_tos_date(self):
+        t = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["browserless"]
+        self.assertEqual(t["checked_at"], "2026-10-19"); self.assertIn("2026-10-19", t["tos_checks"])
+        self.assertFalse(runner.benchmark_forbidden(t))
+        doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
+        row = [r for r in doc["tables"]["browser"] if r["provider"] == "browserless"][0]
+        self.assertEqual((row["passed"]["v"], row["attempted"]["v"]), (11, 16))
 
 if __name__ == "__main__": unittest.main()

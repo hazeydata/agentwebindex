@@ -101,6 +101,10 @@ ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}
             "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
+def keyed_providers(provs, env):
+    """Providers that have a collector AND a non-empty key in env. Empty -> the run is skipped (nothing written)."""
+    return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
+
 def load_test_set(name):
     f = BENCH / "sets" / (name if "." in name else f"{name}.jsonl")
     return load_yaml(f) if f.suffix == ".yaml" else read_jsonl(f)
@@ -153,6 +157,9 @@ def main():
         s = {"run_date": today, "run_dates": dates, "mock": False, "offset_h": a.reprobe_offset or 0, "providers": list(merged.values())}
     else:
       if a.only_providers: provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
+      if not keyed_providers(provs, os.environ):   # a run without keys must never overwrite published data or run summaries
+          print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
+                "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
       s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ,
                    offset_h=a.reprobe_offset or 0, only_ids=only)
@@ -166,6 +173,8 @@ def main():
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
     doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
+    if not a.rebuild_only and not any(p.get("data_calls") for p in s["providers"]):   # at least one call must have returned data
+        print(f"SKIP publish: no provider call returned data ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)
     (BENCH / "runs" / today / f"_skips-offset{a.reprobe_offset or 0}.json").write_text(json.dumps({"skips": skips, "flags": flags}, indent=1))
     out = ROOT / "data" / "benchmarks" / "latest.json"; out.parent.mkdir(parents=True, exist_ok=True)

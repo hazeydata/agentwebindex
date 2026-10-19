@@ -35,6 +35,53 @@ def make_query(title, max_words):
     t = re.sub(r"[\s.,;:!?]+$", "", t)
     return " ".join(t.split()[:max_words])
 
+FEED_ROOT = re.compile(r"<(rss|feed|rdf:RDF)\b")
+UA = "AgentWebIndexBot/1.0"
+
+def is_feed_xml(txt):
+    """True when the document's root element is RSS (<rss>/<rdf:RDF>) or Atom (<feed>)."""
+    return bool(FEED_ROOT.search(re.sub(r"<!--.*?-->|<\?.*?\?>|<!DOCTYPE[^>]*>", "", txt[:5000], flags=re.S).lstrip()[:200]))
+
+def robots_allows(url, robots_txt, ua=UA):
+    """RFC 9309 check: the group naming our product token (else '*'), longest matching rule wins, Allow wins ties.
+    (urllib.robotparser drops a trailing '?' from rules, so 'Disallow: /r?' would wrongly block '/rss'.)"""
+    import urllib.parse
+    sp = urllib.parse.urlsplit(url); path = (sp.path or "/") + (f"?{sp.query}" if sp.query else "")
+    token = ua.split("/")[0].lower(); groups = []; cur = None; last_ua = False
+    for raw in robots_txt.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if ":" not in line: continue
+        k, v = (x.strip() for x in line.split(":", 1)); k = k.lower()
+        if k == "user-agent":
+            if not last_ua: cur = {"agents": [], "rules": []}; groups.append(cur)
+            cur["agents"].append(v.lower()); last_ua = True
+        elif k in ("allow", "disallow") and cur is not None:
+            last_ua = False
+            if v: cur["rules"].append((k == "allow", v))
+        else: last_ua = False
+    pick = [g for g in groups if token in g["agents"]] or [g for g in groups if "*" in g["agents"]]
+    rules = [r for g in pick for r in g["rules"]]
+    def match(rule, p):
+        pat = re.escape(rule).replace(r"\*", ".*"); pat = pat[:-2] + "$" if pat.endswith(r"\$") else pat
+        return re.match(pat, p) is not None
+    best = None
+    for allow, rule in rules:
+        if match(rule, path) and (best is None or len(rule) > len(best[1]) or (len(rule) == len(best[1]) and allow)): best = (allow, rule)
+    return True if best is None else best[0]
+
+def live_read(f, _cache={}):
+    """Fetch a feed only if the host's robots.txt allows it for our UA (raises otherwise; logged as feed_error)."""
+    import urllib.request, urllib.parse, urllib.error
+    get = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": UA}), timeout=30).read().decode("utf-8", "replace")
+    sp = urllib.parse.urlsplit(f["url"]); base = f"{sp.scheme}://{sp.netloc}"
+    if base not in _cache:
+        try: _cache[base] = get(base + "/robots.txt")
+        except urllib.error.HTTPError as e: _cache[base] = "" if 400 <= e.code < 500 and e.code not in (401, 403) else None
+        except Exception: _cache[base] = None
+    if _cache[base] is None: raise PermissionError(f"robots.txt for {base} unreadable; feed not fetched")
+    if not robots_allows(f["url"], _cache[base]): raise PermissionError(f"robots.txt disallows {f['url']}")
+    return get(f["url"])
+
 def generate(cfg, run_at, seed, read_feed, log):
     nc = cfg["news"]; items = []
     for feed in cfg["news_feeds"]:
@@ -46,6 +93,8 @@ def generate(cfg, run_at, seed, read_feed, log):
             try:
                 txt = read_feed(feed if page == 0 else feed | {"url": url, "page": page})
                 if txt is None: continue          # fixture reader: no file for this page
+                if not is_feed_xml(txt):          # CEO ruling 2026-10-19: official RSS/Atom feeds only
+                    log.append({"event": "feed_skipped", "feed": feed["id"], "page": page, "reason": "not an RSS/Atom document"}); continue
                 got += parse_feed(txt, feed)
             except Exception as e:
                 log.append({"event": "feed_error", "feed": feed["id"], "page": page, "error": f"{type(e).__name__}: {e}"})
@@ -112,8 +161,7 @@ def main(argv=None):
             p = Path(a.fixtures) / (f"{f['id']}.xml" if not f.get("page") else f"{f['id']}-p{f['page']}.xml")
             return p.read_text() if p.exists() else None
     elif a.live:
-        import urllib.request
-        read = lambda f: urllib.request.urlopen(urllib.request.Request(f["url"], headers={"User-Agent": "AgentWebIndexBot/1.0"}), timeout=30).read().decode("utf-8", "replace")
+        read = live_read
     else: ap.error("need --fixtures DIR or --live")
     log = []; rows, name = generate(cfg, run_at, a.seed, read, log)
     out = a.out or str(BENCH / "sets" / name); write(rows, out, meta(rows, name, cfg, run_at, a.seed, log))

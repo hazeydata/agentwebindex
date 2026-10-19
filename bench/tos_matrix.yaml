@@ -214,18 +214,19 @@
   },
   "browserless": {
    "terms_url": "https://www.browserless.io/terms-of-service",
-   "checked_at": "2026-10-15",
-   "verified_date": "2026-10-15",
+   "checked_at": "2026-10-19",
+   "verified_date": "2026-10-19",
+   "tos_checks": ["2026-10-15", "2026-10-19"],
    "allowed": "no",
    "benchmarking": {
     "status": "unclear",
-    "quote": "No clause on benchmarking or publishing comparisons found in the fetched terms."
+    "quote": "No clause on benchmarking, performance disclosure or publishing comparisons found in the fetched terms (re-checked 2026-10-19: 0 hits for benchmark, performance, publish or competitor)."
    },
    "anti_bot_scraping": {
     "status": "forbidden",
     "quote": "'(k) to interfere with or circumvent the security features of the Service or any related website, other websites, or the Internet' (same list also includes '(i) to spam, phish, pharm, pretext, spider, crawl, or scrape')"
    },
-   "note": null
+   "note": "2026-10-19 re-check: S11 restricts use of \"the site or its content\" (browserless.io's own pages); item (i) \"spider, crawl, or scrape\" does not cover the API service, so benchmarking the /content endpoint on public news pages is published. Terms page carries no date; re-check at each publish. allowed=no still applies to anti-bot target pairs only."
   }
  }
 }
