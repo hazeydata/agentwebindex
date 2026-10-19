@@ -1,5 +1,5 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
-import datetime as dt, hashlib, json, math, os, subprocess, sys, tempfile, unittest
+import datetime as dt, hashlib, json, math, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
@@ -7,11 +7,14 @@ from awibench import validate, newsgen, cost, freshness, runner, tables, secrets
 from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
 import mocks
 
+def mktmp(tc):
+    p = Path(tempfile.mkdtemp(prefix="awi-test-")); tc.addCleanup(shutil.rmtree, p, True); return p
+
 CFG = load_yaml(BENCH / "config.yaml"); RSS = Path(__file__).parent / "fixtures" / "rss"
 RUN_AT = dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00")
 
 class T(unittest.TestCase):
-    def setUp(self): self.tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); self.cfg = mocks.mock_cfg(CFG)
+    def setUp(self): self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
 
     # ---------- AC1 / AC4 validator ----------
     def test_ac1_valid_mock_sets_pass(self):
@@ -722,7 +725,7 @@ class Rulings3(unittest.TestCase):
         self.assertTrue(any('"stale_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
 
     def _late_auth_run(self, code):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         providers = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}, {"id": "tavily", "key_env": "TAVILY_API_KEY", "categories": ["search"]}]
         pricing = {pid: {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}} for pid in ("exa", "tavily")}
         rows = [{"id": f"q{i}", "query": f"q {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(10)]
@@ -769,7 +772,7 @@ class Rulings3(unittest.TestCase):
 
     def test_late_401_previous_row_byte_identical(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         self._guard_run(tmp, "2026-10-12")
         prev = tables.build(tmp / "runs", self.PRICING); latest = tmp / "latest.json"; latest.write_text(json.dumps(prev, indent=1))
         prev_row = json.loads(latest.read_text())["tables"]["search"][0]; before = json.loads((tmp / "quota.json").read_text())["used"]["exa"]
@@ -789,7 +792,7 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(tables.untraced_cells(doc, tmp), [])
 
     def test_late_403_charged_estimate_and_kept_stale(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         s, _ = self._guard_run(tmp, "2026-10-19", fail_at=4, code=403)
         self.assertEqual(s["providers"][0]["status"], "stale_auth_error")
         self.assertEqual(json.loads((tmp / "quota.json").read_text())["used"]["exa"], 4)   # 3 pre-403 + the 403 at the estimate
@@ -820,7 +823,7 @@ class Rulings3(unittest.TestCase):
         return json.loads(json.dumps(d))
 
     def test_quota_stop_is_stale_quota_previous_row_kept(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)   # 8 units used by the earlier full run
+        tmp = mktmp(self); prev = self._prev(tmp)   # 8 units used by the earlier full run
         p, n, used = self._cmp_run(tmp, "2026-10-19", quota=11)                       # 3 more calls fit, then the guard stops it
         self.assertEqual((p["status"], p["calls"], n, used), ("stale_quota", 3, 3, 11))   # spend logged: 8 + 3
         doc, skips, s = self._publish(tmp, p, prev)
@@ -845,7 +848,7 @@ class Rulings3(unittest.TestCase):
 
     def test_rule3_429_share_over_20pct_is_stale_quota(self):
         for n429, st in ((37, "stale_quota"), (9, "stale_quota"), (8, "ran"), (0, "ran")):
-            tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+            tmp = mktmp(self)
             self._r3_run(tmp, "2026-10-12", 0)
             prev = json.loads(json.dumps(tables.build(tmp / "runs", self.PRICING)))
             p, used = self._r3_run(tmp, "2026-10-19", n429)
@@ -862,21 +865,21 @@ class Rulings3(unittest.TestCase):
                 self.assertEqual((row["run_date"], row["attempted"]["v"]), ("2026-10-19", 40 - n429), n429)
 
     def test_timeout_is_stale_timeout(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp); t = iter(range(0, 10000, 10))
+        tmp = mktmp(self); prev = self._prev(tmp); t = iter(range(0, 10000, 10))
         p, n, used = self._cmp_run(tmp, "2026-10-19", cfg={"run_budget_s": {"exa": 45}}, clock=lambda: next(t))
         self.assertEqual(p["status"], "stale_timeout"); self.assertLess(n, 8); self.assertEqual(used, 8 + n)   # spend logged
         doc, skips, _ = self._publish(tmp, p, prev)
         self.assertEqual(doc["tables"]["search"], prev["tables"]["search"]); self.assertEqual(skips, [])
 
     def test_all_errors_is_stale_error_spend_kept(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)
+        tmp = mktmp(self); prev = self._prev(tmp)
         p, n, used = self._cmp_run(tmp, "2026-10-19", fail_at=1)
         self.assertEqual((p["status"], n, used), ("stale_error", 8, 16))   # 8 errored calls billed at the estimate
         doc, _, _ = self._publish(tmp, p, prev)
         self.assertEqual(doc["tables"]["search"], prev["tables"]["search"])   # complete-but-all-errors never shown as 0%
 
     def test_first_ever_partial_run_is_omitted(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         p, n, used = self._cmp_run(tmp, "2026-10-19", quota=3)
         self.assertEqual((p["status"], used), ("stale_quota", 3))
         self.assertIn("exa", CFG["month1_free_tier_providers"])
@@ -886,7 +889,7 @@ class Rulings3(unittest.TestCase):
         self.assertTrue(s["providers"][0]["reason"].endswith("no previous row, not shown")); self.assertNotIn("previous row kept", s["providers"][0]["reason"])
 
     def test_full_set_run_still_publishes(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)
+        tmp = mktmp(self); prev = self._prev(tmp)
         p, n, used = self._cmp_run(tmp, "2026-10-19")
         self.assertEqual((p["status"], n, used), ("ran", 8, 16))
         doc, skips, _ = self._publish(tmp, p, prev)
@@ -895,7 +898,7 @@ class Rulings3(unittest.TestCase):
         self.assertNotIn("run_status", read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")[0])
 
     def _bill(self, exc_at, exc, n_rows=8, ledger=None):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        tmp = mktmp(self); led = tmp / "quota.json"
         if ledger is not None: led.write_text(ledger)
         n = []
         def exa(key, item):
@@ -941,7 +944,7 @@ class Rulings3(unittest.TestCase):
 
     def _live(self, pid, kind, urlopen):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        tmp = mktmp(self); led = tmp / "quota.json"
         prov = [{"id": pid, "key_env": "K", "categories": [kind]}]
         pr = {pid: {kind: {"model": "credits", "free_tier": {"units_per_month": 10**6, "needs_card": False}}}}
         sets = {"search_evergreen": {"rows": self.ROWS[:1], "sha": "x"}} if kind == "search" else {"browser_tasks": {"rows": [{"id": "b1", "start_url": "https://a.example/", "timeout_s": 30}], "sha": "x"}}
@@ -1008,14 +1011,14 @@ class Rulings3(unittest.TestCase):
         self.assertFalse(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "skipped_tos")]))
         self.assertTrue(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "auth_error")]))
         self.assertTrue(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "weird")]))
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         self._guard_run(tmp, "2026-10-19", n_rows=8)
         f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"; ls = read_jsonl(f)
         f.write_text("".join(json.dumps(l) + "\n" for l in ls[:5]))   # CEO 2026-10-19: an incomplete log is never published
         self.assertEqual(tables.build(tmp / "runs", self.PRICING)["tables"]["search"], [])
 
     def test_complete_set_is_not_partial(self):
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         s, n = self._guard_run(tmp, "2026-10-19")
         self.assertEqual((s["providers"][0]["status"], n), ("ran", 8))
         r = tables.build(tmp / "runs", self.PRICING)["tables"]["search"][0]
@@ -1033,7 +1036,7 @@ class Rulings3(unittest.TestCase):
 
     def test_stale_provider_not_in_skips_or_not_run_yet(self):   # kills R1, and the not_run_yet bug (evidence case4)
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = tmp / "latest.json"
+        tmp = mktmp(self); prev = tmp / "latest.json"
         prev.write_text(json.dumps({"tables": {"search": [self._row("exa", "2026-10-12")], "scrape": [], "browser": []}, "freshness": []}, indent=1))
         s = {"providers": [{"provider": "exa", "category": "search", "status": "stale_auth_error", "data_calls": 5, "reason": "HTTP 401"},
                            {"provider": "tavily", "category": "search", "status": "stale_auth_error", "data_calls": 0, "reason": "HTTP 401"}]}
@@ -1045,7 +1048,7 @@ class Rulings3(unittest.TestCase):
 
     def test_stale_provider_freshness_kept(self):   # kills R2
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = tmp / "latest.json"; old = self._fr("exa", "2026-10-12")
+        tmp = mktmp(self); prev = tmp / "latest.json"; old = self._fr("exa", "2026-10-12")
         prev.write_text(json.dumps({"tables": {"search": [self._row("exa", "2026-10-12")]}, "freshness": [old, self._fr("tavily", "2026-10-12")]}, indent=1))
         doc = {"tables": {"search": [self._row("exa", "2026-10-19"), self._row("tavily", "2026-10-19")]},
                "freshness": [self._fr("exa", "2026-10-19"), self._fr("tavily", "2026-10-19")]}
@@ -1055,7 +1058,7 @@ class Rulings3(unittest.TestCase):
 
     def test_stale_without_previous_row_not_published_from_older_log(self):   # kills R3
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        tmp = mktmp(self)
         self._guard_run(tmp, "2026-10-12")                     # older good log on disk
         s, _ = self._guard_run(tmp, "2026-10-19", fail_at=3)   # then a stale run
         prev = tmp / "latest.json"; prev.write_text(json.dumps({"tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}))
@@ -1067,7 +1070,7 @@ class Rulings3(unittest.TestCase):
     def test_stale_only_run_leaves_latest_json(self):   # main(): data only from a stale provider -> latest.json byte-identical
         import shutil, io, urllib.error
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        root = Path(tempfile.mkdtemp(prefix="awi-test-")) / "site"
+        root = mktmp(self) / "site"
         shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
         (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
         out = root / "data" / "benchmarks" / "latest.json"; before = out.read_bytes()
@@ -1139,7 +1142,7 @@ class BrightDataBudget(unittest.TestCase):
     PRICING = {"brightdata": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False, "pool": "brightdata"}}}}
     OCT = dt.datetime(2026, 10, 19, 12, tzinfo=dt.timezone.utc)
 
-    def setUp(self): self.tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); self.calls = []; (self.tmp / "spend").mkdir()
+    def setUp(self): self.tmp = mktmp(self); self.calls = []; (self.tmp / "spend").mkdir()
 
     def _rows(self, n): return [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(n)]
 
