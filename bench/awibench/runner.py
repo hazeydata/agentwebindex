@@ -75,6 +75,10 @@ def _usd_ok(v): return type(v) in (int, float) and math.isfinite(v) and v >= 0
 
 def _count_ok(v): return type(v) is int and v >= 0
 
+def valid_spend(d, pid, month):
+    return (isinstance(d, dict) and d.get("provider") == pid and d.get("month") == month and _count_ok(d.get("requests")) and _usd_ok(d.get("est_usd"))
+            and ("rolled_over_to" not in d or (isinstance(d["rolled_over_to"], str) and re.fullmatch(r"\d{4}-\d{2}", d["rolled_over_to"]) is not None and d["rolled_over_to"] > month)))
+
 class SpendFile:
     def __init__(self, spend_dir, pid, month, usd_per_1k):
         d = Path(spend_dir)
@@ -91,8 +95,7 @@ class SpendFile:
                 self._write(self.path, self.d)
             else:
                 self.d = json.loads(self.path.read_text())
-                if not isinstance(self.d, dict) or self.d.get("month") != month or not _count_ok(self.d.get("requests")) or not _usd_ok(self.d.get("est_usd")):
-                    raise ValueError("bad fields")
+                if not valid_spend(self.d, pid, month): raise ValueError("bad fields")
         except (OSError, ValueError) as e:
             self.release(); raise SpendError(f"spend file {self.path.name} empty, corrupt or unreadable ({type(e).__name__}); failing closed") from None
     @staticmethod
@@ -107,8 +110,8 @@ class SpendFile:
         if not prev.exists(): return f"other spend files exist but the previous month {prev_m} is absent (gap or deletion)"
         try:
             pd = json.loads(prev.read_text())
-            if not isinstance(pd, dict) or pd.get("month") != prev_m: raise ValueError("bad fields")
-        except (OSError, ValueError): return f"previous month file {prev.name} is unreadable or corrupt"
+            if not valid_spend(pd, pid, prev_m): raise ValueError("bad fields")
+        except (OSError, ValueError): return f"previous month file {prev.name} is unreadable, corrupt or invalid"
         if pd.get("rolled_over_to") == month: return f"{prev.name} already rolled over to {month}, so this month's file was deleted"
         if "rolled_over_to" in pd: return f"{prev.name} rolled over to {pd['rolled_over_to']}, not {month}"
         self._write(prev, pd | {"rolled_over_to": month})

@@ -1361,6 +1361,58 @@ class BrightDataBudget(unittest.TestCase):
             st = self._mixed(); self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["calls"]), ("stale_budget", 0, 3), txt)
             self.assertIsNone(self._spend()); self.assertEqual((self.tmp / "spend" / "brightdata-2026-09.json").read_text(), txt)
 
+    def test_rule6_invalid_previous_month_refuses(self):
+        good = {"provider": "brightdata", "month": "2026-09", "usd_per_1k": 1.5, "requests": 4, "est_usd": 0.006}
+        for bad in ({"provider": "exa"}, {"est_usd": "NaN"}, {"requests": True}, {"requests": False}, {"est_usd": True}, {"est_usd": "Infinity"},
+                    {"requests": -1}, {"requests": 1.0}, {"provider": None}, {"rolled_over_to": 202610}, {"rolled_over_to": "2026-08"}):
+            self.setUp(); f = self.tmp / "spend" / "brightdata-2026-09.json"
+            txt = json.dumps(good | bad).replace('"NaN"', "NaN").replace('"Infinity"', "Infinity"); f.write_text(txt)
+            st = self._mixed(); self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["calls"]), ("stale_budget", 0, 3), bad)
+            self.assertIn("unreadable, corrupt or invalid", st["brightdata"]["reason"]); self.assertEqual(f.read_text(), txt); self.assertIsNone(self._spend())
+        self.setUp(); self._seed("2026-09", 4, 0.006); self.assertEqual(self._mixed()["brightdata"]["status"], "ran")
+
+    def test_rule6_current_month_file_full_validation(self):
+        for bad in ({"provider": "exa"}, {"rolled_over_to": 5}):
+            self.setUp(); f = self.tmp / "spend" / "brightdata-2026-10.json"
+            f.write_text(json.dumps({"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": 1, "est_usd": 0.0015} | bad))
+            p = self._run(1); self.assertEqual((p["status"], p["calls"]), ("stale_budget", 0), bad)
+
+    def test_rule6_crash_after_marker_refuses_then_documented_recovery(self):
+        sep = self._seed("2026-09", 7, 0.0105)
+        real = runner.SpendFile._write
+        def crash(path, d):
+            if path.name == "brightdata-2026-10.json": raise OSError("simulated crash after marker")
+            return real(path, d)
+        with mock.patch.object(runner.SpendFile, "_write", staticmethod(crash)): p = self._run(1)
+        self.assertEqual((p["status"], p["calls"]), ("stale_budget", 0)); self.assertEqual(json.loads(sep.read_text())["rolled_over_to"], "2026-10"); self.assertIsNone(self._spend())
+        p = self._run(1); self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertIn("this month's file was deleted", p["reason"])
+        nov = dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc)
+        p = self._run(1, now=nov); self.assertEqual((p["status"], p["calls"]), ("stale_budget", 0)); self.assertIn("previous month 2026-10 is absent", p["reason"])
+        n = 0
+        rec = {"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": n, "est_usd": round(n * 1.5 / 1000, 6)}
+        (self.tmp / "spend" / "brightdata-2026-10.json").write_text(json.dumps(rec, indent=1, sort_keys=True))
+        p = self._run(2); self.assertEqual((p["status"], self._spend()["requests"]), ("ran", 2))
+        p = self._run(1, now=nov); self.assertEqual((p["status"], self._spend("2026-11")["requests"]), ("ran", 1))
+        self.assertEqual(self._spend("2026-10")["rolled_over_to"], "2026-11"); self.assertEqual(json.loads(sep.read_text())["requests"], 7)
+
+    def test_rule6_cross_month_runs_serialize(self):
+        import threading, time as _t
+        self._seed("2026-10", 5, 0.0075); gate = threading.Event(); started = threading.Event(); order = []
+        def oct_fn(key, item):
+            order.append(("oct", item["id"])); started.set(); gate.wait(5)
+            return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+        def nov_fn(key, item):
+            order.append(("nov", item["id"])); return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+        out = {}
+        a = threading.Thread(target=lambda: out.__setitem__("oct", self._run(1, oct_fn, tag="o")))
+        b = threading.Thread(target=lambda: out.__setitem__("nov", self._run(2, nov_fn, tag="n", now=dt.datetime(2026, 11, 1, 1, tzinfo=dt.timezone.utc))))
+        a.start(); self.assertTrue(started.wait(5)); b.start(); _t.sleep(0.3)
+        self.assertEqual([o[0] for o in order], ["oct"]); self.assertIsNone(self._spend("2026-11"))
+        gate.set(); a.join(); b.join()
+        self.assertEqual([o[0] for o in order], ["oct", "nov", "nov"]); self.assertEqual({p["status"] for p in out.values()}, {"ran"})
+        o = self._spend("2026-10"); self.assertEqual((o["requests"], o["est_usd"], o.get("rolled_over_to")), (6, 0.009, "2026-11"))
+        self.assertEqual((self._spend("2026-11")["requests"], self._spend("2026-11")["est_usd"]), (2, 0.003))
+
     def test_rule6_marker_written_atomically_before_seed(self):
         sep = self._seed("2026-09", 7, 0.0105); old = sep.read_text()
         def crash(*a, **k): raise OSError("simulated crash before rename")
