@@ -667,16 +667,16 @@ class Rulings3(unittest.TestCase):
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
         self.assertTrue(any('"skipped_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
 
-    def test_late_401_keeps_data_rows_and_spend(self):
+    def _late_auth_run(self, code):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
         providers = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}, {"id": "tavily", "key_env": "TAVILY_API_KEY", "categories": ["search"]}]
         pricing = {pid: {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}} for pid in ("exa", "tavily")}
         rows = [{"id": f"q{i}", "query": f"q {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(10)]
         n = []
-        def exa(key, item):
+        def exa(key, item):   # 5 data calls (3 pass, 2 fail), then an auth error
             n.append(1)
-            if len(n) > 5: raise RuntimeError("HTTP 401: invalid api key")
-            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+            if len(n) > 5: raise RuntimeError(f"HTTP {code}: invalid api key")
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) <= 3 else "https://b.example/y", "title": "x"}]}
         def tavily(key, item): raise RuntimeError("HTTP 500: upstream error")   # every call errors, none is an auth error
         led = tmp / "quota.json"; led.write_text(json.dumps({"month": "2026-10", "used": {"exa": 33, "tavily": 66}, "over_free_units": 0}))
         s = runner.run(providers=providers, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
@@ -685,10 +685,19 @@ class Rulings3(unittest.TestCase):
         p = {x["provider"]: x for x in s["providers"]}
         self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"], p["exa"].get("auth_error")), ("ran", 6, 5, True))
         self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("skipped_all_errors", 10))
-        self.assertEqual(json.loads(led.read_text())["used"], {"exa": 38, "tavily": 66})   # pre 33 + 5 billed exa calls; 10 errored tavily calls restored (kills N3)
         lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
-        self.assertEqual([l["status"] for l in lines], ["pass"] * 5 + ["fail"]); self.assertIn("HTTP 401", lines[-1]["reason"])
+        self.assertEqual([l["status"] for l in lines], ["pass"] * 3 + ["fail"] * 2 + ["auth_error"]); self.assertIn(f"HTTP {code}", lines[-1]["reason"])
         self.assertFalse((tmp / "runs" / "2026-10-19" / "tavily").exists())
+        row = tables.build(tmp / "runs", pricing)["tables"]["search"][0]
+        self.assertEqual((row["provider"], row["passed"]["v"], row["attempted"]["v"], row["partial"], row["auth_error"]), ("exa", 3, 5, True, True))
+        return json.loads(led.read_text())["used"]
+
+    def test_late_401_keeps_data_rows_and_spend(self):
+        # pre 33 + 5 billed exa calls, the 401 bills 0 (assumption); the 10 errored tavily calls are restored (kills N3)
+        self.assertEqual(self._late_auth_run(401), {"exa": 38, "tavily": 66})
+
+    def test_late_403_is_charged_the_estimate(self):   # a 403 may mean quota used up, so it is charged
+        self.assertEqual(self._late_auth_run(403), {"exa": 39, "tavily": 66})
 
     def test_keyed_providers(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
