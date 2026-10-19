@@ -256,9 +256,9 @@ class T(unittest.TestCase):
     def test_ac11_halts_before_quota_and_zero_billed(self):
         kw, ad, _ = self._setup_run(units_per_month=21)       # search: 2 credits/call -> 10 calls then halt (next would hit 22)
         s = runner.run(**kw); sp = next(p for p in s["providers"] if p["provider"] == "mocksearch")
-        self.assertEqual(sp["status"], "halted_quota"); self.assertEqual(sp["calls"], 10); self.assertLessEqual(sp["quota_used"], 21)
+        self.assertEqual(sp["status"], "stale_quota"); self.assertEqual(sp["calls"], 10); self.assertLessEqual(sp["quota_used"], 21)
         br = next(p for p in s["providers"] if p["provider"] == "mockbrowser")
-        self.assertEqual(br["status"], "halted_quota"); self.assertLessEqual(br["quota_used"], 21)   # 120s timeout -> 2 min estimate
+        self.assertEqual(br["status"], "stale_quota"); self.assertLessEqual(br["quota_used"], 21)   # 120s timeout -> 2 min estimate
         led = json.loads(kw["ledger_path"].read_text()); self.assertEqual(led["over_free_units"], 0)
         # a second run the same month resumes from the ledger and halts immediately
         s2 = runner.run(**kw); self.assertEqual(next(p for p in s2["providers"] if p["provider"] == "mocksearch")["calls"], 0)
@@ -387,7 +387,7 @@ class T(unittest.TestCase):
     def test_d4_month1_only_six_providers(self):
         s, pricing, tos = self._real_run()
         st = {(p["provider"], p["category"]): p["status"] for p in s["providers"]}
-        ran = {k for k, v in st.items() if v in ("ran", "halted_quota")}
+        ran = {k for k, v in st.items() if v in ("ran", "stale_quota")}
         self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"})
         for (pid, cat), v in st.items():
             if pid == "brave": self.assertEqual(v, "excluded_tos_benchmarking")
@@ -395,7 +395,7 @@ class T(unittest.TestCase):
         self.assertTrue(all(p.get("reason") for p in s["providers"] if p["status"].startswith(("skipped", "excluded"))))
         # quotas from the verified pricing.yaml are respected: nothing exceeds its free monthly quota
         led = json.loads((self.tmp / "rspend.json").read_text()); self.assertEqual(led["over_free_units"], 0)
-        self.assertEqual(st[("apify", "scrape")], "halted_quota"); self.assertLessEqual(led["used"]["apify"], 25)
+        self.assertEqual(st[("apify", "scrape")], "stale_quota"); self.assertLessEqual(led["used"]["apify"], 25)
         ap = next(p for p in s["providers"] if p["provider"] == "apify" and p["category"] == "scrape"); self.assertEqual(ap["calls"], 12)      # #4 worst case 2 CU/call
         self.assertEqual(led["used"]["tavily"], 200)                                                            # tavily guarded at 2/call
         self.assertLessEqual(led["used"]["browserless"], 1000); self.assertLessEqual(led["used"]["exa"], 1428)
@@ -435,7 +435,7 @@ class T(unittest.TestCase):
         s = runner.run(providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": Spy().scrape}},
                        cfg=cfg, runs_dir=self.tmp / "wr", ledger_path=self.tmp / "wl.json", run_date="2026-10-19", env={"APIFY_API_TOKEN": "mock-not-a-key"}, mock=True)
         ap = next(p for p in s["providers"] if p["category"] == "scrape")
-        self.assertEqual(ap["status"], "halted_quota"); self.assertEqual(ap["calls"], 12); self.assertEqual(len(calls), 12)
+        self.assertEqual(ap["status"], "stale_quota"); self.assertEqual(ap["calls"], 12); self.assertEqual(len(calls), 12)
         self.assertEqual(ap["quota_used"], 24); self.assertIn("~2 units would exceed free quota 25", ap["reason"])
         self.assertEqual(json.loads((self.tmp / "wl.json").read_text())["over_free_units"], 0)
         # same data with the guard removed would allow 25 one-unit estimates: proves the halt comes from config, not code
@@ -504,8 +504,8 @@ class OwnerRulingsStage2(unittest.TestCase):
     """Owner rulings 2026-10-15 stage 2: below-minimum label, generic 429 rate_limited bucket, 'not run yet'."""
     def _log(self, d, pid, recs):
         f = Path(d) / "runs" / "2026-10-15" / pid / "news_2099-01.jsonl"; f.parent.mkdir(parents=True)
-        base = {"ts": "2026-10-15T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": 16, "offset_h": 0, "mock": True, "latency_ms": 1, "billed_units": 1, "item_id": "i"}
-        f.write_text("".join(json.dumps(base | r) + "\n" for r in recs)); return Path(d) / "runs"
+        base = {"ts": "2026-10-15T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": len(recs), "offset_h": 0, "mock": True, "latency_ms": 1, "billed_units": 1}
+        f.write_text("".join(json.dumps(base | {"item_id": f"i{n}"} | r) + "\n" for n, r in enumerate(recs))); return Path(d) / "runs"
 
     def test_week_labels_below_minimum(self):
         self.assertEqual(tables.week_labels(16), ["short week (n=16)", "below minimum (n=16)"])
@@ -684,19 +684,18 @@ class Rulings3(unittest.TestCase):
                        runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d", "TAVILY_API_KEY": "d"}, mock=True)
         p = {x["provider"]: x for x in s["providers"]}
         self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"]), ("stale_auth_error", 6, 5))
-        self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("skipped_all_errors", 10))
+        self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("stale_error", 10))   # every call errored: stale, spend kept
         lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
         self.assertEqual([l["status"] for l in lines], ["pass"] * 3 + ["fail"] * 2 + ["auth_error"]); self.assertIn(f"HTTP {code}", lines[-1]["reason"])
-        self.assertFalse((tmp / "runs" / "2026-10-19" / "tavily").exists())
+        self.assertEqual(len(read_jsonl(tmp / "runs" / "2026-10-19" / "tavily" / "search_evergreen.jsonl")), 10)   # stale run log still written
         self.assertEqual(tables.build(tmp / "runs", pricing)["tables"]["search"], [])   # a log with an auth error is never published
         return json.loads(led.read_text())["used"]
 
     def test_late_401_keeps_data_rows_and_spend(self):
-        # pre 33 + 5 billed exa calls, the 401 bills 0 (assumption); the 10 errored tavily calls are restored (kills N3)
-        self.assertEqual(self._late_auth_run(401), {"exa": 38, "tavily": 66})
+        self.assertEqual(self._late_auth_run(401), {"exa": 38, "tavily": 76})
 
     def test_late_403_is_charged_the_estimate(self):   # a 403 may mean quota used up, so it is charged
-        self.assertEqual(self._late_auth_run(403), {"exa": 39, "tavily": 66})
+        self.assertEqual(self._late_auth_run(403), {"exa": 39, "tavily": 76})
 
     # ---------- CEO ruling 2026-10-19: any 401/403 -> stale_auth_error, previous row kept ----------
     PROV = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}]
@@ -724,7 +723,7 @@ class Rulings3(unittest.TestCase):
         p = s["providers"][0]
         self.assertEqual((p["status"], p["calls"], p["data_calls"], ncalls), ("stale_auth_error", 6, 5, 6))
         used = json.loads((tmp / "quota.json").read_text())["used"]["exa"]
-        self.assertEqual(used - before, 5)   # all 5 pre-401 calls billed; the 401 = 0 units (main's assumption)
+        self.assertEqual(used - before, 5)
         doc = tables.build(tmp / "runs", self.PRICING); doc["run_summary"] = s
         self.assertEqual(doc["tables"]["search"][0]["run_date"], "2026-10-12")   # stale log ignored by collect
         doc["tables"]["search"][0]["generated_marker"] = "rebuilt"   # prove the kept row is the file's row, not a rebuild
@@ -742,6 +741,183 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(json.loads((tmp / "quota.json").read_text())["used"]["exa"], 4)   # 3 pre-403 + the 403 at the estimate
         self.assertEqual(tables.build(tmp / "runs", self.PRICING)["tables"]["search"], [])   # no previous row: none published
 
+    # ---------- CEO ruling 2026-10-19 (complete-only): incomplete -> stale_<reason>, previous row kept, spend logged ----------
+    def _cmp_run(self, tmp, day, cfg=None, quota=1000, clock=None, fail_at=None):
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if fail_at is not None and len(n) >= fail_at: raise RuntimeError("HTTP 500: upstream")
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) % 2 else "https://b.example/y", "title": "x"}]}
+        pricing = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": quota, "needs_card": False}}}}
+        kw = {"clock": clock} if clock else {}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS, "sha": "x"}}, pricing=pricing, tos={},
+                       adapters={"exa": {"search": exa}}, cfg=cfg or {}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
+                       run_date=day, env={"EXA_API_KEY": "d"}, mock=True, **kw)
+        return s["providers"][0], len(n), json.loads((tmp / "quota.json").read_text())["used"].get("exa", 0)
+
+    def _publish(self, tmp, s_prov, prev_doc):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        latest = tmp / "latest.json"; latest.write_text(json.dumps(prev_doc, indent=1))
+        doc = tables.build(tmp / "runs", self.PRICING); skips = []; s = {"providers": [s_prov]}
+        B.finish_doc(doc, s, CFG, latest, skips); return doc, skips, s
+
+    def _prev(self, tmp):
+        self._cmp_run(tmp, "2026-10-12"); d = tables.build(tmp / "runs", self.PRICING)
+        return json.loads(json.dumps(d))
+
+    def test_quota_stop_is_stale_quota_previous_row_kept(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)   # 8 units used by the earlier full run
+        p, n, used = self._cmp_run(tmp, "2026-10-19", quota=11)                       # 3 more calls fit, then the guard stops it
+        self.assertEqual((p["status"], p["calls"], n, used), ("stale_quota", 3, 3, 11))   # spend logged: 8 + 3
+        doc, skips, s = self._publish(tmp, p, prev)
+        self.assertEqual(json.dumps(doc["tables"]["search"], indent=1), json.dumps(prev["tables"]["search"], indent=1))
+        self.assertEqual(doc["tables"]["search"][0]["run_date"], "2026-10-12"); self.assertEqual(skips, [])
+        self.assertTrue(s["providers"][0]["reason"].endswith("not published; previous row kept"))
+        lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")   # stale run log still written
+        self.assertEqual((len(lines), {l["run_status"] for l in lines}), (3, {"stale_quota"}))
+
+    def test_timeout_is_stale_timeout(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp); t = iter(range(0, 10000, 10))
+        p, n, used = self._cmp_run(tmp, "2026-10-19", cfg={"run_budget_s": {"exa": 45}}, clock=lambda: next(t))
+        self.assertEqual(p["status"], "stale_timeout"); self.assertLess(n, 8); self.assertEqual(used, 8 + n)   # spend logged
+        doc, skips, _ = self._publish(tmp, p, prev)
+        self.assertEqual(doc["tables"]["search"], prev["tables"]["search"]); self.assertEqual(skips, [])
+
+    def test_all_errors_is_stale_error_spend_kept(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)
+        p, n, used = self._cmp_run(tmp, "2026-10-19", fail_at=1)
+        self.assertEqual((p["status"], n, used), ("stale_error", 8, 16))   # 8 errored calls billed at the estimate
+        doc, _, _ = self._publish(tmp, p, prev)
+        self.assertEqual(doc["tables"]["search"], prev["tables"]["search"])   # complete-but-all-errors never shown as 0%
+
+    def test_first_ever_partial_run_is_omitted(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        p, n, used = self._cmp_run(tmp, "2026-10-19", quota=3)
+        self.assertEqual((p["status"], used), ("stale_quota", 3))
+        self.assertIn("exa", CFG["month1_free_tier_providers"])
+        doc, skips, s = self._publish(tmp, p, {"tables": {"search": [], "scrape": [], "browser": []}, "freshness": []})
+        self.assertEqual((doc["tables"]["search"], doc["freshness"], doc["not_run_yet"], skips), ([], [], [], []))
+        self.assertFalse(doc["has_results"])
+        self.assertTrue(s["providers"][0]["reason"].endswith("no previous row, not shown")); self.assertNotIn("previous row kept", s["providers"][0]["reason"])
+
+    def test_full_set_run_still_publishes(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp)
+        p, n, used = self._cmp_run(tmp, "2026-10-19")
+        self.assertEqual((p["status"], n, used), ("ran", 8, 16))
+        doc, skips, _ = self._publish(tmp, p, prev)
+        r = doc["tables"]["search"][0]
+        self.assertEqual((r["run_date"], r["attempted"]["v"], r["partial"]), ("2026-10-19", 8, False))
+        self.assertNotIn("run_status", read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")[0])
+
+    def _bill(self, exc_at, exc, n_rows=8, ledger=None):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        if ledger is not None: led.write_text(ledger)
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if len(n) in exc_at: raise exc() if callable(exc) else exc
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d"}, mock=True)
+        f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"
+        return s["providers"][0], (read_jsonl(f) if f.exists() else []), led
+
+    NO_RESPONSE = [lambda: __import__("urllib.error").error.URLError(__import__("socket").gaierror(-2, "Name or service not known")),
+                   lambda: ConnectionRefusedError(111, "Connection refused"), lambda: ConnectionResetError(104, "Connection reset by peer"),
+                   lambda: TimeoutError("timed out"), lambda: __import__("urllib.error").error.URLError("[Errno 101] Network is unreachable"),
+                   lambda: RuntimeError("URLError: <urlopen error [Errno -3] Temporary failure in name resolution>")]   # adapter re-raise, key masked
+
+    def test_no_response_every_call_ledger_byte_identical(self):
+        before = json.dumps({"month": "2026-10", "over_free_units": 0, "used": {"exa": 33}}, indent=1, sort_keys=True)
+        for mk in self.NO_RESPONSE:
+            p, lines, led = self._bill(set(range(1, 9)), mk, ledger=before)
+            self.assertEqual(p["status"], "stale_error", mk()); self.assertEqual(led.read_text(), before)   # byte-identical
+            self.assertEqual(lines, [])   # nothing billed, nothing returned: no run lines
+
+    def test_no_response_line_is_unbilled_no_response(self):   # 1 of 8 gets no response -> 0 units, set incomplete -> stale_error
+        for mk in self.NO_RESPONSE:
+            p, lines, led = self._bill({4}, mk)
+            self.assertEqual((p["status"], p["calls"], p["data_calls"]), ("stale_error", 8, 7), mk())
+            self.assertIn("incomplete set: search_evergreen 7/8", p["reason"])
+            self.assertEqual([(l["status"], l["billed_units"]) for l in lines if l["status"] not in ("pass", "fail")], [("unbilled_no_response", 0)])
+            self.assertEqual(json.loads(led.read_text())["used"]["exa"], 7)
+
+    def test_401_bills_zero_403_429_5xx_bill_estimate(self):
+        for code, units, st in ((401, 0, "stale_auth_error"), (403, 1, "stale_auth_error")):
+            p, lines, led = self._bill({8}, RuntimeError(f"HTTP {code}: denied"))
+            self.assertEqual((p["status"], lines[-1]["billed_units"], json.loads(led.read_text())["used"]["exa"]), (st, units, 7 + units), code)
+        import io, urllib.error
+        for code in (429, 500, 502, 503):
+            for exc in (RuntimeError(f"HTTP {code}: upstream"), urllib.error.HTTPError("https://x.example", code, "x", {}, io.BytesIO(b""))):
+                self.assertFalse(runner.is_network_error(exc), code)
+                p, lines, led = self._bill({8}, exc)
+                self.assertEqual((p["status"], lines[-1]["status"], lines[-1]["billed_units"], json.loads(led.read_text())["used"]["exa"]), ("ran", "fail", 1, 8), code)
+        self.assertTrue(runner.is_network_error(TimeoutError("timed out"))); self.assertFalse(runner.is_network_error(RuntimeError("HTTP 500: Timed out.")))
+
+    def _live(self, pid, kind, urlopen):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        prov = [{"id": pid, "key_env": "K", "categories": [kind]}]
+        pr = {pid: {kind: {"model": "credits", "free_tier": {"units_per_month": 10**6, "needs_card": False}}}}
+        sets = {"search_evergreen": {"rows": self.ROWS[:1], "sha": "x"}} if kind == "search" else {"browser_tasks": {"rows": [{"id": "b1", "start_url": "https://a.example/", "timeout_s": 30}], "sha": "x"}}
+        with mock.patch("urllib.request.urlopen", urlopen):
+            runner.run(providers=prov, sets=sets, pricing=pr, tos={}, adapters=B.ADAPTERS, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"K": "d"}, mock=True)
+        return json.loads(led.read_text())["used"].get(pid, 0) if led.exists() else 0
+
+    @staticmethod
+    def _resp(status=200, body=b"{}", exc=None):
+        class R:
+            def __init__(s): s.status = status
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s):
+                if exc: raise exc
+                return body
+        return lambda *a, **k: R()
+
+    @staticmethod
+    def _raise(exc):
+        def f(*a, **k): raise exc
+        return f
+
+    def test_status_line_received_bills_estimate(self):
+        import socket, http.client
+        for text in (b"Request timed out", b"Connection refused"):
+            body = json.dumps({"success": False, "error": text.decode()}).encode()
+            self.assertEqual(self._live("firecrawl", "search", self._resp(200, body)), 1, text)
+        self.assertEqual(self._live("firecrawl", "search", self._resp(200, json.dumps({"success": False, "error": "TimeoutError: upstream"}).encode())), 1)
+        import ssl
+        for exc in (ConnectionResetError(104, "Connection reset by peer"), socket.timeout("timed out"), http.client.IncompleteRead(b"ab", 10), ssl.SSLError(1, "bad record mac")):
+            self.assertEqual(self._live("exa", "search", self._resp(200, exc=exc)), 1, exc)
+            self.assertGreater(self._live("browserless", "browser", self._resp(200, exc=exc)), 0, exc)
+        self.assertFalse(runner.is_network_error(ssl.SSLError(1, "bad record mac"))); self.assertFalse(runner.is_network_error(RuntimeError("SSLError: bad record mac")))
+
+    def test_no_status_line_bills_zero(self):
+        import ssl, socket, urllib.error
+        for exc in (urllib.error.URLError(ssl.SSLError(1, "handshake failure")), ConnectionRefusedError(111, "Connection refused"), socket.timeout("timed out")):
+            self.assertEqual(self._live("exa", "search", self._raise(exc)), 0, exc)
+            self.assertEqual(self._live("browserless", "browser", self._raise(exc)), 0, exc)
+
+    def test_urlerror_wrapping_httperror_bills_by_status(self):
+        import io, urllib.error
+        for code, units in ((401, 0), (403, 1), (500, 1)):
+            exc = urllib.error.URLError(urllib.error.HTTPError("https://x.example", code, "x", {}, io.BytesIO(b"")))
+            p, lines, led = self._bill({8}, exc)
+            self.assertEqual(lines[-1]["billed_units"], units, code)
+
+    def test_runner_short_set_is_stale_error(self):   # kills NEW1 (short-set check) and NEW4 (off-by-one): runner, not tables
+        for at in ({8}, {1}, {3, 5}):
+            p, lines, _ = self._bill(at, ConnectionRefusedError(111, "Connection refused"))
+            k = 8 - len(at)
+            self.assertEqual(p["status"], "stale_error", at); self.assertEqual(p["data_calls"], k)
+            self.assertIn(f"incomplete set: search_evergreen {k}/8", p["reason"])
+        p, _, _ = self._bill(set(), None)
+        self.assertEqual(p["status"], "ran")   # full set: not stale
+
+    def test_stale_reasons(self):
+        self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error"))
+        with self.assertRaises(AssertionError): runner.stale("partial", {"calls": 0, "data_calls": 0}, "x")
+
     def test_partial_counts_only_scored_or_tos_lines(self):
         mk = lambda i, st: (i, {"item_id": f"q{i}", "status": st, "set_rows": 3})
         self.assertFalse(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "skipped_tos")]))
@@ -750,9 +926,8 @@ class Rulings3(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
         self._guard_run(tmp, "2026-10-19", n_rows=8)
         f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"; ls = read_jsonl(f)
-        f.write_text("".join(json.dumps(l) + "\n" for l in ls[:5]))   # non-auth partial run: published, flagged partial
-        r = tables.build(tmp / "runs", self.PRICING)["tables"]["search"][0]
-        self.assertEqual((r["partial"], r["attempted"]["v"], r["run_date"]), (True, 5, "2026-10-19"))
+        f.write_text("".join(json.dumps(l) + "\n" for l in ls[:5]))   # CEO 2026-10-19: an incomplete log is never published
+        self.assertEqual(tables.build(tmp / "runs", self.PRICING)["tables"]["search"], [])
 
     def test_complete_set_is_not_partial(self):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
@@ -831,7 +1006,7 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(out.read_bytes(), before)   # generated_at and run_summary unchanged
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
-        self.assertEqual(json.loads(led.read_text())["used"]["exa"] - used0, 2 * 1)   # both pre-401 billed calls kept; 401 = 0
+        self.assertEqual(json.loads(led.read_text())["used"]["exa"] - used0, 2 * 1)
         self.assertFalse(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}]}))
         self.assertTrue(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}, {"provider": "tavily", "status": "ran", "data_calls": 1}]}))
 

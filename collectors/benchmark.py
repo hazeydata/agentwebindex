@@ -15,12 +15,16 @@ from awibench import runner, tables, validate, cost, freshness, newsfetch
 from awibench.util import load_yaml, read_jsonl, sha256_file
 
 BENCH = ROOT / "bench"
+def _body(r):
+    try: return r.read()
+    except Exception as e: raise RuntimeError(f"HTTP {r.status}: body cut off: {type(e).__name__}") from None
+
 def _post(url, headers, body):
     import urllib.request, urllib.error
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"} | headers)
     try:
-        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:   # message carries status + short vendor text only, never the key
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
@@ -49,7 +53,7 @@ def _get_json(url, headers, timeout=150):
     import urllib.request, urllib.error
     req = urllib.request.Request(url, headers={"User-Agent": "AgentWebIndexBot/1.0"} | headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
@@ -90,7 +94,7 @@ def _browserless_fetch(key, item):
                                  headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"})
     t0 = time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, r.read().decode("utf-8", "replace")
+        with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:   # never echo the request URL (it carries the token)
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
     except Exception as e:
@@ -106,31 +110,36 @@ def keyed_providers(provs, env):
     return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
 
 def keep_previous_rows(doc, prev_path, stale):
-    """CEO ruling 2026-10-19: a provider with any HTTP 401/403 in this run (stale_auth_error) is not published. Its rows in
-    tables and freshness are the previous latest.json rows, unchanged; with no previous row it has none."""
-    if not stale: return
+    """CEO ruling 2026-10-19: a stale_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
+    are the previous latest.json rows, unchanged; with no previous row it has none. Returns the stale providers with a previous row."""
+    if not stale: return set()
     prev = json.loads(Path(prev_path).read_text()) if Path(prev_path).exists() else {}
     for kind in doc["tables"]:
         doc["tables"][kind] = [r for r in doc["tables"][kind] if r["provider"] not in stale] + \
                               [r for r in (prev.get("tables") or {}).get(kind, []) if r["provider"] in stale]
     doc["freshness"] = [r for r in doc.get("freshness", []) if r["provider"] not in stale] + [r for r in prev.get("freshness", []) if r["provider"] in stale]
     doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
+    return {r["provider"] for t in doc["tables"].values() for r in t if r["provider"] in stale}
 
-def stale_providers(s): return {p["provider"] for p in s["providers"] if p["status"] == "stale_auth_error"}
+def is_stale(p): return p["status"].startswith("stale_")
+def stale_providers(s): return {p["provider"] for p in s["providers"] if is_stale(p)}
 
 def fresh_data(s):
-    """True if a provider that is not stale_auth_error returned data. Data only from stale providers -> latest.json not rewritten."""
-    return any(p.get("data_calls") and p["status"] != "stale_auth_error" for p in s["providers"])
+    """True if a provider that is not stale returned data. Data only from stale providers -> latest.json not rewritten."""
+    return any(p.get("data_calls") and not is_stale(p) for p in s["providers"])
 
 def finish_doc(doc, s, cfg, prev_path, skips):
-    """Previous rows for stale providers, not_run_yet and provider skips. A stale_auth_error provider is never in
-    not_run_yet or skips (no site badge), even when it has no previous row."""
-    stale = stale_providers(s); keep_previous_rows(doc, prev_path, stale)
+    """Previous rows for stale providers, not_run_yet and provider skips. A stale provider is never in not_run_yet or skips
+    (no site badge); with no previous row it is left off the site entirely. Its run_summary reason says which case applied."""
+    stale = stale_providers(s); kept = keep_previous_rows(doc, prev_path, stale)
+    for p in s["providers"]:
+        if is_stale(p) and not p.get("reason", "").endswith(("previous row kept", "not shown")):
+            p["reason"] = p.get("reason", p["status"]) + ("; previous row kept" if p["provider"] in kept else "; no previous row, not shown")
     doc["not_run_yet"] = [n for n in tables.not_run_yet(s, cfg, doc) if n["provider"] not in stale]
     for n in doc["not_run_yet"]:   # owner-set reasons (config not_run_yet_reasons) replace the bare status
         n["reason"] = (cfg.get("not_run_yet_reasons") or {}).get(n["provider"], n["reason"])
     for p in s["providers"]:
-        if p["status"] not in ("ran", "stale_auth_error") and p["provider"] not in {x["provider"] for x in doc["not_run_yet"]}:
+        if p["status"] != "ran" and not is_stale(p) and p["provider"] not in {x["provider"] for x in doc["not_run_yet"]}:
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     return stale
 

@@ -1,13 +1,19 @@
 """Benchmark runner: free-tier only, hard $0 cap (D4), quota halting (AC11), ToS skips (D2/AC12),
 run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 
-Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, halted_quota, ran,
-stale_auth_error, skipped_all_errors. A provider with no call that returned data writes no run lines and logs no spend.
-stale_auth_error (CEO ruling 2026-10-19): any HTTP 401/403 stops the provider at the first one. Its row is NOT published:
-tables.collect never uses a log holding an auth_error line, and collectors/benchmark.py keeps the previous latest.json row.
-Every billed call stays in the ledger, including all calls before the 401/403 (no all-errors rollback).
+Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, ran, and stale_<reason>.
+CEO ruling 2026-10-19: a row publishes ONLY when the run covered the full set (items reached == set size). Any incomplete
+run is stale_<reason>, reason one of STALE_REASONS:
+  quota      - the free-quota guard stopped it before the next call
+  timeout    - the provider's run budget (config run_budget_s) ran out
+  auth_error - any HTTP 401/403 stops the provider at the first one
+  error      - anything else: every call errored, or fewer items reached than the set holds
+A stale provider is not published: tables.collect never uses an incomplete log, and collectors/benchmark.py keeps the previous
+latest.json row (or omits the provider entirely when it has none). Billed spend is always logged (no rollback).
+The run log of a stale run is still written; only a provider with no data call and nothing billed writes no lines.
 With no data from any provider and no ledger change, the ledger and run summary are not written.
-Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored).
+Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored),
+unbilled_no_response (no HTTP status line arrived; 0 units, not scored; CEO billing ruling 2026-10-19, status-line rule).
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
@@ -21,6 +27,28 @@ SET_KIND = {"search_evergreen": "search", "scrape_urls": "scrape", "browser_task
 def set_kind(name):
     if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
     return "search" if name.startswith("news_") else SET_KIND[name]
+
+STALE_REASONS = ("quota", "timeout", "auth_error", "error")
+REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reached set item
+
+_HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
+_NET_TEXT = re.compile(r"(URLError|gaierror|Connection(Refused|Reset|Aborted)?Error|RemoteDisconnected|TimeoutError|timeout): ")
+
+def is_network_error(e):
+    """True only when no HTTP status line ever arrived (CEO billing ruling 2026-10-19); a 401 is billed 0 separately (401 = 0 ASSUMPTION, accepted by the CEO)."""
+    import socket, urllib.error
+    if isinstance(e, urllib.error.HTTPError) or isinstance(getattr(e, "reason", None), urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
+    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)): return True
+    return isinstance(e, RuntimeError) and bool(_NET_TEXT.match(str(e)))
+
+def _http_code(e):
+    import urllib.error
+    h = e if isinstance(e, urllib.error.HTTPError) else getattr(e, "reason", None)
+    return f"HTTP {h.code}: " if isinstance(h, urllib.error.HTTPError) else ""
+
+def stale(reason, status, why):
+    assert reason in STALE_REASONS, reason
+    return {"status": f"stale_{reason}", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"{why}; not published"}
 
 class CapViolation(RuntimeError): pass
 
@@ -104,10 +132,11 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
-            status = {"status": "ran", "calls": 0, "data_calls": 0}; used0 = ledger.d["used"].get(pool); pending = {}
+            status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []
+            budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             for set_name, s in sets.items():
                 if set_kind(set_name) != kind: continue
-                out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, [])
+                out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, []); reached = 0
                 for item in s["rows"]:
                     if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
                     line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
@@ -116,6 +145,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         t = tos.get(pid) or {}
                         if not anti_bot_allowed(t):
                             ab = (t.get("anti_bot_scraping") or {})
+                            reached += 1
                             fh.append(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
                                                         "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
                             continue
@@ -123,17 +153,20 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
                     if ledger.used(pool) + est > quota:
-                        status = {"status": "halted_quota", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})"}
+                        status = stale("quota", status, f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})")
+                        break
+                    if budget is not None and clock() - t_start > budget:
+                        status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break
                     t0 = clock()
+                    net = False
                     try: out = fn(key, item)
-                    except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}
+                    except Exception as e: out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; net = is_network_error(e)
                     lat = (clock() - t0) * 1000
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
-                    # ASSUMPTION (unsourced): a rejected 401 is not billed, so 0 units. A 403 may mean quota/plan exhausted, so it is charged the estimate.
-                    units = 0 if auth and auth.group(1) == "1" else out.get("billed_units", est)
+                    units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
-                    ledger.add(pool, units); status["calls"] += 1; status["data_calls"] += "error" not in out
+                    ledger.add(pool, units); billed += units; status["calls"] += 1; status["data_calls"] += "error" not in out
                     passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
                     body = json.dumps({k: v for k, v in out.items() if k != "file_bytes"}, sort_keys=True, default=str)
                     rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
@@ -141,26 +174,29 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
-                    fh.append(json.dumps(rec) + "\n")
-                    if auth:   # stop this provider now; its row is not published (previous row kept), its spend is kept
-                        status = {"status": "stale_auth_error", "calls": status["calls"], "data_calls": status["data_calls"],
-                                  "reason": f"HTTP 40{auth.group(1)} on {item['id']} ({set_name}); not published, previous row kept"}
+                    elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached
+                    fh.append(json.dumps(rec) + "\n"); reached += rec["status"] in REACHED
+                    if auth:   # stop this provider now; not published, its spend is kept
+                        status = stale("auth_error", status, f"HTTP 40{auth.group(1)} on {item['id']} ({set_name})")
                         break
                     if ledger.used(pool) > quota:
                         over = ledger.used(pool) - quota
                         ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
                         ledger.save(); raise CapViolation(f"{pid}: billed units exceeded free quota by {over}; $0 cap violated")
-                if status["status"] in ("halted_quota", "stale_auth_error"): break
-            if status["calls"] and not status["data_calls"]:   # every call errored: no run lines
-                if status["status"] != "stale_auth_error":   # not run, no spend; an auth error keeps every billed unit
-                    status = {"status": "skipped_all_errors", "calls": status["calls"], "data_calls": 0, "reason": "not run (every call errored)"}
-                    if used0 is None: ledger.d["used"].pop(pool, None)
-                    else: ledger.d["used"][pool] = used0
-                elif used0 is None and not ledger.used(pool): ledger.d["used"].pop(pool, None)   # nothing billed: no empty entry
+                if status["status"] != "ran": break
+                if only_ids is None and reached < len(s["rows"]): short.append(f"{set_name} {reached}/{len(s['rows'])}")
+            if status["status"] == "ran" and status["calls"] and not status["data_calls"]:
+                status = stale("error", status, "every call errored")
+            elif status["status"] == "ran" and short:
+                status = stale("error", status, "incomplete set: " + ", ".join(short))
+            if not status["data_calls"] and not billed:   # nothing returned and nothing billed: no run lines, no ledger entry
+                if not ledger.used(pool): ledger.d["used"].pop(pool, None)
                 pending = {}
             for out_f, lines in pending.items():
                 if lines:
                     out_f.parent.mkdir(parents=True, exist_ok=True)
+                    if status["status"].startswith("stale_"):   # stamp the stale run's lines so tables.collect never publishes them
+                        lines = [json.dumps(json.loads(l) | {"run_status": status["status"]}) + "\n" for l in lines]
                     with open(out_f, "a") as fh: fh.write("".join(lines))
             summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota})
     if not any(p.get("data_calls") for p in summary["providers"]) and json.dumps(ledger.d, sort_keys=True) == used_start:
