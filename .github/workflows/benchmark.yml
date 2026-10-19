@@ -46,4 +46,9 @@ jobs:
           python collectors/benchmark.py $ARGS
       - run: |
           git config user.name "agentwebindex-bot"; git config user.email "actions@users.noreply.github.com"
+          # guard: never commit a latest.json with no results over one that had results
+          if git show HEAD:data/benchmarks/latest.json 2>/dev/null | python -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('has_results') else 1)" \
+             && ! python -c "import json; exit(0 if json.load(open('data/benchmarks/latest.json')).get('has_results') else 1)"; then
+            echo "SKIP publish: new latest.json has no results; keeping the published one"; git checkout -- data/benchmarks
+          fi
           git add data/benchmarks data/spend bench/runs && (git diff --cached --quiet || git commit -m "bench: $(date -u +%F)") && git push

@@ -1,6 +1,7 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
 import datetime as dt, hashlib, json, math, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
+from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
 from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks
 from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
@@ -636,5 +637,56 @@ class Collectors2(unittest.TestCase):
         self.assertGreaterEqual(len(live), 11); self.assertEqual(CFG["news"]["per_feed"], 15); self.assertEqual(CFG["news"]["total"], 50)
         self.assertEqual((CFG["news"]["min_age_h"], CFG["news"]["max_age_h"]), (24, 72))
         self.assertTrue(all(f["url"].startswith("https://") and f.get("url_verified") for f in live))
+
+class Rulings3(unittest.TestCase):
+    """CEO rulings 2026-10-19: no-key runs never overwrite published data; feeds must be RSS/Atom and robots-allowed; Browserless kept."""
+    def test_no_key_run_writes_nothing(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        out = SITE / "data" / "benchmarks" / "latest.json"; before = out.read_bytes()
+        runs = SITE / "bench" / "runs"; snap = sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file())
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
+             mock.patch("builtins.print") as pr:
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(out.read_bytes(), before)
+        self.assertEqual(sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file()), snap)
+        self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
+
+    def test_keyed_providers(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        provs = [{"id": "exa", "key_env": "EXA_API_KEY"}, {"id": "steel", "key_env": "STEEL_API_KEY"}, {"id": "tavily", "key_env": "TAVILY_API_KEY"}]
+        self.assertEqual(B.keyed_providers(provs, {}), [])
+        self.assertEqual(B.keyed_providers(provs, {"EXA_API_KEY": "", "STEEL_API_KEY": "x"}), [])   # empty key, and steel has no collector
+        self.assertEqual(B.keyed_providers(provs, {"TAVILY_API_KEY": "x"}), ["tavily"])
+
+    def test_workflow_guards_published_data(self):
+        w = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
+        self.assertIn("SKIP publish", w); self.assertIn("git checkout -- data/benchmarks", w)
+
+    def test_feed_format_and_robots_guards(self):
+        from awibench import newsgen
+        self.assertTrue(newsgen.is_feed_xml('<?xml version="1.0"?>\n<rss version="2.0"><channel>'))
+        self.assertTrue(newsgen.is_feed_xml('<?xml version="1.0"?><!-- c --><feed xmlns="http://www.w3.org/2005/Atom">'))
+        self.assertFalse(newsgen.is_feed_xml("<!DOCTYPE html><html><body>Access denied</body></html>"))
+        hn = "User-Agent: *\nCrawl-delay: 30\nDisallow: /login\nDisallow: /r?\nDisallow: /x?\n"
+        self.assertTrue(newsgen.robots_allows("https://news.ycombinator.com/rss", hn))     # stdlib robotparser gets this wrong
+        self.assertFalse(newsgen.robots_allows("https://news.ycombinator.com/r?id=1", hn))
+        self.assertFalse(newsgen.robots_allows("https://a.example/feed", "User-agent: AgentWebIndexBot\nDisallow: /\n\nUser-agent: *\nAllow: /"))
+        self.assertTrue(newsgen.robots_allows("https://a.example/a/b.xml", "User-agent: *\nDisallow: /*.xml$\nAllow: /a/b.xml$"))
+        log = []; cfg = {"news": CFG["news"], "news_feeds": [{"id": "f", "url": "https://a.example/f"}]}
+        newsgen.generate(cfg, __import__("datetime").datetime(2026, 10, 26, 6), "0", lambda f: "<html>nope</html>", log)
+        self.assertEqual(log[0]["event"], "feed_skipped")
+
+    def test_feeds_recorded_as_checked(self):
+        live = [f for f in CFG["news_feeds"] if f.get("url")]
+        self.assertTrue(all(f.get("feed_format") in ("rss", "atom") and f.get("robots_checked") for f in live))
+
+    def test_browserless_kept_with_tos_date(self):
+        t = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["browserless"]
+        self.assertEqual(t["checked_at"], "2026-10-19"); self.assertIn("2026-10-19", t["tos_checks"])
+        self.assertFalse(runner.benchmark_forbidden(t))
+        doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
+        row = [r for r in doc["tables"]["browser"] if r["provider"] == "browserless"][0]
+        self.assertEqual((row["passed"]["v"], row["attempted"]["v"]), (11, 16))
 
 if __name__ == "__main__": unittest.main()
