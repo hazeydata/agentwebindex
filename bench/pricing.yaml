@@ -82,7 +82,13 @@
       "note": "larger slider steps not captured from static page; credits-per-call by request type is in the docs, not captured"
      }
     },
-    "note": null
+    "note": null,
+    "credits_per_call_verified": {
+     "search": 1,
+     "source_url": "https://docs.tavily.com/documentation/api-credits",
+     "checked_at": "2026-10-19",
+     "quote": "Basic Search (basic): Each request costs 1 API credit."
+    }
    }
   },
   "brave": {
@@ -350,6 +356,33 @@
    }
   },
   "apify": {
+   "search": {
+    "pricing_url": "https://apify.com/apify/rag-web-browser",
+    "source_url": "https://apify.com/apify/rag-web-browser",
+    "checked_at": "2026-10-19",
+    "verified_date": "2026-10-19",
+    "model": "per_request",
+    "credits_per_call": {},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 500,
+     "needs_card": false,
+     "pool": "apify_usd_cents",
+     "note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search and $0.00228 per fetched page (Actor Store record, 2026-10-19). Units here are US cents of that $5."
+    },
+    "tiers": {
+     "entry": {
+      "name": "Paid-plan per-event rate (not captured)",
+      "unit_price": "NOT CAPTURED",
+      "note": "per-event prices drop on paid plans (Store discount tiers); the plan-to-tier mapping was not read from a pricing page, so no cost column"
+     },
+     "volume": {
+      "name": "NOT CAPTURED",
+      "unit_price": "NOT CAPTURED"
+     }
+    },
+    "note": "Search via the RAG Web Browser Actor, Standby mode, maxResults 10, raw-http fetch"
+   },
    "scrape": {
     "pricing_url": "https://apify.com/pricing",
     "source_url": "https://apify.com/pricing",

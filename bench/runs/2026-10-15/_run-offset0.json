@@ -6,20 +6,23 @@
   {
    "provider": "exa",
    "category": "search",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "ran",
+   "calls": 16,
+   "quota_used": 32,
+   "quota": 1428
   },
   {
    "provider": "exa",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented"
   },
   {
    "provider": "tavily",
    "category": "search",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "ran",
+   "calls": 16,
+   "quota_used": 64,
+   "quota": 1000
   },
   {
    "provider": "brave",
@@ -54,14 +57,15 @@
   {
    "provider": "firecrawl",
    "category": "search",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "ran",
+   "calls": 16,
+   "quota_used": 64,
+   "quota": 1000
   },
   {
    "provider": "firecrawl",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented"
   },
   {
    "provider": "jina",
@@ -72,14 +76,12 @@
   {
    "provider": "brightdata",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented"
   },
   {
    "provider": "apify",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented"
   },
   {
    "provider": "hyperbrowser",
@@ -114,8 +116,7 @@
   {
    "provider": "browserless",
    "category": "browser",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented"
   }
  ]
 }

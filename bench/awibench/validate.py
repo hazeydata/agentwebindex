@@ -19,6 +19,10 @@ PASS_TYPES = {"final_url_matches", "extracted_value_equals", "file_sha256", "dom
 URL = re.compile(r"^https?://[^\s/]+\.[^\s]+$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
+def legacy_flag(f):
+    """Sets frozen before the 2026-10-15 owner ruling carry 'below minimum (n=X < 25)'; same meaning as 'below minimum (n=X)'."""
+    import re; return re.sub(r"^below minimum \(n=(\d+) < \d+\)$", r"below minimum (n=\1)", f)
+
 def short_week_flag(n): return f"short week (n={n})"
 
 def _keys(row, need, where, errs):
@@ -133,7 +137,7 @@ def validate_by_set(sets_dir, cfg, only=None):
                 import json as _j; m = _j.loads(mf.read_text())
                 if m.get("count") != len(rows): e.append(f"{mf.name}: count {m.get('count')} != {len(rows)} rows")
                 from .newsgen import week_flags
-                if bool(m.get("short_week")) != (len(rows) < cfg["news"]["total"]) or m.get("flags") != week_flags(len(rows), cfg["news"]):
+                if bool(m.get("short_week")) != (len(rows) < cfg["news"]["total"]) or [legacy_flag(f) for f in (m.get("flags") or [])] != week_flags(len(rows), cfg["news"]):
                     e.append(f"{mf.name}: short_week flag inconsistent with count")
         except ValueError as ex: e.append(f"{nf.name}: parse error: {ex}")
         out[nf.stem] = (e, w)

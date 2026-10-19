@@ -10,8 +10,17 @@
   {"id": "npr", "name": "NPR News", "url": "https://feeds.npr.org/1001/rss.xml", "section": "news", "url_verified": true, "verified_date": "2026-10-15"},
   {"id": "ap_top", "name": "AP top news", "url": null, "section": "news",
    "drop_reason": "no official AP RSS URL confirmed (D1: only if AP publishes one); dropped. 2026-10-15: https://apnews.com/index.rss returned 403 HTML and feeds.apnews.com did not resolve; no official AP RSS found, still dropped"},
-  {"id": "github_changelog", "name": "GitHub blog changelog", "url": "https://github.blog/changelog/feed/", "section": "dev", "url_verified": true, "verified_date": "2026-10-15"}
+  {"id": "github_changelog", "name": "GitHub blog changelog", "url": "https://github.blog/changelog/feed/", "section": "dev", "url_verified": true, "verified_date": "2026-10-15",
+   "more_urls": ["https://github.blog/changelog/feed/?paged=2", "https://github.blog/changelog/feed/?paged=3"], "more_urls_note": "older pages of the same feed (10 items each, 200 on 2026-10-19); the 24-72 h window and 15 cap still apply"},
+  {"id": "bbc_tech", "name": "BBC Technology", "url": "https://feeds.bbci.co.uk/news/technology/rss.xml", "section": "tech", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "bbc_business", "name": "BBC Business", "url": "https://feeds.bbci.co.uk/news/business/rss.xml", "section": "business", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "bbc_science", "name": "BBC Science & Environment", "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "section": "science", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "npr_world", "name": "NPR World", "url": "https://feeds.npr.org/1004/rss.xml", "section": "world", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "npr_business", "name": "NPR Business", "url": "https://feeds.npr.org/1006/rss.xml", "section": "business", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "npr_tech", "name": "NPR Technology", "url": "https://feeds.npr.org/1019/rss.xml", "section": "tech", "url_verified": true, "verified_date": "2026-10-19"},
+  {"id": "github_blog", "name": "GitHub blog", "url": "https://github.blog/feed/", "section": "dev", "url_verified": true, "verified_date": "2026-10-19"}
  ],
+ "news_feeds_growth_2026_10_19": "Week 1 froze at n=16 (below the 25 minimum). Added section feeds of the same D1 outlets (BBC, NPR, GitHub) plus older pages of the GitHub changelog feed. Same-story links across feeds count once (normalized URL). Every feed keeps the 15 cap; the 50 total and 24-72 h window are unchanged.",
  "challenge_signatures": ["Just a moment...", "Checking your browser before accessing", "Attention Required! | Cloudflare",
                           "cf-chl-", "Please enable JS and disable any ad blocker", "px-captcha", "Access to this page has been denied",
                           "verify you are human", "Request unsuccessful. Incapsula"],
@@ -21,10 +30,11 @@
                           "disallow_prefix": ["/test-sites/product/", "/test-sites/pagination/", "/test-sites/pagination", "/test-sites/scroll/", "/test-sites/load-more/"],
                           "note": "robots.txt also has 'Disallow: /test-sites/pagination*?page='; the bare '/test-sites/pagination' prefix blocks that pattern conservatively"}},
  "month1_free_tier_providers": ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"],
+ "not_run_yet_reasons": {"brightdata": "no collector yet, and the current key is stale (expires 2026-10-23); not run"},
  "month1_decision": "Side Hustle CEO 2026-10-15: month one runs only on the free monthly quotas of these providers; all others are skipped with a logged reason",
  "browser_unit_seconds": {"browserless": 30},
  "worst_case_units_per_call": {
-  "tavily": {"search": 2, "verified": false, "reason": "credits per call by request type not captured from Tavily's pricing page; guard assumes 2 until verified"},
+  "tavily": {"search": 2, "verified": false, "reason": "guard kept at 2 (conservative). Tavily docs (https://docs.tavily.com/documentation/api-credits, checked 2026-10-19): basic search = 1 credit; tables cost it at 1 via pricing.yaml credits_per_call_verified"},
   "apify": {"scrape": 2, "verified": false, "reason": "Actor compute units per call vary and are not verified; guard assumes 2 CU until verified"}},
  "browser_unit_seconds_source": "bench/pricing.yaml browserless free_tier.note: 'unit = up to 30 s per browser connection'",
  "task_site_robots_check_2026_10_15": {
