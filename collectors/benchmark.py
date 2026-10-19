@@ -6,16 +6,100 @@
 - freshness_score-> awibench.freshness.freshness (news sets)
 - run log        -> bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl -> awibench.tables -> data/benchmarks/latest.json
 Free tier only, hard $0 cap (D4). Providers without a key, adapter, known free quota or ToS clearance are skipped.
-ADAPTERS is empty until signups are approved; there is no mock path here (mocks live in bench/tests).
+Search adapters only (run 1); there is no mock path here (mocks live in bench/tests).
 """
 import argparse, datetime as dt, json, os, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(ROOT / "bench"))
-from awibench import runner, tables, validate, cost, freshness
+from awibench import runner, tables, validate, cost, freshness, newsfetch
 from awibench.util import load_yaml, read_jsonl, sha256_file
 
 BENCH = ROOT / "bench"
-ADAPTERS = {}   # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md for the contract
+def _post(url, headers, body):
+    import urllib.request, urllib.error
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"} | headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:   # message carries status + short vendor text only, never the key
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+
+def _exa_search(key, item):
+    st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto"})
+    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": None,
+            "published_at": r.get("publishedDate")} for r in d.get("results", [])]}
+
+def _tavily_search(key, item):   # basic depth; billed units left to the runner's 2-credit guard (unverified)
+    st, d = _post("https://api.tavily.com/search", {"Authorization": f"Bearer {key}"}, {"query": item["query"], "max_results": 10, "search_depth": "basic"})
+    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": (r.get("content") or "")[:300],
+            "published_at": r.get("published_date")} for r in d.get("results", [])]}
+
+def _firecrawl_search(key, item):   # pricing.yaml credits_per_call search = 2
+    st, d = _post("https://api.firecrawl.dev/v1/search", {"Authorization": f"Bearer {key}"}, {"query": item["query"], "limit": 10})
+    if d.get("success") is False: raise RuntimeError(f"firecrawl error: {str(d.get('error'))[:200]}")
+    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("description"),
+            "published_at": None} for r in d.get("data", [])]}
+
+# Apify RAG Web Browser (Store Actor apify/rag-web-browser), Standby endpoint: Google search + page fetch, priced per event.
+# Event prices at the Apify Free plan, read from the Actor's public Store record on 2026-10-19 (USD): search 0.00348, fetched page 0.00228.
+APIFY_RAG_URL = "https://rag-web-browser.apify.actor/search"
+APIFY_FREE_EVENT_USD = {"search": 0.00348, "fetch": 0.00228}
+
+def _get_json(url, headers, timeout=150):
+    import urllib.request, urllib.error
+    req = urllib.request.Request(url, headers={"User-Agent": "AgentWebIndexBot/1.0"} | headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+
+def _apify_search(key, item):
+    """Ranked results from the Actor's searchResult.rank; result URL = the fetched page's metadata.url (Google returns
+    redirect links in searchResult.url). billed_units = US cents charged at Free-plan event prices (1 search + 1 per fetched page)."""
+    import urllib.parse
+    q = urllib.parse.urlencode({"query": item["query"], "maxResults": 10, "scrapingTool": "raw-http", "outputFormats": "markdown", "requestTimeoutSecs": 60})
+    st, d = _get_json(f"{APIFY_RAG_URL}?{q}", {"Authorization": f"Bearer {key}"})
+    d = sorted(d if isinstance(d, list) else [], key=lambda x: (x.get("searchResult") or {}).get("rank") or 99)
+    res = []
+    for x in d:
+        md, sr = x.get("metadata") or {}, x.get("searchResult") or {}
+        res.append({"url": md.get("url") or md.get("canonicalUrl") or sr.get("url"), "title": sr.get("title") or md.get("title"),
+                    "snippet": sr.get("description"), "published_at": None})
+    fetched = sum(1 for x in d if (x.get("crawl") or {}).get("requestStatus") == "handled")
+    cents = 100 * (APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
+    return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res}
+
+BROWSERLESS_CONTENT_URL = "https://production-sfo.browserless.io/content"
+
+def _html_text(h):
+    from html.parser import HTMLParser
+    class P(HTMLParser):
+        def __init__(s): super().__init__(convert_charrefs=True); s.buf = []; s.skip = 0
+        def handle_starttag(s, t, a): s.skip += t in ("script", "style", "noscript")
+        def handle_endtag(s, t): s.skip -= t in ("script", "style", "noscript") and s.skip > 0
+        def handle_data(s, d):
+            if not s.skip: s.buf.append(d)
+    p = P(); p.feed(h); return " ".join(p.buf)
+
+def _browserless_fetch(key, item):
+    """Browserless /content (REST): rendered HTML of start_url. billed_units = wall-clock minutes; the runner converts
+    them to Browserless units (30 s per connection, config browser_unit_seconds)."""
+    import time, urllib.request, urllib.error
+    body = {"url": item["start_url"], "gotoOptions": {"waitUntil": "domcontentloaded", "timeout": int(item.get("timeout_s", 30)) * 1000 - 5000}}
+    req = urllib.request.Request(f"{BROWSERLESS_CONTENT_URL}?token={key}", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"})
+    t0 = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:   # never echo the request URL (it carries the token)
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+    except Exception as e:
+        raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
+    return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
+
+ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
+            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch}}
+# {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
 def load_test_set(name):
     f = BENCH / "sets" / (name if "." in name else f"{name}.jsonl")
@@ -26,23 +110,28 @@ freshness_score = freshness.freshness
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--mode", choices=["smoke", "full"], default="smoke")
-    ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H); a = ap.parse_args()
+    ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H)
+    ap.add_argument("--only-providers", help="comma-separated provider ids to call (others are not called and not listed)")
+    ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE"); a = ap.parse_args()
     cfg = load_yaml(BENCH / "config.yaml"); provs = json.loads((ROOT / "collectors/providers.json").read_text())["providers"]
     pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
     today = dt.date.today().isoformat(); sets = {}; skips = []; flags = []
     for name, (errs, warns) in validate.validate_by_set(BENCH / "sets", cfg).items():
         if errs:   # never skip silently: every skipped set is logged with its reason and shown on the site
+            errs = [e.replace(str(ROOT) + "/", "") for e in errs]   # repo-relative paths only (no box paths in published files)
             skips.append({"scope": "set", "set": name, "status": "skipped_invalid_set", "reason": "; ".join(errs[:3]) + (f" (+{len(errs) - 3} more)" if len(errs) > 3 else "")})
             print("SKIP set", name, "->", skips[-1]["reason"]); continue
         f = BENCH / "sets" / ("browser_tasks.yaml" if name == "browser_tasks" else f"{name}.jsonl")
         rows = load_test_set(f.name)
         entry = {"rows": rows[:10] if (a.mode == "smoke" and not name.startswith("news_")) else rows, "sha": sha256_file(f), "flags": []}
         if name.startswith("news_"):
-            entry["flags"] = json.loads(f.with_suffix(".meta.json").read_text()).get("flags", [])
+            entry["flags"] = tables.week_labels(len(rows), cfg)   # owner ruling 1: 'below minimum (n=X)' from the real count
             for fl in entry["flags"]: flags.append({"set": name, "flag": fl}); print("FLAG", name, fl)
         sets[name] = entry
     news = sorted(k for k in sets if k.startswith("news_"))
     for old in news[:-1]: sets.pop(old)   # only the latest week is run
+    if news:   # browser providers fetch the same frozen week's article URLs (derived, the news file is not touched)
+        fname, fset = newsfetch.from_news_file(BENCH / "sets" / f"{news[-1]}.jsonl"); sets[fname] = fset | {"flags": sets[news[-1]]["flags"]}
     only = None
     if a.reprobe_offset:   # §3: re-query only the misses of the latest news set at +6/+24/+72 h
         sets = {k: v for k, v in sets.items() if k.startswith("news_")}
@@ -54,16 +143,29 @@ def main():
                     if r["status"] in ("pass", "fail"): probes.setdefault(r["item_id"], []).append({"offset_h": r.get("offset_h", 0), "results": r.get("results", [])})
                 due[f.parent.name] = set(freshness.misses_due(sv["rows"], probes, a.reprobe_offset))
         only = lambda pid, item_id: item_id in due.get(pid, set())
-    s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
+    if a.rebuild_only:   # comma-separated run dates; a later date's status for a (provider, category) replaces an earlier one
+        dates = sorted(a.rebuild_only.split(",")); today = dates[-1]; merged = {}
+        for day in dates:
+            sd = json.loads((BENCH / "runs" / day / f"_run-offset{a.reprobe_offset or 0}.json").read_text())
+            for p in sd["providers"]:
+                k = (p["provider"], p["category"])
+                if p["status"] == "ran" or merged.get(k, {}).get("status") != "ran": merged[k] = p | {"run_date": day}
+        s = {"run_date": today, "run_dates": dates, "mock": False, "offset_h": a.reprobe_offset or 0, "providers": list(merged.values())}
+    else:
+      if a.only_providers: provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
+      s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ,
                    offset_h=a.reprobe_offset or 0, only_ids=only)
     for p in s["providers"]: print(json.dumps(p))
-    doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos)
+    doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
+    doc["not_run_yet"] = tables.not_run_yet(s, cfg, doc)
+    for n in doc["not_run_yet"]:   # owner-set reasons (config not_run_yet_reasons) replace the bare status
+        n["reason"] = (cfg.get("not_run_yet_reasons") or {}).get(n["provider"], n["reason"])
     for p in s["providers"]:
-        if p["status"] not in ("ran",):
+        if p["status"] not in ("ran",) and p["provider"] not in {x["provider"] for x in doc["not_run_yet"]}:
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
-    doc["run_summary"] = s; doc["run_date"] = today; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
+    doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)
     (BENCH / "runs" / today / f"_skips-offset{a.reprobe_offset or 0}.json").write_text(json.dumps({"skips": skips, "flags": flags}, indent=1))
     out = ROOT / "data" / "benchmarks" / "latest.json"; out.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,62 @@
+{
+ "caps": {
+  "per_feed": 15
+ },
+ "count": 16,
+ "feed_log": [
+  {
+   "event": "feed_read",
+   "feed": "hn",
+   "items": 30
+  },
+  {
+   "event": "feed_read",
+   "feed": "bbc_world",
+   "items": 32
+  },
+  {
+   "event": "feed_read",
+   "feed": "npr",
+   "items": 10
+  },
+  {
+   "event": "feed_dropped",
+   "feed": "ap_top",
+   "reason": "no official AP RSS URL confirmed (D1: only if AP publishes one); dropped. 2026-10-15: https://apnews.com/index.rss returned 403 HTML and feeds.apnews.com did not resolve; no official AP RSS found, still dropped"
+  },
+  {
+   "event": "feed_read",
+   "feed": "github_changelog",
+   "items": 10
+  },
+  {
+   "below_min": true,
+   "event": "generated",
+   "min": 25,
+   "pool": 16,
+   "rows": 16,
+   "target": 50
+  }
+ ],
+ "flags": [
+  "short week (n=16)",
+  "below minimum (n=16 < 25)"
+ ],
+ "meets_min": false,
+ "min": 25,
+ "per_feed_counts": {
+  "bbc_world": 4,
+  "github_changelog": 5,
+  "hn": 7
+ },
+ "run_at": "2026-10-15T21:00:00-04:00",
+ "seed": "0",
+ "set": "news_2026-42",
+ "sha256": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+ "short_week": true,
+ "target_max": 50,
+ "window_h": [
+  24,
+  72
+ ]
+}

@@ -87,7 +87,7 @@ class T(unittest.TestCase):
     def test_short_week_is_valid_flagged_and_runs(self):
         rows, name, _ = self._gen(); few = rows[:24]; sd = self._news_dir(few, "short", name)
         m = json.loads((sd / name).with_suffix(".meta.json").read_text())
-        self.assertTrue(m["short_week"]); self.assertEqual(m["flags"], ["short week (n=24)", "below minimum (n=24 < 25)"])
+        self.assertTrue(m["short_week"]); self.assertEqual(m["flags"], ["short week (n=24)", "below minimum (n=24)"])
         errs, warns = validate.validate(sd, self.cfg)
         self.assertEqual(errs, []); self.assertTrue(any("short week (n=24)" in w for w in warns))
         cfgp = self.tmp / "c.yaml"; cfgp.write_text(json.dumps(self.cfg)); self.assertEqual(validate.main([str(sd), "--config", str(cfgp), "--only", "news"]), 0)
@@ -96,9 +96,9 @@ class T(unittest.TestCase):
         kw["sets"] = {name[:-6]: {"rows": few, "sha": sha256_file(sd / name), "flags": m["flags"]}}
         self.assertEqual(runner.run(**kw)["providers"][0]["status"], "ran")
         lines = read_jsonl(kw["runs_dir"] / "2026-10-19" / "mocksearch" / name)
-        self.assertEqual(len(lines), 24); self.assertTrue(all(l["set_flags"] == ["short week (n=24)", "below minimum (n=24 < 25)"] and l["set_rows"] == 24 for l in lines))
+        self.assertEqual(len(lines), 24); self.assertTrue(all(l["set_flags"] == ["short week (n=24)", "below minimum (n=24)"] and l["set_rows"] == 24 for l in lines))
         doc = tables.build(kw["runs_dir"], kw["pricing"], sd)
-        F24 = ["short week (n=24)", "below minimum (n=24 < 25)"]
+        F24 = ["short week (n=24)", "below minimum (n=24)"]
         self.assertEqual(doc["tables"]["search"][0]["flags"], F24); self.assertEqual(doc["freshness"][0]["flags"], F24)
     def test_real_news_errors_still_fail(self):
         rows, name, _ = self._gen(); cfgp = self.tmp / "c.yaml"; cfgp.write_text(json.dumps(self.cfg))
@@ -395,7 +395,7 @@ class T(unittest.TestCase):
         # quotas from the verified pricing.yaml are respected: nothing exceeds its free monthly quota
         led = json.loads((self.tmp / "rspend.json").read_text()); self.assertEqual(led["over_free_units"], 0)
         self.assertEqual(st[("apify", "scrape")], "halted_quota"); self.assertLessEqual(led["used"]["apify"], 25)
-        ap = next(p for p in s["providers"] if p["provider"] == "apify"); self.assertEqual(ap["calls"], 12)      # #4 worst case 2 CU/call
+        ap = next(p for p in s["providers"] if p["provider"] == "apify" and p["category"] == "scrape"); self.assertEqual(ap["calls"], 12)      # #4 worst case 2 CU/call
         self.assertEqual(led["used"]["tavily"], 200)                                                            # tavily guarded at 2/call
         self.assertLessEqual(led["used"]["browserless"], 1000); self.assertLessEqual(led["used"]["exa"], 1428)
         fc = read_jsonl(self.tmp / "rruns" / "2026-10-19" / "firecrawl" / "search_evergreen.jsonl")
@@ -408,7 +408,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 19)
+        self.assertEqual(n, 20)   # 19 + apify search (RAG Web Browser, added 2026-10-19)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -433,7 +433,7 @@ class T(unittest.TestCase):
         sets = {"scrape_urls": {"rows": read_jsonl(sd / "scrape_urls.jsonl"), "sha": "x"}}
         s = runner.run(providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": Spy().scrape}},
                        cfg=cfg, runs_dir=self.tmp / "wr", ledger_path=self.tmp / "wl.json", run_date="2026-10-19", env={"APIFY_API_TOKEN": "mock-not-a-key"}, mock=True)
-        ap = s["providers"][0]
+        ap = next(p for p in s["providers"] if p["category"] == "scrape")
         self.assertEqual(ap["status"], "halted_quota"); self.assertEqual(ap["calls"], 12); self.assertEqual(len(calls), 12)
         self.assertEqual(ap["quota_used"], 24); self.assertIn("~2 units would exceed free quota 25", ap["reason"])
         self.assertEqual(json.loads((self.tmp / "wl.json").read_text())["over_free_units"], 0)
@@ -441,7 +441,7 @@ class T(unittest.TestCase):
         s2 = runner.run(providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": mocks.MockAdapters(units=1).scrape}},
                         cfg=dict(cfg, worst_case_units_per_call={}), runs_dir=self.tmp / "wr2", ledger_path=self.tmp / "wl2.json", run_date="2026-10-19",
                         env={"APIFY_API_TOKEN": "x"}, mock=True)
-        self.assertEqual(s2["providers"][0]["calls"], 25)
+        self.assertEqual(next(p for p in s2["providers"] if p["category"] == "scrape")["calls"], 25)
     def test_1_lower_bound_driven_by_missing_fields(self):
         pricing, _, _ = self._real(); L = [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4
         for pid in ("steel", "hyperbrowser"):
@@ -467,7 +467,7 @@ class T(unittest.TestCase):
         nc = CFG["news"]
         self.assertEqual(newsgen.week_flags(50, nc), []); self.assertEqual(newsgen.week_flags(49, nc), ["short week (n=49)"])
         self.assertEqual(newsgen.week_flags(25, nc), ["short week (n=25)"])
-        self.assertEqual(newsgen.week_flags(24, nc), ["short week (n=24)", "below minimum (n=24 < 25)"])
+        self.assertEqual(newsgen.week_flags(24, nc), ["short week (n=24)", "below minimum (n=24)"])
         self.assertEqual(newsgen.week_flags(0, nc), ["no data (n=0)"])
     def test_n0_week_publishes_with_no_scores(self):
         sd = self._news_dir([], "zero"); m = json.loads((sd / "news_2026-43.meta.json").read_text())
@@ -497,5 +497,144 @@ class T(unittest.TestCase):
         spec = {"facts/reference": 30, "docs/API lookup": 25, "local/entity": 10, "academic": 10, "long-tail": 15, "non-English": 10}
         self.assertEqual(validate.EVERGREEN_Q, spec); self.assertEqual(sum(spec.values()), 100); self.assertEqual(validate.EVERGREEN_N, 100)
         self.assertEqual(mocks.EVERGREEN_Q, spec)
+
+BENCH_SETS = SITE / "bench" / "sets"
+class OwnerRulingsStage2(unittest.TestCase):
+    """Owner rulings 2026-10-15 stage 2: below-minimum label, generic 429 rate_limited bucket, 'not run yet'."""
+    def _log(self, d, pid, recs):
+        f = Path(d) / "runs" / "2026-10-15" / pid / "news_2099-01.jsonl"; f.parent.mkdir(parents=True)
+        base = {"ts": "2026-10-15T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": 16, "offset_h": 0, "mock": True, "latency_ms": 1, "billed_units": 1, "item_id": "i"}
+        f.write_text("".join(json.dumps(base | r) + "\n" for r in recs)); return Path(d) / "runs"
+
+    def test_week_labels_below_minimum(self):
+        self.assertEqual(tables.week_labels(16), ["short week (n=16)", "below minimum (n=16)"])
+        self.assertEqual(tables.week_labels(30), ["short week (n=30)"]); self.assertEqual(tables.week_labels(50), [])
+        self.assertEqual(tables.week_labels(0), ["no data (n=0)"])
+
+    def test_429_rate_limited_bucket_any_provider(self):
+        for pid in ("firecrawl", "someprovider"):
+            with tempfile.TemporaryDirectory() as d:
+                recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + \
+                       [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] * 5 + [{"status": "fail", "http_status": 429, "reason": "x"}]
+                doc = tables.build(self._log(d, pid, recs), {}, None, {})
+                r = doc["tables"]["search"][0]
+                self.assertEqual((r["attempted"]["v"], r["passed"]["v"], r["failed"]["v"], r["rate_limited"]["v"]), (10, 5, 5, 6))
+                self.assertEqual(r["success_rate"]["v"], 0.5)
+                self.assertEqual(r["answered_display"], "5/10 answered + 6 rate-limited (free tier)")
+                self.assertIn("free-tier rate limit is the cause", r["rate_limited"]["note"])
+                self.assertIn("below minimum (n=16)", r["flags"])
+                self.assertEqual(tables.untraced_cells(doc, Path(d)), [])
+
+    def test_no_429_has_no_rate_limited_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = tables.build(self._log(d, "exa", [{"status": "pass"}, {"status": "fail", "reason": "HTTP 500"}]), {}, None, {})["tables"]["search"][0]
+            self.assertIsNone(r["rate_limited"]["v"]); self.assertEqual(r["answered_display"], "1/2 answered")
+
+    def test_frozen_meta_legacy_below_min_label_still_valid(self):
+        self.assertEqual(validate.legacy_flag("below minimum (n=16 < 25)"), "below minimum (n=16)")
+        self.assertEqual(validate.legacy_flag("short week (n=16)"), "short week (n=16)")
+        errs, _ = validate.validate_by_set(BENCH_SETS, load_yaml(SITE / "bench" / "config.yaml"))["news_2026-42"]
+        self.assertEqual(errs, [])
+
+    def test_not_run_yet(self):
+        cfg = {"month1_free_tier_providers": ["exa", "apify", "browserless", "brightdata"]}
+        summ = {"providers": [{"provider": "exa", "category": "search", "status": "ran"}, {"provider": "exa", "category": "scrape", "status": "not_implemented"},
+                              {"provider": "apify", "category": "scrape", "status": "not_implemented"}, {"provider": "brightdata", "category": "scrape", "status": "not_implemented"},
+                              {"provider": "browserless", "category": "browser", "status": "not_implemented"}, {"provider": "jina", "category": "scrape", "status": "skipped_not_month1"}]}
+        doc = {"tables": {"search": [{"provider": "exa"}], "scrape": [], "browser": []}}
+        nr = tables.not_run_yet(summ, cfg, doc)
+        self.assertEqual([n["provider"] for n in nr], ["apify", "brightdata", "browserless"])
+        self.assertTrue(all(n["status"] == "not run yet" for n in nr))
+
+class Run1Published(unittest.TestCase):
+    """Run 1 publication (owner rulings): Firecrawl 429s split from quality fails; below-minimum flag on every week-42 row;
+    every published count equals a recount of the raw run log; later collectors (Apify, Browserless) on the same frozen set."""
+    DOC = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
+    def _row(self, cat, pid):
+        return next(r for r in self.DOC["tables"][cat] if r["provider"] == pid)
+
+    def test_firecrawl_429_split_in_published_table(self):
+        r = self._row("search", "firecrawl")
+        self.assertEqual((r["passed"]["v"], r["attempted"]["v"], r["rate_limited"]["v"]), (5, 10, 6))
+        self.assertEqual(r["answered_display"], "5/10 answered + 6 rate-limited (free tier)")
+        self.assertEqual(r["rate_limited"]["label"], "rate-limited (free tier)")
+        for pid in ("exa", "tavily"): self.assertIsNone(self._row("search", pid)["rate_limited"]["v"])
+
+    def test_run1_counts_match_raw_logs(self):
+        want = {"exa": (12, 16, 0), "tavily": (8, 16, 0), "firecrawl": (5, 10, 6)}
+        for pid, (pas, att, rl) in want.items():
+            recs = read_jsonl(SITE / "bench" / "runs" / "2026-10-15" / pid / "news_2026-42.jsonl")
+            n429 = sum(tables.is_rate_limited(x) for x in recs)
+            scored = [x for x in recs if not tables.is_rate_limited(x)]
+            self.assertEqual((sum(x["status"] == "pass" for x in scored), len(scored), n429), (pas, att, rl), pid)
+            r = self._row("search", pid); self.assertEqual((r["passed"]["v"], r["attempted"]["v"]), (pas, att))
+            self.assertEqual(r["run_date"], "2026-10-15")
+
+    def test_below_minimum_flag_on_every_week42_row(self):
+        rows = [r for t in self.DOC["tables"].values() for r in t] + self.DOC["freshness"]
+        self.assertTrue(rows)
+        for r in rows:
+            self.assertIn("below minimum (n=16)", r["flags"], r["provider"]); self.assertIn("short week (n=16)", r["flags"])
+        self.assertIn({"set": "news_2026-42", "flag": "below minimum (n=16)"}, self.DOC["flags"])
+
+    def test_published_doc_fully_traced_and_brave_absent(self):
+        self.assertEqual(tables.untraced_cells(self.DOC, SITE / "bench"), [])
+        self.assertNotIn("brave", {r["provider"] for t in self.DOC["tables"].values() for r in t})
+
+    def test_not_run_yet_only_for_providers_without_rows(self):
+        shown = {r["provider"] for t in self.DOC["tables"].values() for r in t}
+        for n in self.DOC.get("not_run_yet", []): self.assertNotIn(n["provider"], shown)
+        self.assertIn("brightdata", {n["provider"] for n in self.DOC.get("not_run_yet", [])})
+
+class Collectors2(unittest.TestCase):
+    def test_newsfetch_tasks_from_frozen_set(self):
+        from awibench import newsfetch
+        f = BENCH_SETS / "news_2026-42.jsonl"; name, s = newsfetch.from_news_file(f)
+        rows = read_jsonl(f)
+        self.assertEqual(name, "newsfetch_2026-42"); self.assertEqual(s["sha"], sha256_file(f)); self.assertEqual(len(s["rows"]), len(rows))
+        self.assertEqual(runner.set_kind(name), "browser"); self.assertEqual(runner.set_kind("news_2026-42"), "search")
+        t = s["rows"][0]; self.assertEqual(t["start_url"], rows[0]["check"]["value"]); self.assertEqual(t["pass"], {"type": "dom_text_contains", "value": rows[0]["headline"]})
+        ok, _ = checks.browser_check(t, {"dom_text": "x " + rows[0]["headline"].upper() + " y"}); self.assertTrue(ok)
+        ok, _ = checks.browser_check(t, {"dom_text": "Just a moment..."}); self.assertFalse(ok)
+
+    def test_apify_adapter_uses_fetched_url_and_bills_events(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        fake = [{"searchResult": {"rank": 2, "url": "http://www.google.com/goto?url=x", "title": "B"}, "metadata": {"url": "https://b.example/2"}, "crawl": {"requestStatus": "handled"}},
+                {"searchResult": {"rank": 1, "url": "http://www.google.com/goto?url=y", "title": "A"}, "metadata": {"url": "https://a.example/1"}, "crawl": {"requestStatus": "handled"}},
+                {"searchResult": {"rank": 3, "url": "http://www.google.com/goto?url=z", "title": "C"}, "crawl": {"requestStatus": "failed"}}]
+        old = B._get_json; B._get_json = lambda url, headers, timeout=150: (200, fake)
+        try: out = B._apify_search("k", {"query": "q"})
+        finally: B._get_json = old
+        self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
+        self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
+
+    def test_late_run_gets_no_freshness_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            sd = Path(d) / "sets"; sd.mkdir(); rows = read_jsonl(BENCH_SETS / "news_2026-42.jsonl")
+            (sd / "news_2026-42.jsonl").write_text((BENCH_SETS / "news_2026-42.jsonl").read_text())
+            (sd / "news_2026-42.meta.json").write_text(json.dumps({"run_at": "2026-10-15T21:00:00-04:00"}))
+            for day in ("2026-10-15", "2026-10-19"):
+                f = Path(d) / "runs" / day / f"p{day[-2:]}" / "news_2026-42.jsonl"; f.parent.mkdir(parents=True)
+                f.write_text("".join(json.dumps({"ts": f"{day}T12:00:00+00:00", "set": "news_2026-42", "set_sha": "x", "set_rows": 16, "offset_h": 0, "mock": False,
+                    "latency_ms": 1, "billed_units": 1, "item_id": r["id"], "status": "fail", "results": []}) + "\n" for r in rows))
+            doc = tables.build(Path(d) / "runs", {}, sd, {})
+            self.assertEqual([f["provider"] for f in doc["freshness"]], ["p15"])
+            self.assertEqual([n["provider"] for n in doc["freshness_notes"]], ["p19"])
+
+    def test_newsgen_more_urls_and_cross_feed_dedupe(self):
+        def item(t, link, h): return f"<item><title>{t}</title><link>{link}</link><pubDate>{(RUN_AT - dt.timedelta(hours=h)).strftime('%a, %d %b %Y %H:%M:%S %z')}</pubDate></item>"
+        feeds = {("a", 0): "<rss><channel>" + item("One story", "https://x.example/1", 30) + "</channel></rss>",
+                 ("a", 1): "<rss><channel>" + item("Older page story", "https://x.example/2", 40) + "</channel></rss>",
+                 ("b", 0): "<rss><channel>" + item("One story", "https://x.example/1/", 30) + item("Other", "https://x.example/3", 50) + "</channel></rss>"}
+        cfg = {"news": dict(CFG["news"]), "news_feeds": [{"id": "a", "url": "https://a/rss", "more_urls": ["https://a/rss?paged=2"], "section": "s"}, {"id": "b", "url": "https://b/rss", "section": "s"}]}
+        log = []; rows, _ = newsgen.generate(cfg, RUN_AT, "1", lambda f: feeds[(f["id"], f.get("page", 0))], log)
+        self.assertEqual(sorted(r["source_url"] for r in rows), ["https://x.example/1", "https://x.example/2", "https://x.example/3"])
+        self.assertEqual([l["items"] for l in log if l["event"] == "feed_read"], [2, 2])
+
+    def test_config_feeds_capped_and_more_than_week1(self):
+        live = [f for f in CFG["news_feeds"] if f.get("url")]
+        self.assertGreaterEqual(len(live), 11); self.assertEqual(CFG["news"]["per_feed"], 15); self.assertEqual(CFG["news"]["total"], 50)
+        self.assertEqual((CFG["news"]["min_age_h"], CFG["news"]["max_age_h"]), (24, 72))
+        self.assertTrue(all(f["url"].startswith("https://") and f.get("url_verified") for f in live))
 
 if __name__ == "__main__": unittest.main()
