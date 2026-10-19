@@ -9,7 +9,7 @@ suffix removed, whitespace collapsed, trailing punctuation dropped, at most 14 w
 """
 import argparse, datetime as dt, email.utils, json, random, re, sys, xml.etree.ElementTree as ET
 from pathlib import Path
-from .util import BENCH, load_yaml, domain
+from .util import BENCH, load_yaml, domain, norm_url
 
 def parse_feed(xml_text, feed):
     root = ET.fromstring(xml_text); out = []
@@ -41,16 +41,21 @@ def generate(cfg, run_at, seed, read_feed, log):
         if not feed.get("url"):
             log.append({"event": "feed_dropped", "feed": feed["id"], "reason": feed.get("drop_reason", "no official feed URL configured")})
             continue
-        try:
-            got = parse_feed(read_feed(feed), feed)
-        except Exception as e:
-            log.append({"event": "feed_error", "feed": feed["id"], "error": f"{type(e).__name__}: {e}"}); continue
+        got = []
+        for page, url in enumerate([feed["url"]] + list(feed.get("more_urls") or [])):   # more_urls: older pages of the same feed
+            try:
+                txt = read_feed(feed if page == 0 else feed | {"url": url, "page": page})
+                if txt is None: continue          # fixture reader: no file for this page
+                got += parse_feed(txt, feed)
+            except Exception as e:
+                log.append({"event": "feed_error", "feed": feed["id"], "page": page, "error": f"{type(e).__name__}: {e}"})
         log.append({"event": "feed_read", "feed": feed["id"], "items": len(got)}); items += got
     lo, hi = run_at - dt.timedelta(hours=nc["max_age_h"]), run_at - dt.timedelta(hours=nc["min_age_h"])
     seen, pool = set(), []
     for x in sorted(items, key=lambda x: (x["published_at"], x["link"], x["feed"])):
-        if not (lo <= x["published_at"] <= hi) or not x["link"] or x["link"] in seen or not x["title"]: continue
-        seen.add(x["link"]); pool.append(x)
+        key = norm_url(x["link"]) if x["link"] else None   # same story in two section feeds (or with tracking params) counts once
+        if not (lo <= x["published_at"] <= hi) or not x["link"] or key in seen or not x["title"]: continue
+        seen.add(key); pool.append(x)
     random.Random(f"{seed}|{run_at.isoformat()}").shuffle(pool)
     caps = {"feed": nc["per_feed"]}   # final ruling (3): 15 per feed is the only cap (no outlet or section caps)
     used = {k: {} for k in caps}; chosen = []
@@ -78,7 +83,7 @@ def week_flags(n, nc):
     if n == 0: return ["no data (n=0)"]
     f = []
     if n < nc["total"]: f.append(f"short week (n={n})")
-    if n < nc["min_total"]: f.append(f"below minimum (n={n} < {nc['min_total']})")
+    if n < nc["min_total"]: f.append(f"below minimum (n={n})")
     return f
 
 def meta(rows, name, cfg, run_at, seed, log):
@@ -102,7 +107,10 @@ def main(argv=None):
     ap.add_argument("--config", default=str(BENCH / "config.yaml")); ap.add_argument("--fixtures")
     ap.add_argument("--live", action="store_true"); ap.add_argument("--out"); a = ap.parse_args(argv)
     cfg = load_yaml(a.config); run_at = dt.datetime.fromisoformat(a.date)
-    if a.fixtures: read = lambda f: (Path(a.fixtures) / f"{f['id']}.xml").read_text()
+    if a.fixtures:
+        def read(f):
+            p = Path(a.fixtures) / (f"{f['id']}.xml" if not f.get("page") else f"{f['id']}-p{f['page']}.xml")
+            return p.read_text() if p.exists() else None
     elif a.live:
         import urllib.request
         read = lambda f: urllib.request.urlopen(urllib.request.Request(f["url"], headers={"User-Agent": "AgentWebIndexBot/1.0"}), timeout=30).read().decode("utf-8", "replace")

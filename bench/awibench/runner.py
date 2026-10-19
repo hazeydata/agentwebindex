@@ -13,7 +13,9 @@ from . import checks, cost
 
 SET_KIND = {"search_evergreen": "search", "scrape_urls": "scrape", "browser_tasks": "browser"}  # news_* -> search
 
-def set_kind(name): return "search" if name.startswith("news_") else SET_KIND[name]
+def set_kind(name):
+    if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
+    return "search" if name.startswith("news_") else SET_KIND[name]
 
 class CapViolation(RuntimeError): pass
 
