@@ -21,7 +21,21 @@
   {
    "scope": "provider",
    "provider": "exa",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "exa",
    "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "tavily",
+   "category": "search",
    "status": "skipped_no_key",
    "reason": "not run (no key)"
   },
@@ -63,6 +77,13 @@
   {
    "scope": "provider",
    "provider": "firecrawl",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "firecrawl",
    "category": "scrape",
    "status": "skipped_no_key",
    "reason": "not run (no key)"
@@ -77,9 +98,16 @@
   {
    "scope": "provider",
    "provider": "apify",
+   "category": "search",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "apify",
    "category": "scrape",
-   "status": "not_implemented",
-   "reason": "not_implemented"
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
   },
   {
    "scope": "provider",
@@ -115,6 +143,13 @@
    "category": "browser",
    "status": "skipped_not_month1",
    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "browserless",
+   "category": "browser",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
   }
  ],
  "flags": [
@@ -125,6 +160,10 @@
   {
    "set": "news_2026-42",
    "flag": "below minimum (n=16)"
+  },
+  {
+   "set": "news_2026-43",
+   "flag": "short week (n=40)"
   }
  ]
 }
