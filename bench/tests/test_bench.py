@@ -856,6 +856,55 @@ class Rulings3(unittest.TestCase):
                 self.assertEqual((p["status"], lines[-1]["status"], lines[-1]["billed_units"], json.loads(led.read_text())["used"]["exa"]), ("ran", "fail", 1, 8), code)
         self.assertTrue(runner.is_network_error(TimeoutError("timed out"))); self.assertFalse(runner.is_network_error(RuntimeError("HTTP 500: Timed out.")))
 
+    def _live(self, pid, kind, urlopen):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        prov = [{"id": pid, "key_env": "K", "categories": [kind]}]
+        pr = {pid: {kind: {"model": "credits", "free_tier": {"units_per_month": 10**6, "needs_card": False}}}}
+        sets = {"search_evergreen": {"rows": self.ROWS[:1], "sha": "x"}} if kind == "search" else {"browser_tasks": {"rows": [{"id": "b1", "start_url": "https://a.example/", "timeout_s": 30}], "sha": "x"}}
+        with mock.patch("urllib.request.urlopen", urlopen):
+            runner.run(providers=prov, sets=sets, pricing=pr, tos={}, adapters=B.ADAPTERS, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"K": "d"}, mock=True)
+        return json.loads(led.read_text())["used"].get(pid, 0) if led.exists() else 0
+
+    @staticmethod
+    def _resp(status=200, body=b"{}", exc=None):
+        class R:
+            def __init__(s): s.status = status
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s):
+                if exc: raise exc
+                return body
+        return lambda *a, **k: R()
+
+    @staticmethod
+    def _raise(exc):
+        def f(*a, **k): raise exc
+        return f
+
+    def test_status_line_received_bills_estimate(self):
+        import socket, http.client
+        for text in (b"Request timed out", b"Connection refused"):
+            body = json.dumps({"success": False, "error": text.decode()}).encode()
+            self.assertEqual(self._live("firecrawl", "search", self._resp(200, body)), 1, text)
+        self.assertEqual(self._live("firecrawl", "search", self._resp(200, json.dumps({"success": False, "error": "TimeoutError: upstream"}).encode())), 1)
+        for exc in (ConnectionResetError(104, "Connection reset by peer"), socket.timeout("timed out"), http.client.IncompleteRead(b"ab", 10)):
+            self.assertEqual(self._live("exa", "search", self._resp(200, exc=exc)), 1, exc)
+            self.assertGreater(self._live("browserless", "browser", self._resp(200, exc=exc)), 0, exc)
+
+    def test_no_status_line_bills_zero(self):
+        import ssl, socket, urllib.error
+        for exc in (ssl.SSLError(1, "handshake failure"), urllib.error.URLError(ssl.SSLError(1, "x")), ConnectionRefusedError(111, "Connection refused"), socket.timeout("timed out")):
+            self.assertEqual(self._live("exa", "search", self._raise(exc)), 0, exc)
+            self.assertEqual(self._live("browserless", "browser", self._raise(exc)), 0, exc)
+
+    def test_urlerror_wrapping_httperror_bills_by_status(self):
+        import io, urllib.error
+        for code, units in ((401, 0), (403, 1), (500, 1)):
+            exc = urllib.error.URLError(urllib.error.HTTPError("https://x.example", code, "x", {}, io.BytesIO(b"")))
+            p, lines, led = self._bill({8}, exc)
+            self.assertEqual(lines[-1]["billed_units"], units, code)
+
     def test_runner_short_set_is_stale_error(self):   # kills NEW1 (short-set check) and NEW4 (off-by-one): runner, not tables
         for at in ({8}, {1}, {3, 5}):
             p, lines, _ = self._bill(at, ConnectionRefusedError(111, "Connection refused"))

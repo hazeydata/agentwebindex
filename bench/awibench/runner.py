@@ -37,16 +37,19 @@ REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reac
 #   401: bill 0
 #   403, 429 and 5xx: bill the estimate
 _HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
-_NET_TEXT = re.compile(r"URLError|gaierror|Name or service not known|Temporary failure in name resolution|nodename nor servname|"
-                       r"Connection(Refused|Reset|Aborted)?Error|Connection refused|Connection reset|RemoteDisconnected|"
-                       r"TimeoutError|timed out|socket\.timeout|Network is unreachable|No route to host", re.I)
+_NET_TEXT = re.compile(r"(URLError|gaierror|Connection(Refused|Reset|Aborted)?Error|RemoteDisconnected|TimeoutError|timeout|SSL\w*Error): ")
 
 def is_network_error(e):
-    """True when the call got no response at all from the provider (CEO billing ruling 2026-10-19)."""
-    import socket, urllib.error
-    if isinstance(e, urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
-    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)): return True
-    return bool(_NET_TEXT.search(f"{type(e).__name__}: {e}"))   # adapters re-raise as RuntimeError("<Type>: <msg>") with the key masked
+    """True only when no HTTP status line ever arrived (CEO billing ruling 2026-10-19); a 401 is billed 0 separately."""
+    import socket, ssl, urllib.error
+    if isinstance(e, urllib.error.HTTPError) or isinstance(getattr(e, "reason", None), urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
+    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror, ssl.SSLError)): return True
+    return isinstance(e, RuntimeError) and bool(_NET_TEXT.match(str(e)))
+
+def _http_code(e):
+    import urllib.error
+    h = e if isinstance(e, urllib.error.HTTPError) else getattr(e, "reason", None)
+    return f"HTTP {h.code}: " if isinstance(h, urllib.error.HTTPError) else ""
 
 def stale(reason, status, why):
     assert reason in STALE_REASONS, reason
@@ -163,7 +166,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     t0 = clock()
                     net = False
                     try: out = fn(key, item)
-                    except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}; net = is_network_error(e)
+                    except Exception as e: out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; net = is_network_error(e)
                     lat = (clock() - t0) * 1000
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
                     # CEO billing ruling 2026-10-19: no response -> 0; 401 -> 0; 403, 429, 5xx -> the estimate

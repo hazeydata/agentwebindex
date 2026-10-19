@@ -15,12 +15,16 @@ from awibench import runner, tables, validate, cost, freshness, newsfetch
 from awibench.util import load_yaml, read_jsonl, sha256_file
 
 BENCH = ROOT / "bench"
+def _body(r):
+    try: return r.read()
+    except Exception as e: raise RuntimeError(f"HTTP {r.status}: body cut off: {type(e).__name__}") from None
+
 def _post(url, headers, body):
     import urllib.request, urllib.error
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"} | headers)
     try:
-        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:   # message carries status + short vendor text only, never the key
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
@@ -49,7 +53,7 @@ def _get_json(url, headers, timeout=150):
     import urllib.request, urllib.error
     req = urllib.request.Request(url, headers={"User-Agent": "AgentWebIndexBot/1.0"} | headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
 
@@ -90,7 +94,7 @@ def _browserless_fetch(key, item):
                                  headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"})
     t0 = time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, r.read().decode("utf-8", "replace")
+        with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:   # never echo the request URL (it carries the token)
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
     except Exception as e:
