@@ -1572,4 +1572,22 @@ class ChallengeInterstitial(unittest.TestCase):
 
 
 
+
+class RunTestsTmpGuard(unittest.TestCase):
+    GUARD = "\n".join(l for l in (SITE / "run_tests.sh").read_text().splitlines() if l.startswith(("left=", "if [ \"$left\"", "echo \"temp hygiene")))
+    def _guard(self, planted):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d) / "t"; t.mkdir()
+            for n in planted: (t / n).mkdir()
+            return subprocess.run(["bash", "-c", self.GUARD], env={**os.environ, "TMPDIR": str(t)}, capture_output=True, text=True)
+    def test_guard_lines_present(self):
+        self.assertEqual(len(self.GUARD.splitlines()), 3)
+    def test_planted_awi_bd_dir_fails(self):
+        r = self._guard(["awi-bd-dummy"]); self.assertEqual(r.returncode, 1); self.assertIn("left 1 awi-* temp dirs behind", r.stdout)
+    def test_planted_awi_test_dir_fails(self):
+        r = self._guard(["awi-test-dummy", "awi-dry-dummy"]); self.assertEqual(r.returncode, 1); self.assertIn("left 2 awi-* temp dirs behind", r.stdout)
+    def test_clean_or_foreign_dirs_pass(self):
+        r = self._guard(["other-dummy"]); self.assertEqual(r.returncode, 0); self.assertIn("temp hygiene OK", r.stdout)
+
+
 if __name__ == "__main__": unittest.main()
