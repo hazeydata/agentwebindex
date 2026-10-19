@@ -607,15 +607,16 @@ class Run1Published(unittest.TestCase):
     def _row(self, cat, pid):
         return next(r for r in self.DOC["tables"][cat] if r["provider"] == pid)
 
-    def test_firecrawl_429_split_in_published_table(self):
-        r = self._row("search", "firecrawl")
-        self.assertEqual((r["passed"]["v"], r["attempted"]["v"], r["rate_limited"]["v"]), (5, 10, 6))
-        self.assertEqual(r["answered_display"], "5/10 answered + 6 rate-limited (free tier)")
-        self.assertEqual(r["rate_limited"]["label"], "rate-limited (free tier)")
+    def test_firecrawl_2026_10_15_search_row_dropped_by_rule3(self):
+        self.assertNotIn("firecrawl", {r["provider"] for r in self.DOC["tables"]["search"]})
+        self.assertNotIn("firecrawl", {n["provider"] for n in self.DOC["not_run_yet"]})
+        self.assertIn(("firecrawl", "scrape", "skipped_no_key"), {(k.get("provider"), k.get("category"), k["status"]) for k in self.DOC["skips"]})
+        recs = read_jsonl(SITE / "bench" / "runs" / "2026-10-15" / "firecrawl" / "news_2026-42.jsonl")
+        self.assertEqual(sum(tables.is_rate_limited(x) for x in recs), 6); self.assertTrue(runner.quota_degraded(recs))
         for pid in ("exa", "tavily"): self.assertIsNone(self._row("search", pid)["rate_limited"]["v"])
 
     def test_run1_counts_match_raw_logs(self):
-        want = {"exa": (12, 16, 0), "tavily": (8, 16, 0), "firecrawl": (5, 10, 6)}
+        want = {"exa": (12, 16, 0), "tavily": (8, 16, 0)}
         for pid, (pas, att, rl) in want.items():
             recs = read_jsonl(SITE / "bench" / "runs" / "2026-10-15" / pid / "news_2026-42.jsonl")
             n429 = sum(tables.is_rate_limited(x) for x in recs)

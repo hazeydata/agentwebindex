@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-19T07:07:03+00:00",
+ "generated_at": "2026-10-19T20:39:05+00:00",
  "source": "run logs only (SPEC-bench \u00a74)",
  "tables": {
   "search": [
@@ -14,6 +14,7 @@
      "below minimum (n=16)"
     ],
     "mock": false,
+    "partial": false,
     "attempted": {
      "v": 16,
      "src": [
@@ -229,6 +230,7 @@
      "below minimum (n=16)"
     ],
     "mock": false,
+    "partial": false,
     "attempted": {
      "v": 16,
      "src": [
@@ -470,269 +472,6 @@
     }
    },
    {
-    "provider": "firecrawl",
-    "set": "news_2026-42",
-    "run_date": "2026-10-15",
-    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
-    "set_rows": 16,
-    "flags": [
-     "short week (n=16)",
-     "below minimum (n=16)"
-    ],
-    "mock": false,
-    "attempted": {
-     "v": 10,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     ]
-    },
-    "passed": {
-     "v": 5,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     ]
-    },
-    "failed": {
-     "v": 5,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     ]
-    },
-    "rate_limited": {
-     "v": 6,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        11,
-        12,
-        13,
-        14,
-        15,
-        16
-       ]
-      }
-     ],
-     "label": "rate-limited (free tier)",
-     "note": "HTTP 429 from the provider; the free-tier rate limit is the cause. Excluded from the pass-rate denominator, not a quality fail."
-    },
-    "timed_out": {
-     "v": null,
-     "src": [],
-     "note": null
-    },
-    "answered_display": "5/10 answered + 6 rate-limited (free tier)",
-    "skipped_tos": {
-     "count": 0,
-     "src": [],
-     "tos_reason": null
-    },
-    "success_rate": {
-     "v": 0.5,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     ]
-    },
-    "p50_latency_ms": {
-     "v": 338.07,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     ]
-    },
-    "free_quota_note": "Free Plan: '1,000 credits / month ... no card' (500 searches or 1,000 pages)",
-    "cost_units_note": null,
-    "entry_tier_cost_per_1k": {
-     "v": 7.6,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      },
-      {
-       "file": "bench/pricing.yaml",
-       "provider": "firecrawl",
-       "category": "search"
-      }
-     ],
-     "tier": "Hobby $19/month billed monthly (5,000 credits)",
-     "lower_bound": false,
-     "lower_bound_reason": null,
-     "na_reason": null,
-     "display": "$7.60"
-    },
-    "entry_tier_cost_per_successful_1k": {
-     "v": 15.2,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      },
-      {
-       "file": "bench/pricing.yaml",
-       "provider": "firecrawl",
-       "category": "search"
-      }
-     ],
-     "tier": "Hobby $19/month billed monthly (5,000 credits)",
-     "lower_bound": false,
-     "lower_bound_reason": null,
-     "na_reason": null,
-     "display": "$15.20"
-    },
-    "volume_tier_cost_per_1k": {
-     "v": 1.198,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      },
-      {
-       "file": "bench/pricing.yaml",
-       "provider": "firecrawl",
-       "category": "search"
-      }
-     ],
-     "tier": "Scale $599/month billed yearly (1,000,000 credits)",
-     "lower_bound": false,
-     "lower_bound_reason": null,
-     "na_reason": null,
-     "display": "$1.20"
-    },
-    "volume_tier_cost_per_successful_1k": {
-     "v": 2.396,
-     "src": [
-      {
-       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-       "lines": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-       ]
-      },
-      {
-       "file": "bench/pricing.yaml",
-       "provider": "firecrawl",
-       "category": "search"
-      }
-     ],
-     "tier": "Scale $599/month billed yearly (1,000,000 credits)",
-     "lower_bound": false,
-     "lower_bound_reason": null,
-     "na_reason": null,
-     "display": "$2.40"
-    }
-   },
-   {
     "provider": "tavily",
     "set": "news_2026-42",
     "run_date": "2026-10-15",
@@ -743,6 +482,7 @@
      "below minimum (n=16)"
     ],
     "mock": false,
+    "partial": false,
     "attempted": {
      "v": 16,
      "src": [
@@ -1051,6 +791,7 @@
      "below minimum (n=16)"
     ],
     "mock": false,
+    "partial": false,
     "attempted": {
      "v": 16,
      "src": [
@@ -1439,78 +1180,6 @@
    }
   },
   {
-   "provider": "firecrawl",
-   "set": "news_2026-42",
-   "run_date": "2026-10-15",
-   "flags": [
-    "short week (n=16)",
-    "below minimum (n=16)"
-   ],
-   "n": 16,
-   "week": "2026-42",
-   "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
-   "fresh_hit_at_10": {
-    "v": 0.3125,
-    "src": [
-     {
-      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-      "lines": [
-       1,
-       2,
-       3,
-       4,
-       5,
-       6,
-       7,
-       8,
-       9,
-       10
-      ]
-     }
-    ]
-   },
-   "median_lag_h": {
-    "v": 50.775555555555556,
-    "src": [
-     {
-      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-      "lines": [
-       1,
-       2,
-       3,
-       4,
-       5,
-       6,
-       7,
-       8,
-       9,
-       10
-      ]
-     }
-    ]
-   },
-   "censored_share": {
-    "v": 0.6875,
-    "src": [
-     {
-      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
-      "lines": [
-       1,
-       2,
-       3,
-       4,
-       5,
-       6,
-       7,
-       8,
-       9,
-       10
-      ]
-     }
-    ]
-   }
-  },
-  {
    "provider": "tavily",
    "set": "news_2026-42",
    "run_date": "2026-10-15",
@@ -1799,8 +1468,8 @@
   "2026-10-19"
  ],
  "sets_valid": [
-  "news_2026-42",
-  "newsfetch_2026-42"
+  "news_2026-43",
+  "newsfetch_2026-43"
  ],
  "skips": [
   {
@@ -1928,6 +1597,10 @@
   {
    "set": "news_2026-42",
    "flag": "below minimum (n=16)"
+  },
+  {
+   "set": "news_2026-43",
+   "flag": "short week (n=40)"
   }
  ]
 }
