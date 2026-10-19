@@ -37,13 +37,13 @@ REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reac
 #   401: bill 0
 #   403, 429 and 5xx: bill the estimate
 _HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
-_NET_TEXT = re.compile(r"(URLError|gaierror|Connection(Refused|Reset|Aborted)?Error|RemoteDisconnected|TimeoutError|timeout|SSL\w*Error): ")
+_NET_TEXT = re.compile(r"(URLError|gaierror|Connection(Refused|Reset|Aborted)?Error|RemoteDisconnected|TimeoutError|timeout): ")
 
 def is_network_error(e):
     """True only when no HTTP status line ever arrived (CEO billing ruling 2026-10-19); a 401 is billed 0 separately."""
-    import socket, ssl, urllib.error
+    import socket, urllib.error
     if isinstance(e, urllib.error.HTTPError) or isinstance(getattr(e, "reason", None), urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
-    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror, ssl.SSLError)): return True
+    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)): return True
     return isinstance(e, RuntimeError) and bool(_NET_TEXT.match(str(e)))
 
 def _http_code(e):

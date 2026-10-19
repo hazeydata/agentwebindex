@@ -888,13 +888,15 @@ class Rulings3(unittest.TestCase):
             body = json.dumps({"success": False, "error": text.decode()}).encode()
             self.assertEqual(self._live("firecrawl", "search", self._resp(200, body)), 1, text)
         self.assertEqual(self._live("firecrawl", "search", self._resp(200, json.dumps({"success": False, "error": "TimeoutError: upstream"}).encode())), 1)
-        for exc in (ConnectionResetError(104, "Connection reset by peer"), socket.timeout("timed out"), http.client.IncompleteRead(b"ab", 10)):
+        import ssl
+        for exc in (ConnectionResetError(104, "Connection reset by peer"), socket.timeout("timed out"), http.client.IncompleteRead(b"ab", 10), ssl.SSLError(1, "bad record mac")):
             self.assertEqual(self._live("exa", "search", self._resp(200, exc=exc)), 1, exc)
             self.assertGreater(self._live("browserless", "browser", self._resp(200, exc=exc)), 0, exc)
+        self.assertFalse(runner.is_network_error(ssl.SSLError(1, "bad record mac"))); self.assertFalse(runner.is_network_error(RuntimeError("SSLError: bad record mac")))
 
     def test_no_status_line_bills_zero(self):
         import ssl, socket, urllib.error
-        for exc in (ssl.SSLError(1, "handshake failure"), urllib.error.URLError(ssl.SSLError(1, "x")), ConnectionRefusedError(111, "Connection refused"), socket.timeout("timed out")):
+        for exc in (urllib.error.URLError(ssl.SSLError(1, "handshake failure")), ConnectionRefusedError(111, "Connection refused"), socket.timeout("timed out")):
             self.assertEqual(self._live("exa", "search", self._raise(exc)), 0, exc)
             self.assertEqual(self._live("browserless", "browser", self._raise(exc)), 0, exc)
 
