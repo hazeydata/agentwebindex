@@ -12,7 +12,8 @@ A stale provider is not published: tables.collect never uses an incomplete log, 
 latest.json row (or omits the provider entirely when it has none). Billed spend is always logged (no rollback).
 The run log of a stale run is still written; only a provider with no data call and nothing billed writes no lines.
 With no data from any provider and no ledger change, the ledger and run summary are not written.
-Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored).
+Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored),
+unbilled_no_response (no response at all; 0 units, not scored; CEO billing ruling 2026-10-19).
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
@@ -29,6 +30,23 @@ def set_kind(name):
 
 STALE_REASONS = ("quota", "timeout", "auth_error", "error")
 REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reached set item
+
+# CEO billing ruling 2026-10-19 (binding):
+#   no response at all (connection or DNS failure, local timeout before any response, blocked network): bill 0 and log the
+#     call line as unbilled_no_response (not scored, not a reached item, so the set is incomplete -> stale_error)
+#   401: bill 0
+#   403, 429 and 5xx: bill the estimate
+_HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
+_NET_TEXT = re.compile(r"URLError|gaierror|Name or service not known|Temporary failure in name resolution|nodename nor servname|"
+                       r"Connection(Refused|Reset|Aborted)?Error|Connection refused|Connection reset|RemoteDisconnected|"
+                       r"TimeoutError|timed out|socket\.timeout|Network is unreachable|No route to host", re.I)
+
+def is_network_error(e):
+    """True when the call got no response at all from the provider (CEO billing ruling 2026-10-19)."""
+    import socket, urllib.error
+    if isinstance(e, urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
+    if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)): return True
+    return bool(_NET_TEXT.search(f"{type(e).__name__}: {e}"))   # adapters re-raise as RuntimeError("<Type>: <msg>") with the key masked
 
 def stale(reason, status, why):
     assert reason in STALE_REASONS, reason
@@ -143,12 +161,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break
                     t0 = clock()
+                    net = False
                     try: out = fn(key, item)
-                    except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}
+                    except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}; net = is_network_error(e)
                     lat = (clock() - t0) * 1000
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
-                    # ASSUMPTION (unsourced): a rejected 401 is not billed, so 0 units. A 403 may mean quota/plan exhausted, so it is charged the estimate.
-                    units = 0 if auth and auth.group(1) == "1" else out.get("billed_units", est)
+                    # CEO billing ruling 2026-10-19: no response -> 0; 401 -> 0; 403, 429, 5xx -> the estimate
+                    units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
                     ledger.add(pool, units); billed += units; status["calls"] += 1; status["data_calls"] += "error" not in out
                     passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
@@ -158,6 +177,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
+                    elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached
                     fh.append(json.dumps(rec) + "\n"); reached += rec["status"] in REACHED
                     if auth:   # stop this provider now; not published, its spend is kept
                         status = stale("auth_error", status, f"HTTP 40{auth.group(1)} on {item['id']} ({set_name})")

@@ -810,6 +810,61 @@ class Rulings3(unittest.TestCase):
         self.assertEqual((r["run_date"], r["attempted"]["v"], r["partial"]), ("2026-10-19", 8, False))
         self.assertNotIn("run_status", read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")[0])
 
+    # ---------- CEO billing ruling 2026-10-19: no response 0 (unbilled_no_response), 401 0, 403/429/5xx estimate ----------
+    def _bill(self, exc_at, exc, n_rows=8, ledger=None):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); led = tmp / "quota.json"
+        if ledger is not None: led.write_text(ledger)
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if len(n) in exc_at: raise exc() if callable(exc) else exc
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d"}, mock=True)
+        f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"
+        return s["providers"][0], (read_jsonl(f) if f.exists() else []), led
+
+    NO_RESPONSE = [lambda: __import__("urllib.error").error.URLError(__import__("socket").gaierror(-2, "Name or service not known")),
+                   lambda: ConnectionRefusedError(111, "Connection refused"), lambda: ConnectionResetError(104, "Connection reset by peer"),
+                   lambda: TimeoutError("timed out"), lambda: __import__("urllib.error").error.URLError("[Errno 101] Network is unreachable"),
+                   lambda: RuntimeError("URLError: <urlopen error [Errno -3] Temporary failure in name resolution>")]   # adapter re-raise, key masked
+
+    def test_no_response_every_call_ledger_byte_identical(self):
+        before = json.dumps({"month": "2026-10", "over_free_units": 0, "used": {"exa": 33}}, indent=1, sort_keys=True)
+        for mk in self.NO_RESPONSE:
+            p, lines, led = self._bill(set(range(1, 9)), mk, ledger=before)
+            self.assertEqual(p["status"], "stale_error", mk()); self.assertEqual(led.read_text(), before)   # byte-identical
+            self.assertEqual(lines, [])   # nothing billed, nothing returned: no run lines
+
+    def test_no_response_line_is_unbilled_no_response(self):   # 1 of 8 gets no response -> 0 units, set incomplete -> stale_error
+        for mk in self.NO_RESPONSE:
+            p, lines, led = self._bill({4}, mk)
+            self.assertEqual((p["status"], p["calls"], p["data_calls"]), ("stale_error", 8, 7), mk())
+            self.assertIn("incomplete set: search_evergreen 7/8", p["reason"])
+            self.assertEqual([(l["status"], l["billed_units"]) for l in lines if l["status"] not in ("pass", "fail")], [("unbilled_no_response", 0)])
+            self.assertEqual(json.loads(led.read_text())["used"]["exa"], 7)
+
+    def test_401_bills_zero_403_429_5xx_bill_estimate(self):
+        for code, units, st in ((401, 0, "stale_auth_error"), (403, 1, "stale_auth_error")):
+            p, lines, led = self._bill({8}, RuntimeError(f"HTTP {code}: denied"))
+            self.assertEqual((p["status"], lines[-1]["billed_units"], json.loads(led.read_text())["used"]["exa"]), (st, units, 7 + units), code)
+        import io, urllib.error
+        for code in (429, 500, 502, 503):
+            for exc in (RuntimeError(f"HTTP {code}: upstream"), urllib.error.HTTPError("https://x.example", code, "x", {}, io.BytesIO(b""))):
+                self.assertFalse(runner.is_network_error(exc), code)
+                p, lines, led = self._bill({8}, exc)
+                self.assertEqual((p["status"], lines[-1]["status"], lines[-1]["billed_units"], json.loads(led.read_text())["used"]["exa"]), ("ran", "fail", 1, 8), code)
+        self.assertTrue(runner.is_network_error(TimeoutError("timed out"))); self.assertFalse(runner.is_network_error(RuntimeError("HTTP 500: Timed out.")))
+
+    def test_runner_short_set_is_stale_error(self):   # kills NEW1 (short-set check) and NEW4 (off-by-one): runner, not tables
+        for at in ({8}, {1}, {3, 5}):
+            p, lines, _ = self._bill(at, ConnectionRefusedError(111, "Connection refused"))
+            k = 8 - len(at)
+            self.assertEqual(p["status"], "stale_error", at); self.assertEqual(p["data_calls"], k)
+            self.assertIn(f"incomplete set: search_evergreen {k}/8", p["reason"])
+        p, _, _ = self._bill(set(), None)
+        self.assertEqual(p["status"], "ran")   # full set: not stale
+
     def test_stale_reasons(self):
         self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error"))
         with self.assertRaises(AssertionError): runner.stale("partial", {"calls": 0, "data_calls": 0}, "x")
