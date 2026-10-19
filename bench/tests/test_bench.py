@@ -516,15 +516,25 @@ class OwnerRulingsStage2(unittest.TestCase):
         for pid in ("firecrawl", "someprovider"):
             with tempfile.TemporaryDirectory() as d:
                 recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + \
-                       [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] * 5 + [{"status": "fail", "http_status": 429, "reason": "x"}]
+                       [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] + [{"status": "fail", "http_status": 429, "reason": "x"}]
                 doc = tables.build(self._log(d, pid, recs), {}, None, {})
                 r = doc["tables"]["search"][0]
-                self.assertEqual((r["attempted"]["v"], r["passed"]["v"], r["failed"]["v"], r["rate_limited"]["v"]), (10, 5, 5, 6))
+                self.assertEqual((r["attempted"]["v"], r["passed"]["v"], r["failed"]["v"], r["rate_limited"]["v"]), (10, 5, 5, 2))
                 self.assertEqual(r["success_rate"]["v"], 0.5)
-                self.assertEqual(r["answered_display"], "5/10 answered + 6 rate-limited (free tier)")
+                self.assertEqual(r["answered_display"], "5/10 answered + 2 rate-limited (free tier)")
                 self.assertIn("free-tier rate limit is the cause", r["rate_limited"]["note"])
-                self.assertIn("below minimum (n=16)", r["flags"])
+                self.assertIn("below minimum (n=12)", r["flags"])
                 self.assertEqual(tables.untraced_cells(doc, Path(d)), [])
+
+    def test_rule3_rebuild_drops_unstamped_old_log_over_20pct_429(self):
+        rl = {"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}
+        for n429, n_ok, shown in ((6, 10, False), (4, 12, False), (3, 12, True), (2, 14, True), (0, 16, True)):
+            with tempfile.TemporaryDirectory() as d:
+                recs = [{"status": "pass"}] * n_ok + [rl] * n429
+                rows = tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"]
+                self.assertEqual(bool(rows), shown, (n429, n_ok))
+        keys = tables.collect(SITE / "bench" / "runs")
+        self.assertNotIn(("firecrawl", "news_2026-42"), keys); self.assertIn(("exa", "news_2026-42"), keys)
 
     def test_no_429_has_no_rate_limited_value(self):
         with tempfile.TemporaryDirectory() as d:

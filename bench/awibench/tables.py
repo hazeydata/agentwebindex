@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from .util import BENCH, load_yaml, read_jsonl
 from . import cost, freshness
-from .runner import set_kind, is_rate_limited
+from .runner import set_kind, is_rate_limited, quota_degraded
 
 def _cell(v, refs, **extra): return {"v": v, "src": refs, **extra} if v is not None else {"v": None, "src": [], **extra}
 
@@ -44,12 +44,12 @@ def not_run_yet(summary, cfg, doc):
 def collect(runs_dir):
     """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
     CEO ruling 2026-10-19: a log that did not cover the full set (fewer pass/fail/skipped_tos items at offset 0 than set_rows,
-    any auth_error line, or any line the runner stamped run_status=stale_<reason>) is never used; the earlier complete log stays in force."""
+    any auth_error line, any line the runner stamped run_status=stale_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
         lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
-        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]): continue
+        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
         out[key] = (rel, lines)   # sorted() => later dates win
     return out
 
