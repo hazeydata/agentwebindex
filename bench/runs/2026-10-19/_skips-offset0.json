@@ -125,6 +125,10 @@
   {
    "set": "news_2026-42",
    "flag": "below minimum (n=16)"
+  },
+  {
+   "set": "news_2026-43",
+   "flag": "short week (n=40)"
   }
  ]
 }
