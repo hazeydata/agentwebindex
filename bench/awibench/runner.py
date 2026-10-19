@@ -31,16 +31,11 @@ def set_kind(name):
 STALE_REASONS = ("quota", "timeout", "auth_error", "error")
 REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reached set item
 
-# CEO billing ruling 2026-10-19 (binding):
-#   no response at all (connection or DNS failure, local timeout before any response, blocked network): bill 0 and log the
-#     call line as unbilled_no_response (not scored, not a reached item, so the set is incomplete -> stale_error)
-#   401: bill 0
-#   403, 429 and 5xx: bill the estimate
 _HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
 _NET_TEXT = re.compile(r"(URLError|gaierror|Connection(Refused|Reset|Aborted)?Error|RemoteDisconnected|TimeoutError|timeout): ")
 
 def is_network_error(e):
-    """True only when no HTTP status line ever arrived (CEO billing ruling 2026-10-19); a 401 is billed 0 separately."""
+    """True only when no HTTP status line ever arrived (CEO billing ruling 2026-10-19); a 401 is billed 0 separately (401 = 0 ASSUMPTION, accepted by the CEO)."""
     import socket, urllib.error
     if isinstance(e, urllib.error.HTTPError) or isinstance(getattr(e, "reason", None), urllib.error.HTTPError) or _HTTP_ANSWER.search(str(e)): return False
     if isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)): return True
@@ -169,7 +164,6 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     except Exception as e: out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; net = is_network_error(e)
                     lat = (clock() - t0) * 1000
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
-                    # CEO billing ruling 2026-10-19: no response -> 0; 401 -> 0; 403, 429, 5xx -> the estimate
                     units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
                     ledger.add(pool, units); billed += units; status["calls"] += 1; status["data_calls"] += "error" not in out
