@@ -342,7 +342,7 @@ class T(unittest.TestCase):
         ad = mocks.MockAdapters(); adapters = {}
         for p in provs: adapters.update(ad.table(p["id"], p["categories"]))
         return runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
-                          ledger_path=self.tmp / "rspend.json", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True,
+                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True,
                           now_fn=lambda: dt.datetime.fromisoformat("2026-10-19T11:23:00+00:00")), pricing, tos
     def test_d1_brave_excluded_from_runner_and_tables(self):
         s, pricing, tos = self._real_run()
@@ -1138,7 +1138,7 @@ class BrightDataBudget(unittest.TestCase):
     PRICING = {"brightdata": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False, "pool": "brightdata"}}}}
     OCT = dt.datetime(2026, 10, 19, 12, tzinfo=dt.timezone.utc)
 
-    def setUp(self): self.tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); self.calls = []
+    def setUp(self): self.tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); self.calls = []; (self.tmp / "spend").mkdir()
 
     def _rows(self, n): return [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(n)]
 
@@ -1151,12 +1151,12 @@ class BrightDataBudget(unittest.TestCase):
     def _spend(self, month="2026-10"):
         f = self.tmp / "spend" / f"brightdata-{month}.json"; return json.loads(f.read_text()) if f.exists() else None
 
-    def _run(self, n, fn=None, now=None, env=None):
-        s = runner.run(providers=self.PROV, sets={"scrape_urls": {"rows": self._rows(n), "sha": "x"}}, pricing=self.PRICING, tos={},
-                       adapters={"brightdata": {"scrape": fn or self._ok}}, cfg={"spend_budget": CFG["spend_budget"], "challenge_signatures": []},
-                       runs_dir=self.tmp / "runs", ledger_path=self.tmp / "quota.json", run_date=(now or self.OCT).date().isoformat(),
-                       env={"BRIGHTDATA_API_KEY": "d"} if env is None else env, mock=True, now_fn=lambda: now or self.OCT)
-        return s["providers"][0]
+    def _run(self, n, fn=None, now=None, env=None, tag="", run_date=None, providers=None, adapters=None, pricing=None):
+        s = runner.run(providers=providers or self.PROV, sets={"scrape_urls": {"rows": self._rows(n), "sha": "x"}}, pricing=pricing or self.PRICING, tos={},
+                       adapters=adapters or {"brightdata": {"scrape": fn or self._ok}}, cfg={"spend_budget": CFG["spend_budget"], "challenge_signatures": []},
+                       runs_dir=self.tmp / f"runs{tag}", ledger_path=self.tmp / f"quota{tag}.json", run_date=run_date or (now or self.OCT).date().isoformat(),
+                       env={"BRIGHTDATA_API_KEY": "d"} if env is None else env, mock=True, now_fn=lambda: now or self.OCT, spend_dir=self.tmp / "spend")
+        return s["providers"][0] if providers is None else s["providers"]
 
     def test_config_budget_values(self):
         self.assertEqual({k: CFG["spend_budget"]["brightdata"][k] for k in ("usd_per_1k", "stop_usd", "cap_usd")}, {"usd_per_1k": 1.5, "stop_usd": 4.0, "cap_usd": 5.0})
@@ -1172,13 +1172,18 @@ class BrightDataBudget(unittest.TestCase):
         self.assertEqual(p["status"], "ran"); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (104, 0.156))
 
     def test_at_exactly_4_usd_is_stale_budget(self):
-        f = self._seed("2026-10", 2667, 4.0); before = f.read_text(); p = self._run(3)
+        f = self._seed("2026-10", 2667, 4.0005); before = f.read_text(); p = self._run(3)
         self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertEqual(f.read_text(), before)
         self.assertIn("would exceed the $4.00 stop", p["reason"])
 
-    def test_request_landing_on_4_usd_allowed_then_stale_budget(self):
-        self._seed("2026-10", 2665, 3.9985); p = self._run(3)
-        self.assertEqual((p["status"], p["calls"]), ("stale_budget", 1)); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (2666, 4.0))
+    def test_budget_blocked_exact_4_usd_boundary(self):
+        sf = runner.SpendFile(self.tmp / "spend", "brightdata", "2026-10", 1.5); sf.release()
+        for mtd, blocked in ((4.0, True), (3.9985, False), (3.999, True), (3.9975, False), (4.0005, True), (0.0, False)):
+            sf.d["est_usd"] = mtd; self.assertEqual(runner.budget_blocked(sf, 1, 4.0), blocked, mtd)
+
+    def test_last_request_under_4_usd_allowed_then_stale_budget(self):
+        self._seed("2026-10", 2665, 3.9975); p = self._run(3)
+        self.assertEqual((p["status"], p["calls"]), ("stale_budget", 1)); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (2666, 3.999))
 
     def test_next_request_crossing_4_usd_is_stale_budget(self):
         self._seed("2026-10", 2666, 3.999); p = self._run(3)
@@ -1191,7 +1196,7 @@ class BrightDataBudget(unittest.TestCase):
         self.assertEqual((len(lines), {l["run_status"] for l in lines}), (6, {"stale_budget"}))
 
     def test_month_rollover_starts_new_file(self):
-        oct_f = self._seed("2026-10", 2667, 4.0); before = oct_f.read_text()
+        oct_f = self._seed("2026-10", 2667, 4.0005); before = oct_f.read_text()
         p = self._run(2, now=dt.datetime(2026, 11, 1, 1, tzinfo=dt.timezone.utc))
         self.assertEqual(p["status"], "ran"); self.assertEqual(oct_f.read_text(), before)
         self.assertEqual({k: self._spend("2026-11")[k] for k in ("month", "requests", "est_usd")}, {"month": "2026-11", "requests": 2, "est_usd": 0.003})
@@ -1234,6 +1239,87 @@ class BrightDataBudget(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             runner.run(providers=self.PROV, sets={}, pricing=self.PRICING, tos={}, adapters={}, cfg={}, runs_dir=self.tmp / "runs",
                        ledger_path=self.tmp / "q.json", run_date="2026-10-19", env={}, mock=True, spend_dir=BENCH / "spend")
+
+    def test_concurrent_runs_cannot_pass_stop(self):
+        import threading, time as _t
+        self._seed("2026-10", 2646, 3.969); lock = threading.Lock(); n = []
+        def slow(key, item):
+            with lock: n.append(1)
+            _t.sleep(0.01); return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+        out = {}
+        th = [threading.Thread(target=lambda t=t: out.__setitem__(t, self._run(20, slow, tag=t))) for t in ("a", "b")]
+        [x.start() for x in th]; [x.join() for x in th]
+        self.assertEqual((self._spend()["requests"], self._spend()["est_usd"], len(n)), (2666, 3.999, 20))
+        self.assertEqual(sum(p["calls"] for p in out.values()), 20); self.assertEqual({p["status"] for p in out.values()}, {"stale_budget"})
+
+    def test_concurrent_runs_total_correct_under_cap(self):
+        import threading
+        out = {}
+        th = [threading.Thread(target=lambda t=t: out.__setitem__(t, self._run(25, tag=t))) for t in ("a", "b", "c")]
+        [x.start() for x in th]; [x.join() for x in th]
+        self.assertEqual({p["status"] for p in out.values()}, {"ran"}); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (75, 0.1125))
+
+    def test_corrupt_or_empty_spend_file_fails_closed_others_run(self):
+        prov = self.PROV + [{"id": "exa", "categories": ["scrape"], "key_env": "EXA_API_KEY"}]
+        pricing = self.PRICING | {"exa": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False}}}}
+        for content in ("", "{not json", "[]", '{"month": "2026-10", "requests": "x", "est_usd": 0}', '{"month": "2026-09", "requests": 1, "est_usd": 0.0015}'):
+            self.setUp(); f = self.tmp / "spend" / "brightdata-2026-10.json"; f.write_text(content)
+            ps = self._run(3, providers=prov, adapters={"brightdata": {"scrape": self._ok}, "exa": {"scrape": self._ok}}, pricing=pricing,
+                           env={"BRIGHTDATA_API_KEY": "d", "EXA_API_KEY": "d"})
+            st = {p["provider"]: p for p in ps}
+            self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["status"], st["exa"]["calls"]), ("stale_budget", 0, "ran", 3), content)
+            self.assertIn("empty, corrupt or unreadable", st["brightdata"]["reason"]); self.assertIn("failing closed", st["brightdata"]["reason"])
+            self.assertEqual(f.read_text(), content); self.assertEqual(len(self.calls), 3)
+
+    def test_missing_spend_file_starts_at_zero(self):
+        self.assertFalse(any((self.tmp / "spend").glob("*.json")))
+        p = self._run(2); self.assertEqual((p["status"], self._spend()["requests"], self._spend()["est_usd"]), ("ran", 2, 0.003))
+
+    def test_missing_or_unreadable_spend_dir_fails_closed(self):
+        (self.tmp / "spend").rmdir(); p = self._run(3)
+        self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertIn("missing or unreadable", p["reason"])
+        self.assertFalse((self.tmp / "spend").exists())
+        self.setUp(); real = os.access
+        with mock.patch("os.access", lambda path, mode, **k: False if Path(path) == self.tmp / "spend" else real(path, mode, **k)):
+            p = self._run(3)
+        self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertIn("missing or unreadable", p["reason"])
+
+    def test_live_spend_dir_exists_in_repo(self):
+        self.assertTrue((BENCH / "spend").is_dir())
+
+    def test_month_from_utc_timestamp_not_run_date(self):
+        et = dt.timezone(dt.timedelta(hours=-4))
+        p = self._run(2, now=dt.datetime(2026, 10, 31, 21, 30, tzinfo=et), run_date="2026-10-31")
+        self.assertEqual(p["status"], "ran"); self.assertIsNone(self._spend("2026-10")); self.assertEqual(self._spend("2026-11")["requests"], 2)
+        self.setUp(); self._run(1, now=dt.datetime(2026, 10, 31, 19, 59, tzinfo=et), run_date="2026-11-01")
+        self.assertIsNone(self._spend("2026-11")); self.assertEqual(self._spend("2026-10")["requests"], 1)
+        self.assertEqual(runner.spend_month("2026-10-31T21:30:00-04:00"), "2026-11"); self.assertEqual(runner.spend_month("2026-10-31T23:59:59+00:00"), "2026-10")
+
+    def test_stale_budget_not_in_not_run_yet(self):
+        s = {"providers": [{"provider": "brightdata", "category": "scrape", "status": "stale_budget", "reason": "x"},
+                           {"provider": "apify", "category": "scrape", "status": "skipped_no_key", "reason": "not run (no key)"}]}
+        nr = tables.not_run_yet(s, {"month1_free_tier_providers": ["brightdata", "apify"]}, {"tables": {"scrape": []}})
+        self.assertEqual([n["provider"] for n in nr], ["apify"])
+
+    def test_adapter_http_error_mapping_billing(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error, io, socket
+        cases = [(lambda: urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b"no")), "auth_error", 1, "stale_auth_error"),
+                 (lambda: urllib.error.HTTPError("u", 429, "Too Many", {}, io.BytesIO(b"slow")), "fail", 1, None),
+                 (lambda: urllib.error.HTTPError("u", 500, "Err", {}, io.BytesIO(b"boom")), "fail", 1, None),
+                 (lambda: urllib.error.HTTPError("u", 401, "Unauth", {}, io.BytesIO(b"key")), "auth_error", 0, "stale_auth_error"),
+                 (lambda: urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), "unbilled_no_response", 0, "stale_error")]
+        for mk, line_st, units, prov_st in cases:
+            self.setUp()
+            def boom(req, timeout=None, mk=mk): raise mk()
+            with mock.patch.dict(os.environ, {"BRIGHTDATA_ZONE": "awi_unlocker"}), mock.patch("urllib.request.urlopen", boom):
+                p = self._run(1, fn=B._brightdata_scrape)
+            log = self.tmp / "runs" / "2026-10-19" / "brightdata" / "scrape_urls.jsonl"
+            if units:
+                line = read_jsonl(log)[0]; self.assertEqual((line["status"], line["billed_units"]), (line_st, units), line_st)
+            else: self.assertFalse(log.exists(), line_st)
+            self.assertEqual(p["calls"], 1, line_st)
+            self.assertEqual((self._spend() or {"requests": 0})["requests"], units, line_st)
+            if prov_st: self.assertEqual(p["status"], prov_st, line_st)
 
     def test_adapter_request_mocked(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B

@@ -18,7 +18,7 @@ unbilled_no_response (no HTTP status line arrived; 0 units, not scored; CEO bill
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
-import datetime as dt, hashlib, json, math, os, re, time
+import datetime as dt, fcntl, hashlib, json, math, os, re, time
 from pathlib import Path
 from .util import PUBLISHED_DIRS, is_under, not_captured
 from . import checks, cost
@@ -69,15 +69,34 @@ class QuotaLedger:
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
     def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.d, indent=1, sort_keys=True))
 
+class SpendError(RuntimeError): pass
+
 class SpendFile:
     def __init__(self, spend_dir, pid, month, usd_per_1k):
-        self.path = Path(spend_dir) / f"{pid}-{month}.json"; self.rate = usd_per_1k
-        self.d = json.loads(self.path.read_text()) if self.path.exists() else {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
+        d = Path(spend_dir)
+        if not d.is_dir() or not os.access(d, os.R_OK | os.W_OK | os.X_OK): raise SpendError(f"spend dir {d.name}/ missing or unreadable; failing closed")
+        self.path = d / f"{pid}-{month}.json"; self.rate = usd_per_1k; self.lock = None
+        try:
+            self.lock = open(d / f".{self.path.name}.lock", "a"); fcntl.flock(self.lock, fcntl.LOCK_EX)
+        except OSError as e: self.release(); raise SpendError(f"cannot lock {self.path.name}: {type(e).__name__}; failing closed") from None
+        try:
+            if not self.path.exists(): self.d = {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
+            else:
+                self.d = json.loads(self.path.read_text())
+                if not isinstance(self.d, dict) or self.d.get("month") != month or not isinstance(self.d.get("requests"), int) or not isinstance(self.d.get("est_usd"), (int, float)) or self.d["requests"] < 0 or self.d["est_usd"] < 0:
+                    raise ValueError("bad fields")
+        except (OSError, ValueError) as e:
+            self.release(); raise SpendError(f"spend file {self.path.name} empty, corrupt or unreadable ({type(e).__name__}); failing closed") from None
     def mtd(self): return self.d["est_usd"]
     def next_usd(self, units): return round(self.mtd() + units * self.rate / 1000, 6)
     def add(self, units):
         self.d["requests"] += units; self.d["est_usd"] = self.next_usd(units)
-        self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.d, indent=1, sort_keys=True))
+        tmp = self.path.with_name(self.path.name + ".tmp"); tmp.write_text(json.dumps(self.d, indent=1, sort_keys=True)); os.replace(tmp, self.path)
+    def release(self):
+        if self.lock: fcntl.flock(self.lock, fcntl.LOCK_UN); self.lock.close(); self.lock = None
+
+def spend_month(ts):
+    return dt.datetime.fromisoformat(ts).astimezone(dt.timezone.utc).strftime("%Y-%m")
 
 def budget_blocked(sf, units, stop_usd):
     return sf.mtd() >= stop_usd or sf.next_usd(units) > stop_usd
@@ -180,8 +199,11 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
                     sb = (cfg.get("spend_budget") or {}).get(pid); sf = None
                     if sb:
-                        sf = SpendFile(spend_dir, pid, line["ts"][:7], sb["usd_per_1k"])
+                        try: sf = SpendFile(spend_dir, pid, spend_month(line["ts"]), sb["usd_per_1k"])
+                        except SpendError as e:
+                            status = stale("budget", status, str(e)); break
                         if budget_blocked(sf, est, sb["stop_usd"]):
+                            sf.release()
                             status = stale("budget", status, f"MTD estimate ${sf.mtd():.4f} + next request ${est * sb['usd_per_1k'] / 1000:.4f} would exceed the ${sb['stop_usd']:.2f} stop (hard cap ${sb['cap_usd']:.2f}/month)")
                             break
                     if ledger.used(pool) + est > quota:
@@ -198,7 +220,10 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
                     units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
-                    if sf and units: sf.add(units)
+                    if sf:
+                        try:
+                            if units: sf.add(units)
+                        finally: sf.release()
                     ledger.add(pool, units); billed += units; status["calls"] += 1; status["data_calls"] += "error" not in out
                     passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
                     body = json.dumps({k: v for k, v in out.items() if k != "file_bytes"}, sort_keys=True, default=str)
