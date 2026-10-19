@@ -2,10 +2,10 @@
  "provider": "parallel",
  "name": "Parallel",
  "url": "https://parallel.ai/pricing",
- "fetched_at": "2026-10-18T09:25:01+00:00",
+ "fetched_at": "2026-10-19T09:36:15+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "ef6ec5173147403973be2950c22a6454d0c298b750e897b69fc3ebc096559f26",
+ "text_sha256": "7b0921b40d22b9fcf03ba2b3035ed7f80c910f3211c478220df0ae8898d2467d",
  "text_lines": 932,
  "prices_found": [
   "$ 5.00",
@@ -38,10 +38,16 @@
   "$80"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-17T09:24:39+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-18T09:25:01+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -910 +910 @@",
+   "-https://discord.gg/cgxHVQNXc",
+   "+https://discord.gg/TGKzuAjm56"
+  ]
  }
 }

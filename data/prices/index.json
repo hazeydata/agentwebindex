@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-18T09:25:01+00:00",
+ "generated_at": "2026-10-19T09:36:15+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -15,7 +15,7 @@
    "http": 200,
    "n_prices": 3,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "brave",
@@ -39,7 +39,7 @@
    "http": 200,
    "n_prices": 28,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "serper",
