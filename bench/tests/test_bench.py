@@ -776,6 +776,37 @@ class Rulings3(unittest.TestCase):
         lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")   # stale run log still written
         self.assertEqual((len(lines), {l["run_status"] for l in lines}), (3, {"stale_quota"}))
 
+    def _r3_run(self, tmp, day, n429):
+        rows = [{"id": f"r{i}", "query": f"r {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(40)]
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if len(n) <= n429: raise RuntimeError('HTTP 429: {"error":"Rate limit"}')
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+        pricing = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}}}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+                       adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
+                       run_date=day, env={"EXA_API_KEY": "d"}, mock=True)
+        return s["providers"][0], json.loads((tmp / "quota.json").read_text())["used"]["exa"]
+
+    def test_rule3_429_share_over_20pct_is_stale_quota(self):
+        for n429, st in ((37, "stale_quota"), (9, "stale_quota"), (8, "ran"), (0, "ran")):
+            tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+            self._r3_run(tmp, "2026-10-12", 0)
+            prev = json.loads(json.dumps(tables.build(tmp / "runs", self.PRICING)))
+            p, used = self._r3_run(tmp, "2026-10-19", n429)
+            self.assertEqual((p["status"], p["calls"], used), (st, 40, 80), n429)
+            doc, skips, s = self._publish(tmp, p, prev)
+            row = doc["tables"]["search"][0]
+            if st == "stale_quota":
+                self.assertEqual(json.dumps(doc["tables"]["search"], indent=1), json.dumps(prev["tables"]["search"], indent=1), n429)
+                self.assertIn(f"{n429}/40 calls answered HTTP 429", p["reason"])
+                self.assertTrue(s["providers"][0]["reason"].endswith("not published; previous row kept"))
+                lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
+                self.assertEqual({l["run_status"] for l in lines}, {"stale_quota"})
+            else:
+                self.assertEqual((row["run_date"], row["attempted"]["v"]), ("2026-10-19", 40 - n429), n429)
+
     def test_timeout_is_stale_timeout(self):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = self._prev(tmp); t = iter(range(0, 10000, 10))
         p, n, used = self._cmp_run(tmp, "2026-10-19", cfg={"run_budget_s": {"exa": 45}}, clock=lambda: next(t))

@@ -8,15 +8,11 @@ from collections import defaultdict
 from pathlib import Path
 from .util import BENCH, load_yaml, read_jsonl
 from . import cost, freshness
-from .runner import set_kind
+from .runner import set_kind, is_rate_limited
 
 def _cell(v, refs, **extra): return {"v": v, "src": refs, **extra} if v is not None else {"v": None, "src": [], **extra}
 
 def _refs(rel, lines): return [{"file": rel, "lines": sorted(lines)}] if lines else []
-
-def is_rate_limited(r):
-    """Owner ruling 2: any provider's HTTP 429 is a rate_limited outcome, not a quality fail; excluded from the pass-rate denominator."""
-    return r.get("status") in ("fail", "rate_limited") and (r.get("http_status") == 429 or "HTTP 429" in str(r.get("reason") or ""))
 
 def is_timeout(r):
     """A fail whose reason is a timeout (the provider's own 'Timed out.' or our client read timeout). Still a fail; counted for display."""
