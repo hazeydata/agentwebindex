@@ -7,6 +7,7 @@ run is stale_<reason>, reason one of STALE_REASONS:
   quota      - the free-quota guard stopped it before the next call
   timeout    - the provider's run budget (config run_budget_s) ran out
   auth_error - any HTTP 401/403 stops the provider at the first one
+  budget     - the paid spend guard (config spend_budget) stopped it before the next request
   error      - anything else: every call errored, or fewer items reached than the set holds
 A stale provider is not published: tables.collect never uses an incomplete log, and collectors/benchmark.py keeps the previous
 latest.json row (or omits the provider entirely when it has none). Billed spend is always logged (no rollback).
@@ -28,7 +29,7 @@ def set_kind(name):
     if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
     return "search" if name.startswith("news_") else SET_KIND[name]
 
-STALE_REASONS = ("quota", "timeout", "auth_error", "error")
+STALE_REASONS = ("quota", "timeout", "auth_error", "error", "budget")
 REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reached set item
 
 _HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
@@ -67,6 +68,19 @@ class QuotaLedger:
     def used(self, pool): return self.d["used"].get(pool, 0)
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
     def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.d, indent=1, sort_keys=True))
+
+class SpendFile:
+    def __init__(self, spend_dir, pid, month, usd_per_1k):
+        self.path = Path(spend_dir) / f"{pid}-{month}.json"; self.rate = usd_per_1k
+        self.d = json.loads(self.path.read_text()) if self.path.exists() else {"provider": pid, "month": month, "usd_per_1k": usd_per_1k, "requests": 0, "est_usd": 0.0}
+    def mtd(self): return self.d["est_usd"]
+    def next_usd(self, units): return round(self.mtd() + units * self.rate / 1000, 6)
+    def add(self, units):
+        self.d["requests"] += units; self.d["est_usd"] = self.next_usd(units)
+        self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.d, indent=1, sort_keys=True))
+
+def budget_blocked(sf, units, stop_usd):
+    return sf.mtd() >= stop_usd or sf.next_usd(units) > stop_usd
 
 def eligibility(pid, pricing, cfg):
     """Returns (ok, reason). Needs a known free quota, and no card requirement unless the CEO lists the provider."""
@@ -115,13 +129,16 @@ def _grade(kind, set_name, item, out, cfg):
     return checks.browser_check(item, out)
 
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,
-        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None):
+        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None):
     """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0."""
     if mock and (is_under(runs_dir, PUBLISHED_DIRS) or is_under(ledger_path, PUBLISHED_DIRS)):
         raise RuntimeError("mock run output must not go to published data/, dist/ or bench/runs/")
     cap = float(env.get("MONTHLY_CAP_USD", "0") or 0)
     if cap != 0 or cfg.get("monthly_cap_usd", 0) != 0:
         raise CapViolation("month one is free-tier only: MONTHLY_CAP_USD must be 0 (D4)")
+    spend_dir = Path(spend_dir) if spend_dir else Path(runs_dir).parent / "spend"
+    if mock and is_under(spend_dir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
+        raise RuntimeError("mock run spend files must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
     for p in providers:
         pid = p["id"]; pp = pricing.get(pid, {})
@@ -161,6 +178,12 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     est = estimate_units(pr, kind, item, pid, cfg)
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
+                    sb = (cfg.get("spend_budget") or {}).get(pid); sf = None
+                    if sb:
+                        sf = SpendFile(spend_dir, pid, line["ts"][:7], sb["usd_per_1k"])
+                        if budget_blocked(sf, est, sb["stop_usd"]):
+                            status = stale("budget", status, f"MTD estimate ${sf.mtd():.4f} + next request ${est * sb['usd_per_1k'] / 1000:.4f} would exceed the ${sb['stop_usd']:.2f} stop (hard cap ${sb['cap_usd']:.2f}/month)")
+                            break
                     if ledger.used(pool) + est > quota:
                         status = stale("quota", status, f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})")
                         break
@@ -175,6 +198,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
                     units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
+                    if sf and units: sf.add(units)
                     ledger.add(pool, units); billed += units; status["calls"] += 1; status["data_calls"] += "error" not in out
                     passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
                     body = json.dumps({k: v for k, v in out.items() if k != "file_bytes"}, sort_keys=True, default=str)

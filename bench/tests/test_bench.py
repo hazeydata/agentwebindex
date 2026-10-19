@@ -999,7 +999,7 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(p["status"], "ran")   # full set: not stale
 
     def test_stale_reasons(self):
-        self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error"))
+        self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error", "budget"))
         with self.assertRaises(AssertionError): runner.stale("partial", {"calls": 0, "data_calls": 0}, "x")
 
     def test_partial_counts_only_scored_or_tos_lines(self):
@@ -1132,5 +1132,125 @@ class Rulings3(unittest.TestCase):
         doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
         row = [r for r in doc["tables"]["browser"] if r["provider"] == "browserless"][0]
         self.assertEqual((row["passed"]["v"], row["attempted"]["v"]), (11, 16))
+
+class BrightDataBudget(unittest.TestCase):
+    PROV = [{"id": "brightdata", "categories": ["scrape"], "key_env": "BRIGHTDATA_API_KEY"}]
+    PRICING = {"brightdata": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False, "pool": "brightdata"}}}}
+    OCT = dt.datetime(2026, 10, 19, 12, tzinfo=dt.timezone.utc)
+
+    def setUp(self): self.tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); self.calls = []
+
+    def _rows(self, n): return [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(n)]
+
+    def _ok(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+
+    def _seed(self, month, requests, usd):
+        f = self.tmp / "spend" / f"brightdata-{month}.json"; f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"provider": "brightdata", "month": month, "usd_per_1k": 1.5, "requests": requests, "est_usd": usd})); return f
+
+    def _spend(self, month="2026-10"):
+        f = self.tmp / "spend" / f"brightdata-{month}.json"; return json.loads(f.read_text()) if f.exists() else None
+
+    def _run(self, n, fn=None, now=None, env=None):
+        s = runner.run(providers=self.PROV, sets={"scrape_urls": {"rows": self._rows(n), "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"brightdata": {"scrape": fn or self._ok}}, cfg={"spend_budget": CFG["spend_budget"], "challenge_signatures": []},
+                       runs_dir=self.tmp / "runs", ledger_path=self.tmp / "quota.json", run_date=(now or self.OCT).date().isoformat(),
+                       env={"BRIGHTDATA_API_KEY": "d"} if env is None else env, mock=True, now_fn=lambda: now or self.OCT)
+        return s["providers"][0]
+
+    def test_config_budget_values(self):
+        self.assertEqual({k: CFG["spend_budget"]["brightdata"][k] for k in ("usd_per_1k", "stop_usd", "cap_usd")}, {"usd_per_1k": 1.5, "stop_usd": 4.0, "cap_usd": 5.0})
+
+    def test_under_cap_runs_and_creates_spend_file(self):
+        self.assertIsNone(self._spend())
+        p = self._run(5)
+        self.assertEqual((p["status"], p["calls"]), ("ran", 5))
+        self.assertEqual({k: self._spend()[k] for k in ("month", "requests", "est_usd")}, {"month": "2026-10", "requests": 5, "est_usd": 0.0075})
+
+    def test_spend_file_incremented_across_runs(self):
+        self._seed("2026-10", 100, 0.15); p = self._run(4)
+        self.assertEqual(p["status"], "ran"); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (104, 0.156))
+
+    def test_at_exactly_4_usd_is_stale_budget(self):
+        f = self._seed("2026-10", 2667, 4.0); before = f.read_text(); p = self._run(3)
+        self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertEqual(f.read_text(), before)
+        self.assertIn("would exceed the $4.00 stop", p["reason"])
+
+    def test_request_landing_on_4_usd_allowed_then_stale_budget(self):
+        self._seed("2026-10", 2665, 3.9985); p = self._run(3)
+        self.assertEqual((p["status"], p["calls"]), ("stale_budget", 1)); self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (2666, 4.0))
+
+    def test_next_request_crossing_4_usd_is_stale_budget(self):
+        self._seed("2026-10", 2666, 3.999); p = self._run(3)
+        self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertEqual(self._spend()["requests"], 2666)
+
+    def test_budget_stops_mid_run(self):
+        self._seed("2026-10", 2660, 3.99); p = self._run(10)
+        self.assertEqual((p["status"], p["calls"], len(self.calls)), ("stale_budget", 6, 6)); self.assertEqual(self._spend()["est_usd"], 3.999)
+        lines = read_jsonl(self.tmp / "runs" / "2026-10-19" / "brightdata" / "scrape_urls.jsonl")
+        self.assertEqual((len(lines), {l["run_status"] for l in lines}), (6, {"stale_budget"}))
+
+    def test_month_rollover_starts_new_file(self):
+        oct_f = self._seed("2026-10", 2667, 4.0); before = oct_f.read_text()
+        p = self._run(2, now=dt.datetime(2026, 11, 1, 1, tzinfo=dt.timezone.utc))
+        self.assertEqual(p["status"], "ran"); self.assertEqual(oct_f.read_text(), before)
+        self.assertEqual({k: self._spend("2026-11")[k] for k in ("month", "requests", "est_usd")}, {"month": "2026-11", "requests": 2, "est_usd": 0.003})
+
+    def test_429_bills_and_increments_spend(self):
+        def fn(key, item):
+            self.calls.append(1)
+            if len(self.calls) <= 2: raise RuntimeError('HTTP 429: {"error":"rate limited"}')
+            return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+        p = self._run(5, fn)
+        self.assertEqual((p["status"], p["calls"]), ("stale_quota", 5)); self.assertEqual(self._spend()["requests"], 5)
+
+    def test_status_line_billing_paths(self):
+        import urllib.error, socket
+        cases = [(lambda: urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), None, "stale_error"),
+                 (lambda: TimeoutError("timed out"), None, "stale_error"),
+                 (lambda: RuntimeError("HTTP 401: bad key"), None, "stale_auth_error"),
+                 (lambda: RuntimeError("HTTP 403: forbidden"), 1, "stale_auth_error"),
+                 (lambda: RuntimeError("HTTP 502: bad gateway"), 3, "stale_error")]
+        for mk, want, st in cases:
+            self.setUp()
+            def fn(key, item, mk=mk): raise mk()
+            p = self._run(3, fn)
+            sp = self._spend()
+            self.assertEqual((p["status"], sp and sp["requests"]), (st, want), st)
+
+    def test_no_key_is_skipped_no_key(self):
+        p = self._run(3, env={})
+        self.assertEqual((p["status"], self.calls, self._spend()), ("skipped_no_key", [], None))
+
+    def test_stale_budget_keeps_previous_row(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        prev = self.tmp / "latest.json"; row = {"provider": "brightdata", "attempted": {"v": 10}, "run_date": "2026-10-12"}
+        prev.write_text(json.dumps({"tables": {"scrape": [row]}, "freshness": []}))
+        doc = {"tables": {"scrape": [{"provider": "brightdata", "attempted": {"v": 2}}]}, "freshness": []}
+        s = {"providers": [{"provider": "brightdata", "category": "scrape", "status": "stale_budget", "reason": "x; not published"}]}
+        self.assertEqual(B.keep_previous_rows(doc, prev, B.stale_providers(s)), {"brightdata"}); self.assertEqual(doc["tables"]["scrape"], [row])
+
+    def test_mock_spend_dir_refuses_repo_spend(self):
+        with self.assertRaises(RuntimeError):
+            runner.run(providers=self.PROV, sets={}, pricing=self.PRICING, tos={}, adapters={}, cfg={}, runs_dir=self.tmp / "runs",
+                       ledger_path=self.tmp / "q.json", run_date="2026-10-19", env={}, mock=True, spend_dir=BENCH / "spend")
+
+    def test_adapter_request_mocked(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = {}
+        class R:
+            status = 200
+            def read(s): return b"<html><body><p>hello world</p><script>x</script></body></html>"
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        def fake(req, timeout=None): seen.update(url=req.full_url, body=json.loads(req.data), auth=req.get_header("Authorization")); return R()
+        with mock.patch.dict(os.environ, {"BRIGHTDATA_ZONE": "awi_unlocker"}), mock.patch("urllib.request.urlopen", fake):
+            out = B._brightdata_scrape("k", {"url": "https://a.example/"})
+        self.assertEqual(seen, {"url": "https://api.brightdata.com/request", "body": {"zone": "awi_unlocker", "url": "https://a.example/", "format": "raw"}, "auth": "Bearer k"})
+        self.assertEqual((out["http_status"], out["billed_units"]), (200, 1)); self.assertIn("hello world", out["text"]); self.assertNotIn("x", out["text"].replace("hello world", ""))
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
+            self.assertEqual(B._brightdata_scrape("k", {"url": "https://a.example/"})["billed_units"], 0)
+        self.assertIn("brightdata", B.ADAPTERS)
+
 
 if __name__ == "__main__": unittest.main()
