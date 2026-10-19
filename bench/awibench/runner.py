@@ -2,8 +2,11 @@
 run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 
 Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, halted_quota, ran,
-skipped_auth_error (HTTP 401/403: stopped at the first one), skipped_all_errors. A provider with no call that returned data
-writes no run lines and logs no spend; a 401/403 after data calls stops it with auth_error=True, keeping its rows and spend; with no data from any provider the ledger and run summary are not written.
+stale_auth_error, skipped_all_errors. A provider with no call that returned data writes no run lines and logs no spend.
+stale_auth_error (CEO ruling 2026-10-19): any HTTP 401/403 stops the provider at the first one. Its row is NOT published:
+tables.collect never uses a log holding an auth_error line, and collectors/benchmark.py keeps the previous latest.json row.
+Every billed call stays in the ledger, including all calls before the 401/403 (no all-errors rollback).
+With no data from any provider and no ledger change, the ledger and run summary are not written.
 Line statuses: pass, fail, skipped_tos, auth_error (the 401/403 that stopped a provider; not scored).
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
@@ -82,7 +85,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     cap = float(env.get("MONTHLY_CAP_USD", "0") or 0)
     if cap != 0 or cfg.get("monthly_cap_usd", 0) != 0:
         raise CapViolation("month one is free-tier only: MONTHLY_CAP_USD must be 0 (D4)")
-    ledger = QuotaLedger(ledger_path, run_date[:7]); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
+    ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
     for p in providers:
         pid = p["id"]; pp = pricing.get(pid, {})
         for kind in p["categories"]:
@@ -139,26 +142,29 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
                     fh.append(json.dumps(rec) + "\n")
-                    if auth:   # stop this provider now; rows that already returned data are kept
-                        status = (status | {"auth_error": True, "reason": "stopped at auth error from provider; earlier data rows kept"}) if status["data_calls"] else \
-                                 {"status": "skipped_auth_error", "calls": status["calls"], "data_calls": 0, "reason": "not run (auth error from provider)"}
+                    if auth:   # stop this provider now; its row is not published (previous row kept), its spend is kept
+                        status = {"status": "stale_auth_error", "calls": status["calls"], "data_calls": status["data_calls"],
+                                  "reason": f"HTTP 40{auth.group(1)} on {item['id']} ({set_name}); not published, previous row kept"}
                         break
                     if ledger.used(pool) > quota:
                         over = ledger.used(pool) - quota
                         ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
                         ledger.save(); raise CapViolation(f"{pid}: billed units exceeded free quota by {over}; $0 cap violated")
-                if status["status"] in ("halted_quota", "skipped_auth_error") or status.get("auth_error"): break
-            if status["calls"] and not status["data_calls"]:   # every call errored: not run, no run lines, no spend
-                if status["status"] != "skipped_auth_error": status = {"status": "skipped_all_errors", "calls": status["calls"], "data_calls": 0, "reason": "not run (every call errored)"}
-                if used0 is None: ledger.d["used"].pop(pool, None)
-                else: ledger.d["used"][pool] = used0
+                if status["status"] in ("halted_quota", "stale_auth_error"): break
+            if status["calls"] and not status["data_calls"]:   # every call errored: no run lines
+                if status["status"] != "stale_auth_error":   # not run, no spend; an auth error keeps every billed unit
+                    status = {"status": "skipped_all_errors", "calls": status["calls"], "data_calls": 0, "reason": "not run (every call errored)"}
+                    if used0 is None: ledger.d["used"].pop(pool, None)
+                    else: ledger.d["used"][pool] = used0
+                elif used0 is None and not ledger.used(pool): ledger.d["used"].pop(pool, None)   # nothing billed: no empty entry
                 pending = {}
             for out_f, lines in pending.items():
                 if lines:
                     out_f.parent.mkdir(parents=True, exist_ok=True)
                     with open(out_f, "a") as fh: fh.write("".join(lines))
             summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota})
-    if not any(p.get("data_calls") for p in summary["providers"]): return summary   # nothing returned data: leave ledger and runs untouched
+    if not any(p.get("data_calls") for p in summary["providers"]) and json.dumps(ledger.d, sort_keys=True) == used_start:
+        return summary   # nothing returned data and nothing billed: leave ledger and runs untouched
     ledger.save()
     if ledger.d.get("over_free_units", 0) > 0: raise CapViolation("ledger shows usage past the free tier (billed $ > 0)")
     sp = Path(runs_dir) / run_date / f"_run-offset{offset_h}.json"; sp.parent.mkdir(parents=True, exist_ok=True)

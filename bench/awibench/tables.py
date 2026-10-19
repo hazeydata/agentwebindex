@@ -22,6 +22,13 @@ def is_timeout(r):
     """A fail whose reason is a timeout (the provider's own 'Timed out.' or our client read timeout). Still a fail; counted for display."""
     return r.get("status") == "fail" and any(k in str(r.get("reason") or "") for k in ("Timed out", "TimeoutError", "timed out"))
 
+PARTIAL_STATUSES = ("pass", "fail", "skipped_tos")
+
+def is_partial(main):
+    """Fewer set items reached than the set holds. Only pass/fail/skipped_tos lines count as reached."""
+    reached = {r["item_id"] for _, r in main if r.get("status") in PARTIAL_STATUSES}
+    return bool(main) and len(reached) < (main[0][1].get("set_rows") or 0)
+
 def week_labels(n, cfg=None):
     """Owner ruling 1 / AC3: labels from the real row count (not from free text)."""
     from .newsgen import week_flags
@@ -39,11 +46,14 @@ def not_run_yet(summary, cfg, doc):
     return out
 
 def collect(runs_dir):
-    """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}."""
+    """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
+    A log holding any auth_error line (runner stale_auth_error, HTTP 401/403) is never used: the earlier log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
-        out[key] = (rel, [(i, r) for i, r in enumerate(read_jsonl(f), 1)])   # sorted() => later dates win
+        lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
+        if any(r.get("status") == "auth_error" for _, r in lines): continue
+        out[key] = (rel, lines)   # sorted() => later dates win
     return out
 
 def exclusions(tos):
@@ -75,8 +85,7 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
         run_date = Path(rel).parts[-3]   # runs/<YYYY-MM-DD>/<provider>/<set>.jsonl
         row = {"provider": pid, "set": set_name, "run_date": run_date, "set_sha": main[0][1]["set_sha"] if main else None, "set_rows": main[0][1].get("set_rows") if main else None,
                "flags": (week_labels(main[0][1].get("set_rows"), cfg) if set_name.startswith("news_") else main[0][1].get("set_flags", [])) if main else [], "mock": any(r.get("mock") for _, r in lines),
-               "auth_error": any(r["status"] == "auth_error" for _, r in main),   # run stopped by a provider 401/403
-               "partial": bool(main) and len({r["item_id"] for _, r in main}) < (main[0][1].get("set_rows") or 0),   # fewer set items reached than the set holds
+               "partial": is_partial(main),
                "attempted": _cell(len(alln) or None, _refs(rel, alln)),
                "passed": _cell(len(passn) if alln else None, _refs(rel, alln)),
                "failed": _cell(len(alln) - len(passn) if alln else None, _refs(rel, alln)),
