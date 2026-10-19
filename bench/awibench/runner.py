@@ -3,7 +3,7 @@ run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 
 Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, halted_quota, ran,
 skipped_auth_error (HTTP 401/403: stopped at the first one), skipped_all_errors. A provider with no call that returned data
-writes no run lines and logs no spend; with no data from any provider the ledger and run summary are not written.
+writes no run lines and logs no spend; a 401/403 after data calls stops it with auth_error=True, keeping its rows and spend; with no data from any provider the ledger and run summary are not written.
 Line statuses: pass, fail, skipped_tos.
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
@@ -126,7 +126,8 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     try: out = fn(key, item)
                     except Exception as e: out = {"error": f"{type(e).__name__}: {e}"}
                     lat = (clock() - t0) * 1000
-                    units = out.get("billed_units", est)
+                    auth = re.match(r"\S+: HTTP 40[13]\b", str(out.get("error", "")))   # bad or unauthorised key: rejected, so not billed
+                    units = 0 if auth else out.get("billed_units", est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
                     ledger.add(pool, units); status["calls"] += 1; status["data_calls"] += "error" not in out
                     passed, reason = (False, out["error"]) if "error" in out else _grade(kind, set_name, item, out, cfg)
@@ -136,13 +137,15 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     fh.append(json.dumps(rec) + "\n")
-                    if re.match(r"\S+: HTTP 40[13]\b", str(out.get("error", ""))):   # bad or unauthorised key: stop now, publish nothing
-                        status = {"status": "skipped_auth_error", "calls": status["calls"], "data_calls": 0, "reason": "not run (auth error from provider)"}; break
+                    if auth:   # stop this provider now; rows that already returned data are kept
+                        status = (status | {"auth_error": True, "reason": "stopped at auth error from provider; earlier data rows kept"}) if status["data_calls"] else \
+                                 {"status": "skipped_auth_error", "calls": status["calls"], "data_calls": 0, "reason": "not run (auth error from provider)"}
+                        break
                     if ledger.used(pool) > quota:
                         over = ledger.used(pool) - quota
                         ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
                         ledger.save(); raise CapViolation(f"{pid}: billed units exceeded free quota by {over}; $0 cap violated")
-                if status["status"] in ("halted_quota", "skipped_auth_error"): break
+                if status["status"] in ("halted_quota", "skipped_auth_error") or status.get("auth_error"): break
             if status["calls"] and not status["data_calls"]:   # every call errored: not run, no run lines, no spend
                 if status["status"] != "skipped_auth_error": status = {"status": "skipped_all_errors", "calls": status["calls"], "data_calls": 0, "reason": "not run (every call errored)"}
                 if used0 is None: ledger.d["used"].pop(pool, None)

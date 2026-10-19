@@ -667,6 +667,29 @@ class Rulings3(unittest.TestCase):
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
         self.assertTrue(any('"skipped_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
 
+    def test_late_401_keeps_data_rows_and_spend(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        providers = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}, {"id": "tavily", "key_env": "TAVILY_API_KEY", "categories": ["search"]}]
+        pricing = {pid: {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}} for pid in ("exa", "tavily")}
+        rows = [{"id": f"q{i}", "query": f"q {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(10)]
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if len(n) > 5: raise RuntimeError("HTTP 401: invalid api key")
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
+        def tavily(key, item): raise RuntimeError("HTTP 500: upstream error")   # every call errors, none is an auth error
+        led = tmp / "quota.json"; led.write_text(json.dumps({"month": "2026-10", "used": {"exa": 33, "tavily": 66}, "over_free_units": 0}))
+        s = runner.run(providers=providers, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+                       adapters={"exa": {"search": exa}, "tavily": {"search": tavily}}, cfg={},
+                       runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d", "TAVILY_API_KEY": "d"}, mock=True)
+        p = {x["provider"]: x for x in s["providers"]}
+        self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"], p["exa"].get("auth_error")), ("ran", 6, 5, True))
+        self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("skipped_all_errors", 10))
+        self.assertEqual(json.loads(led.read_text())["used"], {"exa": 38, "tavily": 66})   # pre 33 + 5 billed exa calls; 10 errored tavily calls restored (kills N3)
+        lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
+        self.assertEqual([l["status"] for l in lines], ["pass"] * 5 + ["fail"]); self.assertIn("HTTP 401", lines[-1]["reason"])
+        self.assertFalse((tmp / "runs" / "2026-10-19" / "tavily").exists())
+
     def test_keyed_providers(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         provs = [{"id": "exa", "key_env": "EXA_API_KEY"}, {"id": "steel", "key_env": "STEEL_API_KEY"}, {"id": "tavily", "key_env": "TAVILY_API_KEY"}]
