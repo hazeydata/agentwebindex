@@ -51,4 +51,4 @@ jobs:
              && ! python -c "import json; exit(0 if json.load(open('data/benchmarks/latest.json')).get('has_results') else 1)"; then
             echo "SKIP publish: new latest.json has no results; keeping the published one"; git checkout -- data/benchmarks
           fi
-          git add data/benchmarks data/spend bench/runs && (git diff --cached --quiet || git commit -m "bench: $(date -u +%F)") && git push
+          git add data/benchmarks data/spend bench/spend bench/runs && (git diff --cached --quiet || git commit -m "bench: $(date -u +%F)") && git push
