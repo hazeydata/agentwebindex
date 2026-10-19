@@ -101,8 +101,23 @@ def _browserless_fetch(key, item):
         raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
     return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
 
+BRIGHTDATA_REQUEST_URL = "https://api.brightdata.com/request"
+
+def _brightdata_scrape(key, item):
+    import urllib.request, urllib.error
+    zone = os.environ.get("BRIGHTDATA_ZONE")
+    if not zone: return {"error": "BRIGHTDATA_ZONE not set; no request made", "billed_units": 0}
+    req = urllib.request.Request(BRIGHTDATA_REQUEST_URL, data=json.dumps({"zone": zone, "url": item["url"], "format": "raw"}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+    return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
+
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
-            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch}}
+            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch},
+            "brightdata": {"scrape": _brightdata_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
 def keyed_providers(provs, env):
@@ -199,7 +214,7 @@ def main():
           print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
       s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
-                   ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ,
+                   ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend",
                    offset_h=a.reprobe_offset or 0, only_ids=only)
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)

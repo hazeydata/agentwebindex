@@ -31,7 +31,9 @@
                           "disallow_prefix": ["/test-sites/product/", "/test-sites/pagination/", "/test-sites/pagination", "/test-sites/scroll/", "/test-sites/load-more/"],
                           "note": "robots.txt also has 'Disallow: /test-sites/pagination*?page='; the bare '/test-sites/pagination' prefix blocks that pattern conservatively"}},
  "month1_free_tier_providers": ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"],
- "not_run_yet_reasons": {"brightdata": "no collector yet, and the current key is stale (expires 2026-10-23); not run"},
+ "not_run_yet_reasons": {"brightdata": "collector ready; not run yet"},
+ "spend_budget": {"brightdata": {"usd_per_1k": 1.5, "stop_usd": 4.0, "cap_usd": 5.0, "spend_file": "bench/spend/brightdata-YYYY-MM.json",
+                  "note": "Side Hustle CEO, Fred-approved hard cap $5/month. Before each request the month-to-date estimate (requests x $1.50/1K) is checked; the run stops as stale_budget when it is already at $4.00 or the next request would take it past $4.00. Billing follows the status-line rule (0 for no response or HTTP 401, ASSUMPTION, accepted by the CEO)."}},
  "month1_decision": "Side Hustle CEO 2026-10-15: month one runs only on the free monthly quotas of these providers; all others are skipped with a logged reason",
  "browser_unit_seconds": {"browserless": 30},
  "worst_case_units_per_call": {
