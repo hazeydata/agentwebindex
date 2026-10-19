@@ -665,7 +665,7 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(snap(), before)   # latest.json, bench/runs and data/spend byte-identical
         self.assertEqual(len(calls), 1)    # stopped at the first auth error
         self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
-        self.assertTrue(any('"skipped_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
+        self.assertTrue(any('"stale_auth_error"' in " ".join(map(str, c.args)) for c in pr.call_args_list))
 
     def _late_auth_run(self, code):
         tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
@@ -683,13 +683,12 @@ class Rulings3(unittest.TestCase):
                        adapters={"exa": {"search": exa}, "tavily": {"search": tavily}}, cfg={},
                        runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d", "TAVILY_API_KEY": "d"}, mock=True)
         p = {x["provider"]: x for x in s["providers"]}
-        self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"], p["exa"].get("auth_error")), ("ran", 6, 5, True))
+        self.assertEqual((p["exa"]["status"], p["exa"]["calls"], p["exa"]["data_calls"]), ("stale_auth_error", 6, 5))
         self.assertEqual((p["tavily"]["status"], p["tavily"]["calls"]), ("skipped_all_errors", 10))
         lines = read_jsonl(tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl")
         self.assertEqual([l["status"] for l in lines], ["pass"] * 3 + ["fail"] * 2 + ["auth_error"]); self.assertIn(f"HTTP {code}", lines[-1]["reason"])
         self.assertFalse((tmp / "runs" / "2026-10-19" / "tavily").exists())
-        row = tables.build(tmp / "runs", pricing)["tables"]["search"][0]
-        self.assertEqual((row["provider"], row["passed"]["v"], row["attempted"]["v"], row["partial"], row["auth_error"]), ("exa", 3, 5, True, True))
+        self.assertEqual(tables.build(tmp / "runs", pricing)["tables"]["search"], [])   # a log with an auth error is never published
         return json.loads(led.read_text())["used"]
 
     def test_late_401_keeps_data_rows_and_spend(self):
@@ -698,6 +697,143 @@ class Rulings3(unittest.TestCase):
 
     def test_late_403_is_charged_the_estimate(self):   # a 403 may mean quota used up, so it is charged
         self.assertEqual(self._late_auth_run(403), {"exa": 39, "tavily": 66})
+
+    # ---------- CEO ruling 2026-10-19: any 401/403 -> stale_auth_error, previous row kept ----------
+    PROV = [{"id": "exa", "key_env": "EXA_API_KEY", "categories": ["search"]}]
+    PRICING = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}}}
+    ROWS = [{"id": f"q{i}", "query": f"q {i}", "check": {"type": "url_exact", "value": "https://a.example/x"}} for i in range(8)]
+
+    def _guard_run(self, tmp, day, fail_at=None, code=401, n_rows=8):
+        n = []
+        def exa(key, item):
+            n.append(1)
+            if fail_at is not None and len(n) == fail_at: raise RuntimeError(f"HTTP {code}: invalid api key")
+            return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) % 2 else "https://b.example/y", "title": "x"}]}
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
+                       run_date=day, env={"EXA_API_KEY": "d"}, mock=True)
+        return s, len(n)
+
+    def test_late_401_previous_row_byte_identical(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        self._guard_run(tmp, "2026-10-12")
+        prev = tables.build(tmp / "runs", self.PRICING); latest = tmp / "latest.json"; latest.write_text(json.dumps(prev, indent=1))
+        prev_row = json.loads(latest.read_text())["tables"]["search"][0]; before = json.loads((tmp / "quota.json").read_text())["used"]["exa"]
+        s, ncalls = self._guard_run(tmp, "2026-10-19", fail_at=6)   # 5 billed data calls, then a 401
+        p = s["providers"][0]
+        self.assertEqual((p["status"], p["calls"], p["data_calls"], ncalls), ("stale_auth_error", 6, 5, 6))
+        used = json.loads((tmp / "quota.json").read_text())["used"]["exa"]
+        self.assertEqual(used - before, 5)   # all 5 pre-401 calls billed; the 401 = 0 units (main's assumption)
+        doc = tables.build(tmp / "runs", self.PRICING); doc["run_summary"] = s
+        self.assertEqual(doc["tables"]["search"][0]["run_date"], "2026-10-12")   # stale log ignored by collect
+        doc["tables"]["search"][0]["generated_marker"] = "rebuilt"   # prove the kept row is the file's row, not a rebuild
+        B.keep_previous_rows(doc, latest, {"exa"})
+        new = doc["tables"]["search"]; self.assertEqual(len(new), 1)
+        self.assertEqual(json.dumps(new[0], indent=1), json.dumps(prev_row, indent=1))
+        self.assertIn(json.dumps(prev_row, indent=1).replace("\n", "\n   "), json.dumps(doc, indent=1))   # same bytes in latest.json
+        self.assertEqual(json.loads(json.dumps(doc))["run_summary"]["providers"][0]["status"], "stale_auth_error")
+        self.assertEqual(tables.untraced_cells(doc, tmp), [])
+
+    def test_late_403_charged_estimate_and_kept_stale(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        s, _ = self._guard_run(tmp, "2026-10-19", fail_at=4, code=403)
+        self.assertEqual(s["providers"][0]["status"], "stale_auth_error")
+        self.assertEqual(json.loads((tmp / "quota.json").read_text())["used"]["exa"], 4)   # 3 pre-403 + the 403 at the estimate
+        self.assertEqual(tables.build(tmp / "runs", self.PRICING)["tables"]["search"], [])   # no previous row: none published
+
+    def test_partial_counts_only_scored_or_tos_lines(self):
+        mk = lambda i, st: (i, {"item_id": f"q{i}", "status": st, "set_rows": 3})
+        self.assertFalse(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "skipped_tos")]))
+        self.assertTrue(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "auth_error")]))
+        self.assertTrue(tables.is_partial([mk(0, "pass"), mk(1, "fail"), mk(2, "weird")]))
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        self._guard_run(tmp, "2026-10-19", n_rows=8)
+        f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"; ls = read_jsonl(f)
+        f.write_text("".join(json.dumps(l) + "\n" for l in ls[:5]))   # non-auth partial run: published, flagged partial
+        r = tables.build(tmp / "runs", self.PRICING)["tables"]["search"][0]
+        self.assertEqual((r["partial"], r["attempted"]["v"], r["run_date"]), (True, 5, "2026-10-19"))
+
+    def test_complete_set_is_not_partial(self):
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        s, n = self._guard_run(tmp, "2026-10-19")
+        self.assertEqual((s["providers"][0]["status"], n), ("ran", 8))
+        r = tables.build(tmp / "runs", self.PRICING)["tables"]["search"][0]
+        self.assertEqual((r["partial"], r["attempted"]["v"], r["passed"]["v"]), (False, 8, 4))
+        self.assertNotIn("auth_error", r)
+
+    def test_no_resource_warning(self):   # runner/tables close every file (with open); run the guard tests with ResourceWarning as error
+        tests = [f"tests.test_bench.Rulings3.{t}" for t in ("test_late_401_previous_row_byte_identical", "test_late_401_keeps_data_rows_and_spend", "test_complete_set_is_not_partial")]
+        r = subprocess.run([sys.executable, "-X", "dev", "-W", "error::ResourceWarning", "-m", "unittest", *tests], cwd=BENCH, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:]); self.assertNotIn("ResourceWarning", r.stderr)
+
+    # ---------- PR #2 follow-up: stale providers never surface; stale-only runs leave latest.json alone ----------
+    def _row(self, pid, v): return {"provider": pid, "set": "news_2026-42", "run_date": v, "attempted": {"v": 1, "src": []}}
+    def _fr(self, pid, v): return {"provider": pid, "set": "news_2026-42", "run_date": v, "fresh_hit_at_10": {"v": 0.5, "src": []}}
+
+    def test_stale_provider_not_in_skips_or_not_run_yet(self):   # kills R1, and the not_run_yet bug (evidence case4)
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = tmp / "latest.json"
+        prev.write_text(json.dumps({"tables": {"search": [self._row("exa", "2026-10-12")], "scrape": [], "browser": []}, "freshness": []}, indent=1))
+        s = {"providers": [{"provider": "exa", "category": "search", "status": "stale_auth_error", "data_calls": 5, "reason": "HTTP 401"},
+                           {"provider": "tavily", "category": "search", "status": "stale_auth_error", "data_calls": 0, "reason": "HTTP 401"}]}
+        doc = {"tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}; skips = []
+        self.assertEqual(B.finish_doc(doc, s, CFG, prev, skips), {"exa", "tavily"})
+        self.assertIn("tavily", CFG["month1_free_tier_providers"])
+        self.assertEqual(skips, []); self.assertEqual(doc["not_run_yet"], [])
+        self.assertEqual([r["provider"] for r in doc["tables"]["search"]], ["exa"])
+
+    def test_stale_provider_freshness_kept(self):   # kills R2
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-")); prev = tmp / "latest.json"; old = self._fr("exa", "2026-10-12")
+        prev.write_text(json.dumps({"tables": {"search": [self._row("exa", "2026-10-12")]}, "freshness": [old, self._fr("tavily", "2026-10-12")]}, indent=1))
+        doc = {"tables": {"search": [self._row("exa", "2026-10-19"), self._row("tavily", "2026-10-19")]},
+               "freshness": [self._fr("exa", "2026-10-19"), self._fr("tavily", "2026-10-19")]}
+        B.keep_previous_rows(doc, prev, {"exa"})
+        self.assertEqual(sorted((r["provider"], r["run_date"]) for r in doc["freshness"]), [("exa", "2026-10-12"), ("tavily", "2026-10-19")])
+        self.assertEqual(sorted((r["provider"], r["run_date"]) for r in doc["tables"]["search"]), [("exa", "2026-10-12"), ("tavily", "2026-10-19")])
+
+    def test_stale_without_previous_row_not_published_from_older_log(self):   # kills R3
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        tmp = Path(tempfile.mkdtemp(prefix="awi-test-"))
+        self._guard_run(tmp, "2026-10-12")                     # older good log on disk
+        s, _ = self._guard_run(tmp, "2026-10-19", fail_at=3)   # then a stale run
+        prev = tmp / "latest.json"; prev.write_text(json.dumps({"tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}))
+        doc = tables.build(tmp / "runs", self.PRICING)
+        self.assertEqual([r["run_date"] for r in doc["tables"]["search"]], ["2026-10-12"])   # collect falls back to the older log
+        B.finish_doc(doc, s, CFG, prev, [])
+        self.assertEqual(doc["tables"]["search"], []); self.assertEqual(doc["freshness"], []); self.assertEqual(doc["not_run_yet"], [])
+
+    def test_stale_only_run_leaves_latest_json(self):   # main(): data only from a stale provider -> latest.json byte-identical
+        import shutil, io, urllib.error
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        root = Path(tempfile.mkdtemp(prefix="awi-test-")) / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        out = root / "data" / "benchmarks" / "latest.json"; before = out.read_bytes()
+        led = root / "data" / "spend" / f"{dt.date.today().isoformat()[:7]}-quota.json"
+        used0 = json.loads(led.read_text())["used"].get("exa", 0) if led.exists() else 0
+        calls = []
+        class Resp:
+            status = 200
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s): return json.dumps({"results": [{"url": "https://a.example/x", "title": "t"}]}).encode()
+        def fake(req, timeout=None):
+            calls.append(1)
+            if len(calls) == 3: raise urllib.error.HTTPError(req.full_url, 401, "x", {}, io.BytesIO(b"bad key"))
+            return Resp()
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"EXA_API_KEY": "mock-dummy"}
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "exa"]), mock.patch("urllib.request.urlopen", fake), \
+             mock.patch("builtins.print") as pr:
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(out.read_bytes(), before)   # generated_at and run_summary unchanged
+        self.assertTrue(any("SKIP publish" in " ".join(map(str, c.args)) for c in pr.call_args_list))
+        self.assertEqual(json.loads(led.read_text())["used"]["exa"] - used0, 2 * 1)   # both pre-401 billed calls kept; 401 = 0
+        self.assertFalse(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}]}))
+        self.assertTrue(B.fresh_data({"providers": [{"provider": "exa", "status": "stale_auth_error", "data_calls": 2}, {"provider": "tavily", "status": "ran", "data_calls": 1}]}))
 
     def test_keyed_providers(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
