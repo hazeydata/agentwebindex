@@ -1,5 +1,13 @@
 {
+ "apify_note_2026-10-19": "apify_usd_cents set to the Apify account usage meter after run 2026-10-19 ($0.89 of the Free plan's $5; plan hard limit $5, no card, $0 billed). The Actor charges per event plus platform usage, so per-line billed_units in the run log (events only) understate it.",
  "month": "2026-10",
  "over_free_units": 0,
- "used": {}
+ "used": {
+  "apify_usd_cents": 89.27,
+  "browserless": 17,
+  "exa": 33,
+  "firecrawl": 64,
+  "tavily": 66
+ },
+ "verification_calls_2026-10-19": "key checks after the Oct 15 rotation: 1 Exa search, 1 Tavily basic search (counted at the 2-credit guard), 1 Browserless /content of example.com, 1 Apify RAG Web Browser query (maxResults 10); not part of any table"
 }

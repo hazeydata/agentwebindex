@@ -89,6 +89,7 @@
    "id": "apify",
    "name": "Apify",
    "categories": [
+    "search",
     "scrape"
    ],
    "pricing_url": "https://apify.com/pricing",

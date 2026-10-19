@@ -1,12 +1,1606 @@
 {
- "generated_at": "2026-10-18T10:45:33+00:00",
+ "generated_at": "2026-10-19T07:07:03+00:00",
  "source": "run logs only (SPEC-bench \u00a74)",
  "tables": {
-  "search": [],
+  "search": [
+   {
+    "provider": "apify",
+    "set": "news_2026-42",
+    "run_date": "2026-10-19",
+    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+    "set_rows": 16,
+    "flags": [
+     "short week (n=16)",
+     "below minimum (n=16)"
+    ],
+    "mock": false,
+    "attempted": {
+     "v": 16,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 2,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 14,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": 12,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16
+       ]
+      }
+     ],
+     "note": "counted as fails: the request timed out (provider-side 'Timed out.' or no reply within the client limit)"
+    },
+    "answered_display": "2/16 answered (12 of the fails timed out)",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.125,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 60451.917499999996,
+     "src": [
+      {
+       "file": "runs/2026-10-19/apify/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search and $0.00228 per fetched page (Actor Store record, 2026-10-19). Units here are US cents of that $5.",
+    "cost_units_note": null,
+    "entry_tier_cost_per_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    }
+   },
+   {
+    "provider": "exa",
+    "set": "news_2026-42",
+    "run_date": "2026-10-15",
+    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+    "set_rows": 16,
+    "flags": [
+     "short week (n=16)",
+     "below minimum (n=16)"
+    ],
+    "mock": false,
+    "attempted": {
+     "v": 16,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 12,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 4,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "12/16 answered",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.75,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 2979.5515,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Starter: 'Free $10 credits every month ... No payment method required'. 1,428 = floor($10 / $7 per 1k Fast/Auto search); shared $10 pool with contents.",
+    "cost_units_note": null,
+    "entry_tier_cost_per_1k": {
+     "v": 7.0,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "exa",
+       "category": "search"
+      }
+     ],
+     "tier": "Developer pay-as-you-go, Fast/Auto search (<=10 results)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$7.00"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 9.333333333333334,
+     "src": [
+      {
+       "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "exa",
+       "category": "search"
+      }
+     ],
+     "tier": "Developer pay-as-you-go, Fast/Auto search (<=10 results)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$9.33"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    }
+   },
+   {
+    "provider": "firecrawl",
+    "set": "news_2026-42",
+    "run_date": "2026-10-15",
+    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+    "set_rows": 16,
+    "flags": [
+     "short week (n=16)",
+     "below minimum (n=16)"
+    ],
+    "mock": false,
+    "attempted": {
+     "v": 10,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 5,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 5,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": 6,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ],
+     "label": "rate-limited (free tier)",
+     "note": "HTTP 429 from the provider; the free-tier rate limit is the cause. Excluded from the pass-rate denominator, not a quality fail."
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "5/10 answered + 6 rate-limited (free tier)",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.5,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 338.07,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Free Plan: '1,000 credits / month ... no card' (500 searches or 1,000 pages)",
+    "cost_units_note": null,
+    "entry_tier_cost_per_1k": {
+     "v": 7.6,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "firecrawl",
+       "category": "search"
+      }
+     ],
+     "tier": "Hobby $19/month billed monthly (5,000 credits)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$7.60"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 15.2,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "firecrawl",
+       "category": "search"
+      }
+     ],
+     "tier": "Hobby $19/month billed monthly (5,000 credits)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$15.20"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": 1.198,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "firecrawl",
+       "category": "search"
+      }
+     ],
+     "tier": "Scale $599/month billed yearly (1,000,000 credits)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$1.20"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": 2.396,
+     "src": [
+      {
+       "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "firecrawl",
+       "category": "search"
+      }
+     ],
+     "tier": "Scale $599/month billed yearly (1,000,000 credits)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$2.40"
+    }
+   },
+   {
+    "provider": "tavily",
+    "set": "news_2026-42",
+    "run_date": "2026-10-15",
+    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+    "set_rows": 16,
+    "flags": [
+     "short week (n=16)",
+     "below minimum (n=16)"
+    ],
+    "mock": false,
+    "attempted": {
+     "v": 16,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 8,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 8,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "8/16 answered",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.5,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 1400.2795,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Researcher: '1,000 API credits / month ... No credit card required'; resets the 1st of each month",
+    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-19); the run log's billed_units held the runner's unverified guard",
+    "entry_tier_cost_per_1k": {
+     "v": 8.0,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tavily",
+       "category": "search"
+      }
+     ],
+     "tier": "Pay As You Go",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$8.00"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 16.0,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tavily",
+       "category": "search"
+      }
+     ],
+     "tier": "Pay As You Go",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$16.00"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": 7.5,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tavily",
+       "category": "search"
+      }
+     ],
+     "tier": "Project $30/month (4,000 credits; slider default)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$7.50"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": 15.0,
+     "src": [
+      {
+       "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tavily",
+       "category": "search"
+      }
+     ],
+     "tier": "Project $30/month (4,000 credits; slider default)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$15.00"
+    }
+   }
+  ],
   "scrape": [],
-  "browser": []
+  "browser": [
+   {
+    "provider": "browserless",
+    "set": "newsfetch_2026-42",
+    "run_date": "2026-10-19",
+    "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+    "set_rows": 16,
+    "flags": [
+     "short week (n=16)",
+     "below minimum (n=16)"
+    ],
+    "mock": false,
+    "attempted": {
+     "v": 16,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 11,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 5,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "11/16 answered",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.6875,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 2680.794,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Free: '1k units/month', 'No card required'; unit = up to 30 s per browser connection",
+    "cost_units_note": null,
+    "entry_tier_cost_per_1k": {
+     "v": 1.25,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "browserless",
+       "category": "browser"
+      }
+     ],
+     "tier": "Prototyping $25/mo billed annually (20k units)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$1.25"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 1.8181818181818181,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "browserless",
+       "category": "browser"
+      }
+     ],
+     "tier": "Prototyping $25/mo billed annually (20k units)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$1.82"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": 0.7,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "browserless",
+       "category": "browser"
+      }
+     ],
+     "tier": "Scale $350/mo billed annually (500k units)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$0.70"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": 1.018181818181818,
+     "src": [
+      {
+       "file": "runs/2026-10-19/browserless/newsfetch_2026-42.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "browserless",
+       "category": "browser"
+      }
+     ],
+     "tier": "Scale $350/mo billed annually (500k units)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$1.02"
+    }
+   }
+  ]
  },
- "freshness": [],
+ "freshness": [
+  {
+   "provider": "exa",
+   "set": "news_2026-42",
+   "run_date": "2026-10-15",
+   "flags": [
+    "short week (n=16)",
+    "below minimum (n=16)"
+   ],
+   "n": 16,
+   "week": "2026-42",
+   "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+   "fresh_hit_at_10": {
+    "v": 0.9375,
+    "src": [
+     {
+      "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   },
+   "median_lag_h": {
+    "v": 50.75611111111111,
+    "src": [
+     {
+      "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   },
+   "censored_share": {
+    "v": 0.0625,
+    "src": [
+     {
+      "file": "runs/2026-10-15/exa/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "provider": "firecrawl",
+   "set": "news_2026-42",
+   "run_date": "2026-10-15",
+   "flags": [
+    "short week (n=16)",
+    "below minimum (n=16)"
+   ],
+   "n": 16,
+   "week": "2026-42",
+   "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+   "fresh_hit_at_10": {
+    "v": 0.3125,
+    "src": [
+     {
+      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10
+      ]
+     }
+    ]
+   },
+   "median_lag_h": {
+    "v": 50.775555555555556,
+    "src": [
+     {
+      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10
+      ]
+     }
+    ]
+   },
+   "censored_share": {
+    "v": 0.6875,
+    "src": [
+     {
+      "file": "runs/2026-10-15/firecrawl/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "provider": "tavily",
+   "set": "news_2026-42",
+   "run_date": "2026-10-15",
+   "flags": [
+    "short week (n=16)",
+    "below minimum (n=16)"
+   ],
+   "n": 16,
+   "week": "2026-42",
+   "set_sha": "3e516ca796e2115eb529a2b5a7aa0cea39e91417739c476d99202e566fafed62",
+   "fresh_hit_at_10": {
+    "v": 0.5,
+    "src": [
+     {
+      "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   },
+   "median_lag_h": {
+    "v": 47.85055555555556,
+    "src": [
+     {
+      "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   },
+   "censored_share": {
+    "v": 0.5,
+    "src": [
+     {
+      "file": "runs/2026-10-15/tavily/news_2026-42.jsonl",
+      "lines": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16
+      ]
+     }
+    ]
+   }
+  }
+ ],
  "exclusions": [
   {
    "provider": "brave",
@@ -17,130 +1611,197 @@
    "note": "Benchmark clause targets using Search Results to benchmark AI models/services; whether a provider comparison is covered needs legal review \u2014 treated as forbidden"
   }
  ],
- "has_results": false,
+ "freshness_notes": [
+  {
+   "provider": "apify",
+   "set": "news_2026-42",
+   "run_date": "2026-10-19",
+   "note": "no freshness row: ran 2026-10-19, after the set froze on 2026-10-15, so its lag is not comparable"
+  }
+ ],
+ "has_results": true,
+ "not_run_yet": [
+  {
+   "provider": "brightdata",
+   "categories": [
+    "scrape"
+   ],
+   "status": "not run yet",
+   "reason": "no collector yet, and the current key is stale (expires 2026-10-23); not run"
+  }
+ ],
  "run_summary": {
-  "run_date": "2026-10-18",
+  "run_date": "2026-10-19",
+  "run_dates": [
+   "2026-10-15",
+   "2026-10-16",
+   "2026-10-17",
+   "2026-10-18",
+   "2026-10-19"
+  ],
   "mock": false,
   "offset_h": 0,
   "providers": [
    {
     "provider": "exa",
     "category": "search",
-    "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "status": "ran",
+    "calls": 16,
+    "quota_used": 32,
+    "quota": 1428,
+    "run_date": "2026-10-15"
    },
    {
     "provider": "exa",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "reason": "not run (no key)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "tavily",
     "category": "search",
-    "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "status": "ran",
+    "calls": 16,
+    "quota_used": 64,
+    "quota": 1000,
+    "run_date": "2026-10-15"
    },
    {
     "provider": "brave",
     "category": "search",
     "status": "excluded_tos_benchmarking",
-    "reason": "terms forbid benchmarking: '(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties' (https://api-dashboard.search.brave.com/documentation/resources/terms-of-service, checked 2026-10-15)"
+    "reason": "terms forbid benchmarking: '(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties' (https://api-dashboard.search.brave.com/documentation/resources/terms-of-service, checked 2026-10-15)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "linkup",
     "category": "search",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "parallel",
     "category": "search",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "parallel",
     "category": "scrape",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "serper",
     "category": "search",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "firecrawl",
     "category": "search",
-    "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "status": "ran",
+    "calls": 16,
+    "quota_used": 64,
+    "quota": 1000,
+    "run_date": "2026-10-15"
    },
    {
     "provider": "firecrawl",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "reason": "not run (no key)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "jina",
     "category": "scrape",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "brightdata",
     "category": "scrape",
     "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "reason": "not run (no key)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "apify",
     "category": "scrape",
-    "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "status": "not_implemented",
+    "run_date": "2026-10-19"
    },
    {
     "provider": "hyperbrowser",
     "category": "scrape",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "hyperbrowser",
     "category": "browser",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "scrapingbee",
     "category": "scrape",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "browserbase",
     "category": "browser",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "steel",
     "category": "browser",
     "status": "skipped_not_month1",
-    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)",
+    "run_date": "2026-10-18"
    },
    {
     "provider": "browserless",
     "category": "browser",
-    "status": "skipped_no_key",
-    "reason": "not run (no key)"
+    "status": "ran",
+    "calls": 16,
+    "quota_used": 17,
+    "quota": 1000,
+    "run_date": "2026-10-19"
+   },
+   {
+    "provider": "apify",
+    "category": "search",
+    "status": "ran",
+    "calls": 16,
+    "quota_used": 23.316,
+    "quota": 500,
+    "run_date": "2026-10-19"
    }
   ]
  },
- "run_date": "2026-10-18",
- "sets_valid": [],
+ "run_date": "2026-10-19",
+ "run_dates": [
+  "2026-10-15",
+  "2026-10-19"
+ ],
+ "sets_valid": [
+  "news_2026-42",
+  "newsfetch_2026-42"
+ ],
  "skips": [
   {
    "scope": "set",
@@ -163,21 +1824,7 @@
   {
    "scope": "provider",
    "provider": "exa",
-   "category": "search",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
-  },
-  {
-   "scope": "provider",
-   "provider": "exa",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
-  },
-  {
-   "scope": "provider",
-   "provider": "tavily",
-   "category": "search",
    "status": "skipped_no_key",
    "reason": "not run (no key)"
   },
@@ -219,13 +1866,6 @@
   {
    "scope": "provider",
    "provider": "firecrawl",
-   "category": "search",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
-  },
-  {
-   "scope": "provider",
-   "provider": "firecrawl",
    "category": "scrape",
    "status": "skipped_no_key",
    "reason": "not run (no key)"
@@ -239,17 +1879,10 @@
   },
   {
    "scope": "provider",
-   "provider": "brightdata",
-   "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
-  },
-  {
-   "scope": "provider",
    "provider": "apify",
    "category": "scrape",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
+   "status": "not_implemented",
+   "reason": "not_implemented"
   },
   {
    "scope": "provider",
@@ -285,19 +1918,16 @@
    "category": "browser",
    "status": "skipped_not_month1",
    "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
-  },
-  {
-   "scope": "provider",
-   "provider": "browserless",
-   "category": "browser",
-   "status": "skipped_no_key",
-   "reason": "not run (no key)"
-  },
-  {
-   "scope": "run",
-   "status": "no_valid_sets",
-   "reason": "no test set passed validation; no provider calls made"
   }
  ],
- "flags": []
+ "flags": [
+  {
+   "set": "news_2026-42",
+   "flag": "short week (n=16)"
+  },
+  {
+   "set": "news_2026-42",
+   "flag": "below minimum (n=16)"
+  }
+ ]
 }
