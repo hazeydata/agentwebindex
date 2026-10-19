@@ -1199,7 +1199,7 @@ class BrightDataBudget(unittest.TestCase):
     def test_month_rollover_starts_new_file(self):
         oct_f = self._seed("2026-10", 2667, 4.0005); before = oct_f.read_text()
         p = self._run(2, now=dt.datetime(2026, 11, 1, 1, tzinfo=dt.timezone.utc))
-        self.assertEqual(p["status"], "ran"); self.assertEqual(oct_f.read_text(), before)
+        self.assertEqual(p["status"], "ran"); self.assertEqual(json.loads(oct_f.read_text()), json.loads(before) | {"rolled_over_to": "2026-11"})
         self.assertEqual({k: self._spend("2026-11")[k] for k in ("month", "requests", "est_usd")}, {"month": "2026-11", "requests": 2, "est_usd": 0.003})
 
     def test_429_bills_and_increments_spend(self):
@@ -1212,9 +1212,9 @@ class BrightDataBudget(unittest.TestCase):
 
     def test_status_line_billing_paths(self):
         import urllib.error, socket
-        cases = [(lambda: urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), None, "stale_error"),
-                 (lambda: TimeoutError("timed out"), None, "stale_error"),
-                 (lambda: RuntimeError("HTTP 401: bad key"), None, "stale_auth_error"),
+        cases = [(lambda: urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), 0, "stale_error"),
+                 (lambda: TimeoutError("timed out"), 0, "stale_error"),
+                 (lambda: RuntimeError("HTTP 401: bad key"), 0, "stale_auth_error"),
                  (lambda: RuntimeError("HTTP 403: forbidden"), 1, "stale_auth_error"),
                  (lambda: RuntimeError("HTTP 502: bad gateway"), 3, "stale_error")]
         for mk, want, st in cases:
@@ -1307,9 +1307,67 @@ class BrightDataBudget(unittest.TestCase):
         with mock.patch.object(pathlib.Path, "write_text", partial), mock.patch("builtins.open", partial_open), self.assertRaises(OSError): self._run(1)
         self.assertEqual(f.read_text(), old); self.assertEqual(self._run(1)["status"], "ran"); self.assertEqual(self._spend()["requests"], 11)
 
-    def test_missing_spend_file_starts_at_zero(self):
+    def test_rule6_first_ever_month_seeds(self):
         self.assertFalse(any((self.tmp / "spend").glob("*.json")))
         p = self._run(2); self.assertEqual((p["status"], self._spend()["requests"], self._spend()["est_usd"]), ("ran", 2, 0.003))
+        self.assertNotIn("rolled_over_to", self._spend())
+
+    def _mixed(self, n=3):
+        prov = self.PROV + [{"id": "exa", "categories": ["scrape"], "key_env": "EXA_API_KEY"}]
+        pricing = self.PRICING | {"exa": {"scrape": {"model": "per_request", "free_tier": {"units_per_month": 5000, "needs_card": False}}}}
+        ps = self._run(n, providers=prov, adapters={"brightdata": {"scrape": self._ok}, "exa": {"scrape": lambda k, i: {"http_status": 200, "billed_units": 1, "text": "hello world page"}}},
+                       pricing=pricing, env={"BRIGHTDATA_API_KEY": "d", "EXA_API_KEY": "d"})
+        return {p["provider"]: p for p in ps}
+
+    def _refused(self, st, why):
+        self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], self.calls), ("stale_budget", 0, []))
+        self.assertIn("failing closed (rule 6)", st["brightdata"]["reason"]); self.assertIn(why, st["brightdata"]["reason"])
+        self.assertEqual((st["exa"]["status"], st["exa"]["calls"]), ("ran", 3)); self.assertIsNone(self._spend())
+
+    def test_rule6_deleted_mid_month_refuses(self):
+        self._seed("2026-09", 50, 0.075); self._run(2)
+        self.assertEqual(self._spend()["requests"], 2); self.calls.clear()
+        (self.tmp / "spend" / "brightdata-2026-10.json").unlink()
+        self._refused(self._mixed(), "already rolled over to 2026-10")
+
+    def test_rule6_new_month_with_last_month_present_seeds(self):
+        sep = self._seed("2026-09", 2666, 3.999); st = self._mixed()
+        self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["status"]), ("ran", 3, "ran"))
+        self.assertEqual((self._spend()["requests"], self._spend()["est_usd"]), (3, 0.0045))
+        self.assertEqual(json.loads(sep.read_text())["rolled_over_to"], "2026-10"); self.assertEqual(json.loads(sep.read_text())["requests"], 2666)
+
+    def test_rule6_january_rolls_from_december(self):
+        dec = self._seed("2026-12", 5, 0.0075)
+        p = self._run(1, now=dt.datetime(2027, 1, 1, 6, tzinfo=dt.timezone.utc))
+        self.assertEqual((p["status"], self._spend("2027-01")["requests"], json.loads(dec.read_text())["rolled_over_to"]), ("ran", 1, "2027-01"))
+
+    def test_rule6_gap_month_refuses(self):
+        self._seed("2026-08", 10, 0.015); self._refused(self._mixed(), "previous month 2026-09 is absent")
+
+    def test_rule6_other_files_but_no_previous_refuses(self):
+        self._seed("2026-11", 1, 0.0015); f = self.tmp / "spend" / "brightdata-2026-10.json"
+        st = self._mixed(); self.assertEqual((st["brightdata"]["status"], st["exa"]["status"]), ("stale_budget", "ran"))
+        self.assertIn("later month file exists", st["brightdata"]["reason"]); self.assertFalse(f.exists())
+
+    def test_rule6_second_seed_after_deletion_refuses(self):
+        self._seed("2026-09", 1, 0.0015); self.assertEqual(self._run(1)["status"], "ran")
+        for _ in range(2):
+            (self.tmp / "spend" / "brightdata-2026-10.json").unlink(missing_ok=True); self.calls.clear()
+            self._refused(self._mixed(), "this month's file was deleted")
+
+    def test_rule6_corrupt_or_foreign_previous_month_refuses(self):
+        for txt in ("", "{bad", '{"month": "2026-08"}', '{"month": "2026-09", "rolled_over_to": "2026-11"}'):
+            self.setUp(); (self.tmp / "spend" / "brightdata-2026-09.json").write_text(txt)
+            st = self._mixed(); self.assertEqual((st["brightdata"]["status"], st["brightdata"]["calls"], st["exa"]["calls"]), ("stale_budget", 0, 3), txt)
+            self.assertIsNone(self._spend()); self.assertEqual((self.tmp / "spend" / "brightdata-2026-09.json").read_text(), txt)
+
+    def test_rule6_marker_written_atomically_before_seed(self):
+        sep = self._seed("2026-09", 7, 0.0105); old = sep.read_text()
+        def crash(*a, **k): raise OSError("simulated crash before rename")
+        with mock.patch("os.replace", crash): p = self._run(1)
+        self.assertEqual((p["status"], p["calls"], self.calls), ("stale_budget", 0, [])); self.assertIn("failing closed", p["reason"])
+        self.assertEqual(sep.read_text(), old); self.assertIsNone(self._spend())
+        self.assertEqual(self._run(1)["status"], "ran"); self.assertEqual(json.loads(sep.read_text())["rolled_over_to"], "2026-10")
 
     def test_missing_or_unreadable_spend_dir_fails_closed(self):
         (self.tmp / "spend").rmdir(); p = self._run(3)
