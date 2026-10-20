@@ -130,6 +130,10 @@ def check_news(rows, cfg, errs, warns, name="news"):
             if n > cap: errs.append(f"{name}: {key} '{k}' has {n} > cap {cap}")
     for i, r in enumerate(rows, 1):
         if r.get("check", {}).get("type") not in ("url_exact", "url_domain"): errs.append(f"{name} L{i}: bad check")
+    m = re.match(r"news_(\d{4}-\d{2})", name); share = caps.get("max_domain_share")
+    if share and m and m.group(1) >= caps["domain_share_from_week"] and rows:
+        for d, n in Counter(domain(str(r.get("source_url", ""))) for r in rows).items():
+            if n > share * len(rows): errs.append(f"{name}: source domain {d} has {n}/{len(rows)} rows > {share:.0%} cap (from week {caps['domain_share_from_week']})")
 
 def validate_by_set(sets_dir, cfg, only=None):
     """{set_name: (errors, warnings)} so one bad or missing set doesn't block the others. only: 'news' or None."""

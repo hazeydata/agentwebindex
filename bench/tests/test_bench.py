@@ -1885,3 +1885,130 @@ class ApifyMainWiring(unittest.TestCase):
             self.assertIsNotNone(seen.get("meters")); self.assertIn("apify", seen["meters"])
             self.assertEqual(seen["meters"]["apify"](), 3.21)   # read while the run's env is in place
         am.assert_called_once_with("mock-dummy")
+
+
+class CanonScoring(unittest.TestCase):
+    ART = "https://www.bbc.co.uk/news/articles/cq398zl8jmvdo?at_medium=RSS&at_campaign=rss"
+    ROW = {"id": "n1", "published_at": "2026-10-16T14:19:50+00:00", "check": {"type": "url_exact", "value": ART},
+           "alt_check": {"type": "url_domain", "value": "bbc.co.uk", "within_h": 72}}
+    def test_canonical_url_same_host_and_tracking_stripped(self):
+        from awibench.util import norm_url, domain
+        self.assertEqual(norm_url(self.ART), norm_url("https://www.bbc.com/news/articles/cq398zl8jmvdo"))
+        self.assertEqual(norm_url("https://x.example/a?utm_source=rss&UTM_Medium=x&id=7&at_medium=RSS"), "https://x.example/a?id=7")
+        self.assertNotEqual(norm_url("https://x.example/a?id=7"), norm_url("https://x.example/a?id=8"))
+        self.assertEqual({domain("https://www.bbc.com/x"), domain("https://bbc.co.uk/y")}, {"bbc.co.uk"})
+    def test_utm_content_and_utm_term_stripped(self):
+        from awibench.util import norm_url
+        self.assertEqual(norm_url("https://x.example/a?utm_content=hero&id=7"), "https://x.example/a?id=7")
+        self.assertEqual(norm_url("https://x.example/a?id=7&utm_term=ai+search"), "https://x.example/a?id=7")
+        self.assertEqual(norm_url("https://x.example/a?UTM_Content=a&utm_term=b"), "https://x.example/a")
+    def test_google_redirect_unwrapped_and_srsltid_stripped(self):
+        from awibench.util import norm_url, domain
+        art = "https://www.bbc.co.uk/news/articles/cq398zl8jmvdo"
+        self.assertEqual(norm_url("http://www.google.com/goto?url=" + art.replace(":", "%3A").replace("/", "%2F")), norm_url(art))
+        self.assertEqual(norm_url("https://www.google.com/url?q=" + art + "%3Futm_source%3Dx&sa=U"), norm_url(art))
+        self.assertEqual(norm_url("http://www.google.com/goto?url=CAESopaqueTOKEN123"), "https://google.com/goto")   # opaque token dropped, not resolvable offline
+        self.assertEqual(norm_url("https://x.example/p/1?srsltid=AbC123&id=2"), "https://x.example/p/1?id=2")
+        self.assertEqual(checks.news_check(self.ROW, [{"url": "http://www.google.com/goto?url=" + art, "published_at": None}]), (True, "url_exact in top10"))
+    def test_no_date_passes_only_on_exact_canonical_article_id(self):
+        same = [{"url": "https://www.bbc.com/news/articles/cq398zl8jmvdo", "published_at": None}]
+        other = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": None}]
+        self.assertEqual(checks.news_check(self.ROW, same), (True, "url_exact in top10"))
+        self.assertEqual(checks.news_check(self.ROW, other), (False, "domain not in top5"))
+    def test_dated_same_domain_fallback_unchanged(self):
+        dated = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": "2026-10-17T00:00:00+00:00"}]
+        old = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": "2026-10-01T00:00:00+00:00"}]
+        self.assertTrue(checks.news_check(self.ROW, dated)[0]); self.assertFalse(checks.news_check(self.ROW, old)[0])
+
+class DomainShareCap(unittest.TestCase):
+    def _rows(self, n_bbc, n=20):
+        return [{"id": f"r{i}", "feed": f"f{i % 5}", "check": {"type": "url_exact", "value": "x"},
+                 "source_url": ("https://www.bbc.com/a%d" % i if i % 2 else "https://bbc.co.uk/a%d" % i) if i < n_bbc else "https://o%d.example/a" % i} for i in range(n)]
+    def _errs(self, rows, name):
+        e, w = [], []; validate.check_news(rows, CFG, e, w, name); return [x for x in e if "cap (from week" in x]
+    def test_cap_is_config_25pct_from_week_44(self):
+        self.assertEqual((CFG["news"]["max_domain_share"], CFG["news"]["domain_share_from_week"]), (0.25, "2026-44"))
+    def test_over_25pct_fails_from_week_44_with_aliases_counted_as_one(self):
+        self.assertEqual(self._errs(self._rows(5), "news_2026-44.jsonl"), [])
+        errs = self._errs(self._rows(6), "news_2026-44.jsonl")
+        self.assertEqual(errs, ["news_2026-44.jsonl: source domain bbc.co.uk has 6/20 rows > 25% cap (from week 2026-44)"])
+        self.assertEqual(len(self._errs(self._rows(6), "news_2027-01.jsonl")), 1)
+    def test_boundary_25_of_100_passes_26_of_100_fails(self):
+        self.assertEqual(self._errs(self._rows(25, n=100), "news_2026-44.jsonl"), [])
+        self.assertEqual(self._errs(self._rows(26, n=100), "news_2026-44.jsonl"),
+                         ["news_2026-44.jsonl: source domain bbc.co.uk has 26/100 rows > 25% cap (from week 2026-44)"])
+    def test_weeks_before_44_not_capped(self):
+        self.assertEqual(self._errs(self._rows(20), "news_2026-43.jsonl"), [])
+
+
+class RegradeFromStoredResults(unittest.TestCase):
+    FIX = Path(__file__).parent / "fixtures" / "rescore"
+    def _runs(self):
+        d = mktmp(self) / "runs"
+        shutil.copytree(self.FIX / "runs", d)
+        for f in (BENCH / "runs").glob("*/*/news_2026-42.jsonl"):
+            t = d / f.parent.parent.name / f.parent.name; t.mkdir(parents=True, exist_ok=True); shutil.copy(f, t)
+        return d
+    def _build(self, d):
+        doc = tables.build(d, {}, BENCH / "sets", {}, CFG); doc.pop("generated_at"); return doc
+    def test_regrade_twice_is_identical_and_logs_stay_raw(self):
+        d = self._runs(); before = {f: f.read_bytes() for f in d.rglob("*.jsonl")}
+        a, b = self._build(d), self._build(d)
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+        self.assertEqual({f: f.read_bytes() for f in d.rglob("*.jsonl")}, before)
+        self.assertEqual(a["grader_version"], checks.GRADER_VERSION)
+        self.assertEqual({r["grader_version"] for r in a["tables"]["search"]}, {checks.GRADER_VERSION})
+    def test_rescore_numbers_match_rescore_json(self):
+        want = {(r["provider"], "news_2026-" + r["week"]): (r["new_pass"], r["n"]) for r in json.loads((self.FIX / "rescore.json").read_text())["rows"] if r["provider"] != "firecrawl"}
+        got = {(r["provider"], r["set"]): (r["passed"]["v"], r["attempted"]["v"]) for r in self._build(self._runs())["tables"]["search"]}
+        self.assertEqual(got, want)
+        self.assertEqual(want[("tavily", "news_2026-43")], (29, 40)); self.assertEqual(want[("tavily", "news_2026-42")], (12, 16))
+    def test_firecrawl_week42_rescore_5_to_8_from_stored_log(self):
+        rows = {r["id"]: r for r in read_jsonl(BENCH / "sets" / "news_2026-42.jsonl")}
+        L = [l for l in read_jsonl(BENCH / "runs" / "2026-10-15" / "firecrawl" / "news_2026-42.jsonl") if l.get("offset_h", 0) == 0 and l["status"] in ("pass", "fail")]
+        new = sum(checks.news_check(rows[l["item_id"]], l.get("results", []))[0] for l in L)
+        want = [r for r in json.loads((self.FIX / "rescore.json").read_text())["rows"] if r["provider"] == "firecrawl"][0]
+        self.assertEqual((len(L), sum(l["pass"] for l in L), new), (want["n"], want["old_pass"], want["new_pass"]))
+        self.assertEqual((want["old_pass"], want["new_pass"]), (5, 8))
+    def test_non_search_rows_keep_stored_grade(self):
+        self.assertEqual(tables.regrade("newsfetch_2026-43", [(1, {"status": "fail"})], BENCH / "sets"), ([(1, {"status": "fail"})], None))
+    def test_error_lines_are_not_regraded(self):
+        e = [(1, {"status": "fail", "item_id": "news-2026-W43-001", "results": [], "reason": "RuntimeError: HTTP 500: x"})]
+        self.assertEqual(tables.regrade("news_2026-43", e, BENCH / "sets")[0], e)
+
+
+class NewsgenDomainCap(unittest.TestCase):
+    def _feed(self, fid, host, n):
+        items = "".join(f"<item><title>Story {fid} {i} about events</title><link>https://{host}/news/articles/{fid}{i}?at_medium=RSS</link>"
+                        f"<pubDate>Sun, 25 Oct 2026 0{i % 10}:00:00 GMT</pubDate></item>" for i in range(n))
+        return f'<?xml version="1.0"?><rss version="2.0"><channel><title>{fid}</title>{items}</channel></rss>'
+    def test_bbc_heavy_week44_stays_at_or_under_25pct_and_validates(self):
+        feeds = [{"id": f"bbc{k}", "feed_format": "rss", "name": "b", "url": f"https://feeds.example/bbc{k}", "section": "s", "url_verified": True} for k in range(4)] + \
+                [{"id": f"o{k}", "feed_format": "rss", "name": "o", "url": f"https://feeds.example/o{k}", "section": "s", "url_verified": True} for k in range(4)]
+        hosts = {"bbc0": "www.bbc.co.uk", "bbc1": "www.bbc.com", "bbc2": "www.bbc.co.uk", "bbc3": "www.bbc.com", "o0": "a.example", "o1": "b.example", "o2": "c.example", "o3": "d.example"}
+        cfg = dict(CFG, news_feeds=feeds, news=dict(CFG["news"]))
+        txt = {f["id"]: self._feed(f["id"], hosts[f["id"]], 15 if f["id"].startswith("bbc") else 4) for f in feeds}
+        log = []; run_at = dt.datetime.fromisoformat("2026-10-27T06:00:00+00:00")
+        rows, name = newsgen.generate(cfg, run_at, "0", lambda f: txt.get(f["id"]) if not f.get("page") else None, log)
+        self.assertEqual(name, "news_2026-44.jsonl"); self.assertTrue(rows)
+        from collections import Counter
+        c = Counter(r["outlet"] for r in rows); self.assertLessEqual(max(c.values()), 0.25 * len(rows), c)
+        e, w = [], []; validate.check_news(rows, cfg, e, w, name); self.assertEqual(e, [])
+        old = dict(cfg, news=dict(cfg["news"], domain_share_from_week="2099-01"))
+        rows2, _ = newsgen.generate(old, run_at, "0", lambda f: txt.get(f["id"]) if not f.get("page") else None, [])
+        self.assertGreater(max(Counter(r["outlet"] for r in rows2).values()), 0.25 * len(rows2))
+    def _gen100(self, n_bbc_feeds):
+        feeds = [{"id": f"bbc{k}", "feed_format": "rss", "name": "b", "url": f"https://feeds.example/bbc{k}", "section": "s", "url_verified": True} for k in range(n_bbc_feeds)] + \
+                [{"id": f"o{k}", "feed_format": "rss", "name": "o", "url": f"https://feeds.example/o{k}", "section": "s", "url_verified": True} for k in range(8)]
+        host = lambda fid: ("www.bbc.co.uk" if int(fid[3:]) % 2 else "www.bbc.com") if fid.startswith("bbc") else f"{fid}.example"
+        cfg = dict(CFG, news_feeds=feeds, news=dict(CFG["news"], total=100))
+        txt = {f["id"]: self._feed(f["id"], host(f["id"]), 15) for f in feeds}
+        run_at = dt.datetime.fromisoformat("2026-10-27T06:00:00+00:00")
+        rows, name = newsgen.generate(cfg, run_at, "0", lambda f: txt.get(f["id"]) if not f.get("page") else None, [])
+        return cfg, rows, name
+    def test_boundary_total_100_caps_bbc_at_exactly_25_not_26(self):
+        from collections import Counter
+        cfg, rows, name = self._gen100(4)
+        self.assertEqual(len(rows), 100)
+        self.assertEqual(Counter(r["outlet"] for r in rows)["bbc.co.uk"], 25)
+        e, w = [], []; validate.check_news(rows, cfg, e, w, name); self.assertEqual([x for x in e if "cap (from week" in x], [])
