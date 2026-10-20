@@ -1,11 +1,11 @@
 """AC9 dry run: mock providers -> run logs -> tables, all under a temp dir. No network, no spend."""
-import json, shutil, sys, tempfile, datetime as dt
+import json, sys, tempfile, datetime as dt
 from pathlib import Path
 B = Path(__file__).resolve().parent.parent; sys.path[:0] = [str(B), str(Path(__file__).parent)]
 import mocks
 from awibench import runner, tables, newsgen, validate
 from awibench.util import load_yaml, read_jsonl, sha256_file
-tmp = Path(tempfile.mkdtemp(prefix="awi-dry-")); sd = tmp / "sets"; mocks.make_sets(sd)
+td = tempfile.TemporaryDirectory(); tmp = Path(td.name); sd = tmp / "sets"; mocks.make_sets(sd)
 cfg = mocks.mock_cfg(load_yaml(B / "config.yaml"))
 log = []; rows, name = newsgen.generate(cfg, dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00"), "0", lambda f: (Path(__file__).parent / "fixtures/rss" / f"{f['id']}.xml").read_text(), log)
 newsgen.write(rows, sd / name, newsgen.meta(rows, name, cfg, dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00"), "0", log)); print("news meta:", {k: v for k, v in json.loads((sd / name).with_suffix(".meta.json").read_text()).items() if k in ("count", "min", "meets_min", "per_feed_counts")}); print("validator errors:", validate.validate(sd, cfg)[0])
@@ -31,4 +31,4 @@ for cat, t in doc["tables"].items():
               f"vol/1k={r['volume_tier_cost_per_1k']['display']} vol/succ1k={r['volume_tier_cost_per_successful_1k']['display']} | {r['free_quota_note']}")
 for f in doc["freshness"]: print("MOCK freshness", f["provider"], f["week"], "n", f["n"], {k: f[k]["v"] for k in ("fresh_hit_at_10", "median_lag_h", "censored_share")})
 print("news log:", [l for l in log if l["event"] != "feed_read"])
-shutil.rmtree(tmp)
+td.cleanup()
