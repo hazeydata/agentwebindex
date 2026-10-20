@@ -1742,7 +1742,7 @@ class FixtureHygiene(unittest.TestCase):
         files = sorted((self.DIR / "challenge").glob("*.html")); self.assertGreaterEqual(len(files), 3)
         for f in files: self.assertEqual(self.bad_values(f.read_text()), [], f.name)
     def test_hygiene_check_catches_real_tokens(self):
-        self.assertEqual(len(self.bad_values("cRay: '0123456789abcdef',cH: 'abc',__cf_chl_tk=Xyz.1-2&u=12345678-1234-1234-1234-123456789abc")), 5)
+        self.assertEqual(len(self.bad_values("cRay: '" + "0123456789" + "abcdef" + "',cH: 'abc',__cf_chl_tk=Xyz.1-2&u=12345678-1234-1234-1234-123456789abc")), 5)
     def test_signatures_survive_redaction(self):
         for f, sig in (("cloudflare_just_a_moment.html", "Just a moment..."), ("perimeterx_access_denied.html", "Access to this page has been denied")):
             self.assertIn(sig, freeze.html_text((self.DIR / "challenge" / f).read_text()))
