@@ -16,7 +16,7 @@ Stdlib-only Python package `awibench`. Run commands from `site/bench/`.
 Config: `config.yaml` (feeds, caps, challenge signatures, demo-site allowlist, CEO free-tier list), `pricing.yaml`, `tos_matrix.yaml`.
 All are JSON-compatible YAML so no PyYAML is needed. Every pricing/ToS value is `NOT CAPTURED`/null until read from the vendor.
 
-Tests (MOCK only, temp dirs): `python -m unittest -v tests.test_bench`. Fixtures: `tests/fixtures/rss/*.xml` (from `tests/make_rss_fixtures.py`), `tests/mocks.py`.
+Tests (MOCK only, pytest `tmp_path`): `python -m pytest tests/test_bench.py` (`pip install pytest`; the only non-stdlib dependency, tests only). Fixtures: `tests/fixtures/rss/*.xml` (from `tests/make_rss_fixtures.py`), `tests/mocks.py`.
 Mock dry run of the full pipeline: `python tests/dry_run.py` (writes to /tmp only).
 
 ## Bright Data Web Unlocker (scrape, paid spend guard)
