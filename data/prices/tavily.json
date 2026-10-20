@@ -2,36 +2,29 @@
  "provider": "tavily",
  "name": "Tavily",
  "url": "https://www.tavily.com/pricing",
- "fetched_at": "2026-10-19T09:36:15+00:00",
+ "fetched_at": "2026-10-20T09:28:51+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "a517ad994d392e8ff30abed75b7648dcf6c7dbe70f07c950c4d17c0ee97b09e6",
- "text_lines": 157,
+ "text_sha256": "6f316335b060bd29b8f99f381f37c55d2688cc05921a10fe6d4255d57b13d1be",
+ "text_lines": 155,
  "prices_found": [
   "$ 0",
   "$0.008 / credit",
   "$30"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-18T09:25:01+00:00",
+  "previous_fetched_at": "2026-10-19T09:36:15+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -47 +47 @@",
-   "-Get Started",
-   "+Get started",
-   "@@ -55 +55 @@",
-   "-Get Started",
-   "+Get started",
-   "@@ -85 +85 @@",
-   "-Get Started",
-   "+Get started",
-   "@@ -93 +93 @@",
-   "-Talk to Team",
-   "+Talk to the team"
+   "@@ -1,3 +1 @@",
+   "-Tavily",
+   "-Tavily ranks #1 in Company Search Benchmark.",
+   "-Explore the results \u2192",
+   "+Tavily Pricing"
   ]
  }
 }
