@@ -259,6 +259,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
                                   "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
+                    if "config" in out: rec["config"] = out["config"]
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
                     elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached

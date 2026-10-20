@@ -292,6 +292,12 @@ class T(unittest.TestCase):
     def test_no_key_reason_hides_env_name(self):
         kw, _, _ = self._setup_run(); kw["env"] = {}
         for p in runner.run(**kw)["providers"]: self.assertEqual(p["reason"], "not run (no key)")
+    def test_run_log_records_adapter_config_name(self):
+        kw, _, _ = self._setup_run(); pid = kw["providers"][0]["id"]; cat = kw["providers"][0]["categories"][0]
+        kw["adapters"] = {pid: {cat: lambda key, item: {"results": [], "config": "named-x"}}}
+        runner.run(**kw)
+        lines = [json.loads(l) for f in Path(kw["runs_dir"]).rglob("*.jsonl") for l in f.read_text().splitlines()]
+        self.assertTrue(lines); self.assertEqual({l.get("config") for l in lines if l["status"] in ("pass", "fail")}, {"named-x"})
     def test_missing_set_reason_has_no_path(self):
         with tmpd(self) as td:
             out = validate.validate_by_set(td, {"task_site_allowlist": []})
@@ -671,6 +677,16 @@ class Collectors2(unittest.TestCase):
         finally: B._get_json = old
         self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
         self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
+
+    def test_apify_named_config_sets_request_timeout_and_is_logged(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
+        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t120")
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t120"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 120})
+        seen = []; old = B._get_json; B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
+        try: out = B._apify_search("k", {"query": "q"})
+        finally: B._get_json = old
+        qs = up.parse_qs(up.urlparse(seen[0][0]).query)
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["120"], ["raw-http"], 180, "rag-raw-http-t120"))
 
     def test_late_run_gets_no_freshness_row(self):
         with tmpd(self) as d:
