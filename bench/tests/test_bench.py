@@ -1816,3 +1816,40 @@ class ApifyMeterGuard(unittest.TestCase):
         self.assertEqual({k: p[k] for k in want}, want)
         log = json.loads((self.tmp / "spend" / "apify-meter-2026-10.json").read_text())
         self.assertEqual(log["runs"], [{"run_date": "2026-10-20"} | want])
+
+
+class CanonScoring(unittest.TestCase):
+    ART = "https://www.bbc.co.uk/news/articles/cq398zl8jmvdo?at_medium=RSS&at_campaign=rss"
+    ROW = {"id": "n1", "published_at": "2026-10-16T14:19:50+00:00", "check": {"type": "url_exact", "value": ART},
+           "alt_check": {"type": "url_domain", "value": "bbc.co.uk", "within_h": 72}}
+    def test_canonical_url_same_host_and_tracking_stripped(self):
+        from awibench.util import norm_url, domain
+        self.assertEqual(norm_url(self.ART), norm_url("https://www.bbc.com/news/articles/cq398zl8jmvdo"))
+        self.assertEqual(norm_url("https://x.example/a?utm_source=rss&UTM_Medium=x&id=7&at_medium=RSS"), "https://x.example/a?id=7")
+        self.assertNotEqual(norm_url("https://x.example/a?id=7"), norm_url("https://x.example/a?id=8"))
+        self.assertEqual({domain("https://www.bbc.com/x"), domain("https://bbc.co.uk/y")}, {"bbc.co.uk"})
+    def test_no_date_passes_only_on_exact_canonical_article_id(self):
+        same = [{"url": "https://www.bbc.com/news/articles/cq398zl8jmvdo", "published_at": None}]
+        other = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": None}]
+        self.assertEqual(checks.news_check(self.ROW, same), (True, "url_exact in top10"))
+        self.assertEqual(checks.news_check(self.ROW, other), (False, "domain not in top5"))
+    def test_dated_same_domain_fallback_unchanged(self):
+        dated = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": "2026-10-17T00:00:00+00:00"}]
+        old = [{"url": "https://www.bbc.com/news/articles/zzzzzzzzzzzz", "published_at": "2026-10-01T00:00:00+00:00"}]
+        self.assertTrue(checks.news_check(self.ROW, dated)[0]); self.assertFalse(checks.news_check(self.ROW, old)[0])
+
+class DomainShareCap(unittest.TestCase):
+    def _rows(self, n_bbc, n=20):
+        return [{"id": f"r{i}", "feed": f"f{i % 5}", "check": {"type": "url_exact", "value": "x"},
+                 "source_url": ("https://www.bbc.com/a%d" % i if i % 2 else "https://bbc.co.uk/a%d" % i) if i < n_bbc else "https://o%d.example/a" % i} for i in range(n)]
+    def _errs(self, rows, name):
+        e, w = [], []; validate.check_news(rows, CFG, e, w, name); return [x for x in e if "cap (from week" in x]
+    def test_cap_is_config_25pct_from_week_44(self):
+        self.assertEqual((CFG["news"]["max_domain_share"], CFG["news"]["domain_share_from_week"]), (0.25, "2026-44"))
+    def test_over_25pct_fails_from_week_44_with_aliases_counted_as_one(self):
+        self.assertEqual(self._errs(self._rows(5), "news_2026-44.jsonl"), [])
+        errs = self._errs(self._rows(6), "news_2026-44.jsonl")
+        self.assertEqual(errs, ["news_2026-44.jsonl: source domain bbc.co.uk has 6/20 rows > 25% cap (from week 2026-44)"])
+        self.assertEqual(len(self._errs(self._rows(6), "news_2027-01.jsonl")), 1)
+    def test_weeks_before_44_not_capped(self):
+        self.assertEqual(self._errs(self._rows(20), "news_2026-43.jsonl"), [])

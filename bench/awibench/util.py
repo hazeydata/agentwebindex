@@ -1,6 +1,6 @@
 import hashlib, json, re
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 BENCH = Path(__file__).resolve().parent.parent          # site/bench
 SITE = BENCH.parent                                      # site/
@@ -25,14 +25,20 @@ def sha256_file(path):
 def sha256_text(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
+HOST_ALIASES = {"bbc.com": "bbc.co.uk"}
+TRACKING_PARAM = re.compile(r"utm_.*|at_medium|at_campaign", re.I)
+
+def canon_host(netloc):
+    h = netloc.lower().split("@")[-1].split(":")[0].removeprefix("www."); return HOST_ALIASES.get(h, h)
+
 def norm_url(u):
     s = urlsplit(u.strip())
-    host = s.netloc.lower().removeprefix("www.")
     path = s.path.rstrip("/") or "/"
-    return urlunsplit(("https", host, path, s.query, ""))
+    q = urlencode([(k, v) for k, v in parse_qsl(s.query, keep_blank_values=True) if not TRACKING_PARAM.fullmatch(k)])
+    return urlunsplit(("https", canon_host(s.netloc), path, q, ""))
 
 def domain(u):
-    return urlsplit(u).netloc.lower().split(":")[0].removeprefix("www.")
+    return canon_host(urlsplit(u).netloc)
 
 def norm_text(s):
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", s.casefold())).strip()

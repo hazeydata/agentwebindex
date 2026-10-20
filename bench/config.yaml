@@ -3,7 +3,7 @@
  "monthly_cap_usd": 0,
  "ceo_free_tier_allowlist": [],
  "news": {"total": 50, "min_total": 25, "per_feed": 15, "min_age_h": 24, "max_age_h": 72,
-          "query_max_words": 14, "schedule": "Mondays 06:00 America/Toronto"},
+          "query_max_words": 14, "max_domain_share": 0.25, "domain_share_from_week": "2026-44", "schedule": "Mondays 06:00 America/Toronto"},
  "news_feeds": [
   {"id": "hn", "feed_format": "rss", "robots_checked": "2026-10-19", "name": "Hacker News front page", "url": "https://news.ycombinator.com/rss", "section": "tech", "url_verified": true, "verified_date": "2026-10-15"},
   {"id": "bbc_world", "feed_format": "rss", "robots_checked": "2026-10-19", "name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "section": "world", "url_verified": true, "verified_date": "2026-10-15"},
