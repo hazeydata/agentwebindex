@@ -31,6 +31,8 @@ class T(unittest.TestCase):
             self.assertEqual(validate.main([str(d), "--config", str(cfgp)]), 1, mutate)
     def test_ac1_real_sets_dir_currently_fails(self):
         errs, _ = validate.validate(BENCH / "sets", CFG); self.assertTrue(any("missing" in e for e in errs))
+    def test_search_check_tolerates_null_title_and_snippet(self):
+        self.assertEqual(checks.search_check({"type": "snippet_contains", "value": "x"}, [{"url": "https://a.example/", "title": None, "snippet": None}]), (False, "snippet not found in top5"))
     def test_ac4_robots_and_allowlist(self):
         ev, sc, ts = mocks.make_sets(self.tmp); sc[0]["robots_ok"] = False; ts[0]["start_url"] = "https://shop.example/buy"
         (self.tmp / "scrape_urls.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sc))
@@ -1499,6 +1501,117 @@ class BrightDataBudget(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
             self.assertEqual(B._brightdata_scrape("k", {"url": "https://a.example/"})["billed_units"], 0)
         self.assertIn("brightdata", B.ADAPTERS)
+
+
+class ChallengeInterstitial(unittest.TestCase):
+    PAGE = (Path(__file__).parent / "fixtures" / "challenge" / "nature_client_challenge.html").read_text()
+    ROW = {"id": "sc-x", "url": "https://www.nature.com/articles/nature14539", "marker": {"type": "text_contains", "value": "Deep learning"}, "min_chars": 10}
+    def sigs(self): return CFG["challenge_signatures"], CFG["challenge_html_signatures"]
+    def test_fixture_fails_on_html(self):
+        ok, why = checks.scrape_check(self.ROW, {"text": "Deep learning " + freeze.html_text(self.PAGE), "html": self.PAGE}, *self.sigs())
+        self.assertFalse(ok); self.assertIn("challenge page signature", why)
+    def test_fixture_text_only_fails(self):
+        ok, why = checks.scrape_check(self.ROW, {"text": "Deep learning " + freeze.html_text(self.PAGE)}, *self.sigs())
+        self.assertFalse(ok); self.assertIn("A required part of this site couldn", why)
+    def test_real_article_passes(self):
+        html = "<html><head><title>Deep learning | Nature</title></head><body><p>Deep learning allows computational models.</p><a href='/challenge'>x</a></body></html>"
+        self.assertEqual(checks.scrape_check(self.ROW, {"text": freeze.html_text(html), "html": html}, *self.sigs()), (True, "marker found, length ok"))
+    def test_runner_uses_html_signatures(self):
+        ok, why = runner._grade("scrape", "scrape_urls", self.ROW, {"text": "Deep learning everywhere", "html": self.PAGE}, CFG)
+        self.assertFalse(ok); self.assertIn("challenge page signature", why)
+    def test_freeze_logs_interstitial_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "scrape_urls.jsonl").write_text(json.dumps(self.ROW) + "\n"); (Path(d) / "search_evergreen.jsonl").write_text("")
+            log = freeze.freeze(d, CFG, lambda u: 200, lambda u: {"text": "Deep learning " + freeze.html_text(self.PAGE), "html": self.PAGE}, "2026-10-19")
+        self.assertEqual(len(log["failures"]), 1); self.assertIn("sc-x: marker health check failed (challenge page signature", log["failures"][0])
+    def test_html_text_skips_script_and_noscript(self):
+        t = freeze.html_text("<p>a</p><script>b()</script><noscript>c</noscript><style>d{}</style><p>e</p>")
+        self.assertEqual(t.split(), ["a", "e"])
+    def test_chrome_reference_browser_hook(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "chrome"; seen = Path(d) / "argv"
+            fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(seen)!r}, 'w').write(' '.join(sys.argv[1:]))\nprint('<html><body><p>Deep learning</p><script>x</script></body></html>')\n")
+            fake.chmod(0o755)
+            out = freeze.chrome_reference_browser("https://www.nature.com/articles/nature14539", binary=str(fake))
+            argv = seen.read_text()
+        self.assertEqual(out["text"].split(), ["Deep", "learning"]); self.assertIn("<p>Deep learning</p>", out["html"])
+        self.assertIn("--headless=new", argv); self.assertIn("--dump-dom https://www.nature.com/articles/nature14539", argv)
+        ud = argv.split("--user-data-dir=")[1].split()[0]; self.assertFalse(Path(ud).exists())
+    def _live(self, d, script):
+        fake = Path(d) / "chrome"; calls = Path(d) / "calls"
+        fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\nn = len(open({str(calls)!r}).read().splitlines())\n{script}\n")
+        fake.chmod(0o755); sd = Path(d) / "sets"; sd.mkdir()
+        (sd / "scrape_urls.jsonl").write_text(json.dumps(self.ROW) + "\n"); (sd / "search_evergreen.jsonl").write_text("")
+        with mock.patch("builtins.print"): rc = freeze.main(["--live", "--sets", str(sd), "--chrome", str(fake)])
+        log = json.loads(next(sd.glob("freeze-*.json")).read_text())
+        return rc, log, calls.read_text().splitlines()
+    GOOD = "print('<html><body><p>Deep learning works</p></body></html>')"
+    BAD = "print(open(" + repr(str(Path(__file__).parent / "fixtures" / "challenge" / "nature_client_challenge.html")) + ").read())"
+    def test_live_retry_fail_then_pass_passes(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, f"if n == 1: {self.BAD}\nelse: {self.GOOD}")
+        self.assertEqual(rc, 0); self.assertEqual(log["failures"], []); m = log["markers"][0]
+        self.assertTrue(m["ok"]); self.assertEqual([a["ok"] for a in m["attempts"]], [False, True]); self.assertIn("challenge page signature", m["attempts"][0]["reason"])
+    def test_live_retry_fail_fail_fails(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.BAD)
+        self.assertEqual(rc, 1); m = log["markers"][0]; self.assertFalse(m["ok"]); self.assertEqual([a["ok"] for a in m["attempts"]], [False, False])
+        self.assertEqual(len(log["failures"]), 1); self.assertEqual(log["failures"][0].count("challenge page signature"), 2)
+    def test_live_retry_exactly_once_with_harness_ua(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.BAD)
+        self.assertEqual(len(calls), 2); self.assertIn("AWI-Freeze/1", calls[0]); self.assertIn("--user-agent=AgentWebIndexBot/1.0 ", calls[1]); self.assertNotIn("FactDesk", " ".join(calls))
+    def test_live_pass_first_time_no_retry(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD)
+        self.assertEqual(rc, 0); self.assertEqual(len(calls), 1); self.assertEqual(len(log["markers"][0]["attempts"]), 1)
+    def test_status_retry_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (Path(d) / "scrape_urls.jsonl").write_text("")
+            seen = []
+            log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 200, None)
+        self.assertEqual(seen, ["https://a.example/"]); self.assertEqual(log["source_url"][0]["attempts"], [403, 200]); self.assertEqual(log["failures"], [])
+    def test_status_retry_fail_fail_fails_with_two_attempts(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (Path(d) / "scrape_urls.jsonl").write_text("")
+            seen = []
+            log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 503, None)
+        self.assertEqual(len(seen), 1); self.assertEqual(log["source_url"][0]["attempts"], [403, 503]); self.assertNotEqual(log["source_url"][0]["status"], 200)
+        self.assertEqual(log["failures"], ["s1: source_url status 403 / 503"])
+    def test_live_status_retry_uses_harness_ua(self):
+        import io, urllib.error
+        uas = []
+        def fake(req, timeout=None):
+            uas.append(req.get_header("User-agent")); raise urllib.error.HTTPError(req.full_url, 403, "x", {}, io.BytesIO(b""))
+        with tempfile.TemporaryDirectory() as d:
+            sd = Path(d); (sd / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (sd / "scrape_urls.jsonl").write_text("")
+            with mock.patch("urllib.request.urlopen", fake), mock.patch("builtins.print"): rc = freeze.main(["--live", "--sets", str(sd)])
+        self.assertEqual(rc, 1); self.assertEqual(uas, [freeze.UA, "AgentWebIndexBot/1.0"])
+    def _html_only(self, html):
+        return checks.scrape_check(self.ROW, {"text": "Deep learning is here", "html": html}, CFG["challenge_signatures"], CFG["challenge_html_signatures"])
+    def test_html_signature_title_alone_fails(self):
+        html = self.PAGE.replace("/_fs-ch-", "/assets-")
+        self.assertNotIn("_fs-ch-", html); self.assertEqual(self._html_only(html), (False, "challenge page signature: <title>Client Challenge</title>"))
+    def test_html_signature_fs_ch_path_alone_fails(self):
+        html = self.PAGE.replace("<title>Client Challenge</title>", "<title>Nature</title>")
+        self.assertNotIn("Client Challenge", html); self.assertEqual(self._html_only(html), (False, "challenge page signature: /_fs-ch-"))
+    def test_live_freeze_cli_needs_live(self):
+        with self.assertRaises(SystemExit): freeze.main([])
+
+
+
+
+class RunTestsTmpGuard(unittest.TestCase):
+    GUARD = "\n".join(l for l in (SITE / "run_tests.sh").read_text().splitlines() if l.startswith(("left=", "if [ \"$left\"", "echo \"temp hygiene")))
+    def _guard(self, planted):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d) / "t"; t.mkdir()
+            for n in planted: (t / n).mkdir()
+            return subprocess.run(["bash", "-c", self.GUARD], env={**os.environ, "TMPDIR": str(t)}, capture_output=True, text=True)
+    def test_guard_lines_present(self):
+        self.assertEqual(len(self.GUARD.splitlines()), 3)
+    def test_planted_awi_bd_dir_fails(self):
+        r = self._guard(["awi-bd-dummy"]); self.assertEqual(r.returncode, 1); self.assertIn("left 1 awi-* temp dirs behind", r.stdout)
+    def test_planted_awi_test_dir_fails(self):
+        r = self._guard(["awi-test-dummy", "awi-dry-dummy"]); self.assertEqual(r.returncode, 1); self.assertIn("left 2 awi-* temp dirs behind", r.stdout)
+    def test_clean_or_foreign_dirs_pass(self):
+        r = self._guard(["other-dummy"]); self.assertEqual(r.returncode, 0); self.assertIn("temp hygiene OK", r.stdout)
 
 
 if __name__ == "__main__": unittest.main()
