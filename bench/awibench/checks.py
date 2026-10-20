@@ -3,6 +3,8 @@ import datetime as dt, hashlib
 from html.parser import HTMLParser
 from .util import norm_url, domain, norm_text
 
+GRADER_VERSION = "canon-2026-10-20"
+
 def search_check(check, results, published_at=None, now=None):
     """results: list of {url,title,snippet,published_at?} in rank order. Returns (pass, reason)."""
     t, v = check["type"], check["value"]

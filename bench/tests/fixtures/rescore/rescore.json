@@ -1,0 +1,61 @@
+{
+ "method": "Rescored from stored run-log results (top-10 url/title/published_at); no provider calls. Canonical URLs: bbc.com == bbc.co.uk, utm_*/at_medium/at_campaign stripped. Date fallback unchanged: a result without published_at passes only on an exact canonical URL (article id) match.",
+ "rows": [
+  {
+   "week": "42",
+   "provider": "exa",
+   "run_date": "2026-10-15",
+   "n": 16,
+   "old_pass": 12,
+   "new_pass": 15
+  },
+  {
+   "week": "42",
+   "provider": "firecrawl",
+   "run_date": "2026-10-15",
+   "n": 16,
+   "old_pass": 5,
+   "new_pass": 8
+  },
+  {
+   "week": "42",
+   "provider": "tavily",
+   "run_date": "2026-10-15",
+   "n": 16,
+   "old_pass": 8,
+   "new_pass": 12
+  },
+  {
+   "week": "42",
+   "provider": "apify",
+   "run_date": "2026-10-19",
+   "n": 16,
+   "old_pass": 2,
+   "new_pass": 2
+  },
+  {
+   "week": "43",
+   "provider": "apify",
+   "run_date": "2026-10-20",
+   "n": 40,
+   "old_pass": 4,
+   "new_pass": 19
+  },
+  {
+   "week": "43",
+   "provider": "exa",
+   "run_date": "2026-10-20",
+   "n": 40,
+   "old_pass": 28,
+   "new_pass": 37
+  },
+  {
+   "week": "43",
+   "provider": "tavily",
+   "run_date": "2026-10-20",
+   "n": 40,
+   "old_pass": 9,
+   "new_pass": 29
+  }
+ ]
+}

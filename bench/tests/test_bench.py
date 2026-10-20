@@ -1853,3 +1853,54 @@ class DomainShareCap(unittest.TestCase):
         self.assertEqual(len(self._errs(self._rows(6), "news_2027-01.jsonl")), 1)
     def test_weeks_before_44_not_capped(self):
         self.assertEqual(self._errs(self._rows(20), "news_2026-43.jsonl"), [])
+
+
+class RegradeFromStoredResults(unittest.TestCase):
+    FIX = Path(__file__).parent / "fixtures" / "rescore"
+    def _runs(self):
+        d = mktmp(self) / "runs"
+        shutil.copytree(self.FIX / "runs", d)
+        for f in (BENCH / "runs").glob("*/*/news_2026-42.jsonl"):
+            t = d / f.parent.parent.name / f.parent.name; t.mkdir(parents=True, exist_ok=True); shutil.copy(f, t)
+        return d
+    def _build(self, d):
+        doc = tables.build(d, {}, BENCH / "sets", {}, CFG); doc.pop("generated_at"); return doc
+    def test_regrade_twice_is_identical_and_logs_stay_raw(self):
+        d = self._runs(); before = {f: f.read_bytes() for f in d.rglob("*.jsonl")}
+        a, b = self._build(d), self._build(d)
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+        self.assertEqual({f: f.read_bytes() for f in d.rglob("*.jsonl")}, before)
+        self.assertEqual(a["grader_version"], checks.GRADER_VERSION)
+        self.assertEqual({r["grader_version"] for r in a["tables"]["search"]}, {checks.GRADER_VERSION})
+    def test_rescore_numbers_match_rescore_json(self):
+        want = {(r["provider"], "news_2026-" + r["week"]): (r["new_pass"], r["n"]) for r in json.loads((self.FIX / "rescore.json").read_text())["rows"] if r["provider"] != "firecrawl"}
+        got = {(r["provider"], r["set"]): (r["passed"]["v"], r["attempted"]["v"]) for r in self._build(self._runs())["tables"]["search"]}
+        self.assertEqual(got, want)
+        self.assertEqual(want[("tavily", "news_2026-43")], (29, 40)); self.assertEqual(want[("tavily", "news_2026-42")], (12, 16))
+    def test_non_search_rows_keep_stored_grade(self):
+        self.assertEqual(tables.regrade("newsfetch_2026-43", [(1, {"status": "fail"})], BENCH / "sets"), ([(1, {"status": "fail"})], None))
+    def test_error_lines_are_not_regraded(self):
+        e = [(1, {"status": "fail", "item_id": "news-2026-W43-001", "results": [], "reason": "RuntimeError: HTTP 500: x"})]
+        self.assertEqual(tables.regrade("news_2026-43", e, BENCH / "sets")[0], e)
+
+
+class NewsgenDomainCap(unittest.TestCase):
+    def _feed(self, fid, host, n):
+        items = "".join(f"<item><title>Story {fid} {i} about events</title><link>https://{host}/news/articles/{fid}{i}?at_medium=RSS</link>"
+                        f"<pubDate>Sun, 25 Oct 2026 0{i % 10}:00:00 GMT</pubDate></item>" for i in range(n))
+        return f'<?xml version="1.0"?><rss version="2.0"><channel><title>{fid}</title>{items}</channel></rss>'
+    def test_bbc_heavy_week44_stays_at_or_under_25pct_and_validates(self):
+        feeds = [{"id": f"bbc{k}", "feed_format": "rss", "name": "b", "url": f"https://feeds.example/bbc{k}", "section": "s", "url_verified": True} for k in range(4)] + \
+                [{"id": f"o{k}", "feed_format": "rss", "name": "o", "url": f"https://feeds.example/o{k}", "section": "s", "url_verified": True} for k in range(4)]
+        hosts = {"bbc0": "www.bbc.co.uk", "bbc1": "www.bbc.com", "bbc2": "www.bbc.co.uk", "bbc3": "www.bbc.com", "o0": "a.example", "o1": "b.example", "o2": "c.example", "o3": "d.example"}
+        cfg = dict(CFG, news_feeds=feeds, news=dict(CFG["news"]))
+        txt = {f["id"]: self._feed(f["id"], hosts[f["id"]], 15 if f["id"].startswith("bbc") else 4) for f in feeds}
+        log = []; run_at = dt.datetime.fromisoformat("2026-10-27T06:00:00+00:00")
+        rows, name = newsgen.generate(cfg, run_at, "0", lambda f: txt.get(f["id"]) if not f.get("page") else None, log)
+        self.assertEqual(name, "news_2026-44.jsonl"); self.assertTrue(rows)
+        from collections import Counter
+        c = Counter(r["outlet"] for r in rows); self.assertLessEqual(max(c.values()), 0.25 * len(rows), c)
+        e, w = [], []; validate.check_news(rows, cfg, e, w, name); self.assertEqual(e, [])
+        old = dict(cfg, news=dict(cfg["news"], domain_share_from_week="2099-01"))
+        rows2, _ = newsgen.generate(old, run_at, "0", lambda f: txt.get(f["id"]) if not f.get("page") else None, [])
+        self.assertGreater(max(Counter(r["outlet"] for r in rows2).values()), 0.25 * len(rows2))
