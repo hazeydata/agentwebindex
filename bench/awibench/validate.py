@@ -55,6 +55,9 @@ def check_evergreen(rows, errs, warns):
         ch = r["check"]
         if not isinstance(ch, dict) or set(ch) != {"type", "value"} or ch.get("type") not in SEARCH_CHECKS:
             errs.append(f"{w}: bad check {ch}")
+        elif isinstance(ch["value"], list):
+            if ch["type"] != "url_exact" or not ch["value"] or not all(isinstance(u, str) and URL.match(u) for u in ch["value"]):
+                errs.append(f"{w}: check.value list must be a non-empty list of public http(s) URLs (url_exact only)")
         elif not isinstance(ch["value"], str) or not ch["value"]: errs.append(f"{w}: empty check.value")
         if not URL.match(str(r["source_url"])): errs.append(f"{w}: source_url not a public http(s) URL")
         if not DATE.match(str(r["added"])): errs.append(f"{w}: added not a date")
