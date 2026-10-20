@@ -26,13 +26,19 @@ def sha256_text(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 HOST_ALIASES = {"bbc.com": "bbc.co.uk"}
-TRACKING_PARAM = re.compile(r"utm_.*|at_medium|at_campaign", re.I)
+TRACKING_PARAM = re.compile(r"utm_.*|at_medium|at_campaign|srsltid", re.I)
+REDIRECTORS = {("google.com", "/goto"): "url", ("google.com", "/url"): "q"}
 
 def canon_host(netloc):
     h = netloc.lower().split("@")[-1].split(":")[0].removeprefix("www."); return HOST_ALIASES.get(h, h)
 
 def norm_url(u):
     s = urlsplit(u.strip())
+    rp = REDIRECTORS.get((canon_host(s.netloc), s.path))
+    if rp:   # Google redirect: unwrap to the target URL; an opaque token (not a URL) cannot be resolved offline, so it is dropped
+        t = dict(parse_qsl(s.query)).get(rp, "")
+        if urlsplit(t).scheme in ("http", "https") and urlsplit(t).netloc: return norm_url(t)
+        return urlunsplit(("https", canon_host(s.netloc), s.path, "", ""))
     path = s.path.rstrip("/") or "/"
     q = urlencode([(k, v) for k, v in parse_qsl(s.query, keep_blank_values=True) if not TRACKING_PARAM.fullmatch(k)])
     return urlunsplit(("https", canon_host(s.netloc), path, q, ""))

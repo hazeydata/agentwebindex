@@ -1,5 +1,5 @@
 {
- "method": "Rescored from stored run-log results (top-10 url/title/published_at); no provider calls. Canonical URLs: bbc.com == bbc.co.uk, utm_*/at_medium/at_campaign stripped. Date fallback unchanged: a result without published_at passes only on an exact canonical URL (article id) match.",
+ "method": "Rescored from stored run-log results (top-10 url/title/published_at); no provider calls. Canonical URLs: bbc.com == bbc.co.uk, utm_*/at_medium/at_campaign/srsltid stripped; google.com/goto and /url redirects unwrapped when they carry a URL (opaque tokens cannot be resolved offline and never match). Date fallback unchanged: a result without published_at passes only on an exact canonical URL (article id) match.",
  "rows": [
   {
    "week": "42",
