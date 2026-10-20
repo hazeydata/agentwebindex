@@ -1,25 +1,42 @@
 """AC2: freeze-time checks + row retirement log.
 - every search source_url must return HTTP 200 (logged)
-- every scrape marker must pass the reference-browser health check
-Both checkers are injected: `fetch_status(url)->int` and `reference_browser(url)->{text,html}`.
-python -m awibench.freeze --live uses urllib for status and headless Chrome (--dump-dom) as the reference browser.
+- every scrape marker must pass the health check: a plain fetch first, falling back to the reference browser when the
+  plain fetch is refused (HTTP 403/429 or a challenge page; rule 8); js_heavy rows go straight to the reference browser
+Checkers are injected: `fetch_status(url)->int`, `reference_browser(url)->{text,html}`, `plain_fetch(url)->{status,text,html}`.
+python -m awibench.freeze --live uses urllib for status and plain fetch, headless Chrome (--dump-dom) as the reference browser,
+and waits config `freeze_host_delay_s` between requests to the same host.
 Writes sets/freeze-<date>.json with set sha256s; exits non-zero on any failure."""
-import argparse, datetime as dt, json, os, shutil, subprocess, sys, tempfile, urllib.request
+import argparse, datetime as dt, json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from .util import BENCH, load_yaml, read_jsonl, sha256_file
+from .util import BENCH, load_yaml, read_jsonl, sha256_file, domain
 from . import checks
 
-def _scrape(r, browse, cfg):
-    try: return checks.scrape_check(r, browse(r["url"]), cfg["challenge_signatures"], cfg.get("challenge_html_signatures", ()))
+REFUSED_STATUS = (403, 429)
+
+def _check(r, out, cfg):
+    return checks.scrape_check(r, out, cfg["challenge_signatures"], cfg.get("challenge_html_signatures", ()))
+
+def _browser(r, browse, cfg):
+    try: return _check(r, browse(r["url"]), cfg)
     except Exception as e: return False, f"error: {type(e).__name__}: {e}"
+
+def _scrape(r, browse, cfg, plain=None):
+    if plain is None or r.get("class") == "js_heavy": return (*_browser(r, browse, cfg), "reference_browser", None)
+    try: out = plain(r["url"])
+    except Exception as e: return (*_browser(r, browse, cfg), "reference_browser", f"plain error: {type(e).__name__}")
+    if out.get("status") in REFUSED_STATUS: return (*_browser(r, browse, cfg), "reference_browser", f"plain refused: HTTP {out['status']}")
+    ok, why = _check(r, out, cfg)
+    if why.startswith("challenge page signature"): return (*_browser(r, browse, cfg), "reference_browser", f"plain refused: {why}")
+    return ok, why, "plain", None
 
 def _status(url, fetch):
     try: return fetch(url)
     except Exception as e: return f"error: {type(e).__name__}"
 
-def freeze(sets_dir, cfg, fetch_status, reference_browser, today, retry_status=None, retry_browser=None):
-    """A failed row is retried exactly once with retry_status/retry_browser when given; it passes if either attempt passes."""
+def freeze(sets_dir, cfg, fetch_status, reference_browser, today, retry_status=None, retry_browser=None, plain_fetch=None, retry_plain=None):
+    """A failed row is retried exactly once with the retry_* checkers when given; it passes if either attempt passes.
+    Each scrape attempt records the method used (plain or reference_browser) and why it fell back."""
     sd = Path(sets_dir); log = {"date": today, "sha256": {}, "source_url": [], "markers": [], "failures": []}
     for f in ("search_evergreen.jsonl", "scrape_urls.jsonl", "browser_tasks.yaml"):
         if (sd / f).exists(): log["sha256"][f] = sha256_file(sd / f)
@@ -30,10 +47,11 @@ def freeze(sets_dir, cfg, fetch_status, reference_browser, today, retry_status=N
         log["source_url"].append({"id": r["id"], "url": r["source_url"], "status": st, "attempts": att})
         if st != 200: log["failures"].append(f"{r['id']}: source_url status {' / '.join(map(str, att))}")
     for r in read_jsonl(sd / "scrape_urls.jsonl"):
-        att = [_scrape(r, reference_browser, cfg)]
-        if not att[0][0] and retry_browser: att.append(_scrape(r, retry_browser, cfg))
+        att = [_scrape(r, reference_browser, cfg, plain_fetch)]
+        if not att[0][0] and retry_browser: att.append(_scrape(r, retry_browser, cfg, retry_plain if plain_fetch else None))
         ok = any(a[0] for a in att); why = next((a[1] for a in att if a[0]), att[-1][1])
-        log["markers"].append({"id": r["id"], "ok": ok, "reason": why, "attempts": [{"ok": a[0], "reason": a[1]} for a in att]})
+        log["markers"].append({"id": r["id"], "ok": ok, "reason": why,
+                               "attempts": [{"ok": a[0], "reason": a[1], "method": a[2]} | ({"fallback": a[3]} if a[3] else {}) for a in att]})
         if not ok: log["failures"].append(f"{r['id']}: marker health check failed ({' / '.join(a[1] for a in att)})")
     return log
 
@@ -58,6 +76,23 @@ class _Text(HTMLParser):
 def html_text(html):
     p = _Text(); p.feed(html); return " ".join(p.buf)
 
+class HostThrottle:
+    """Waits delay_s between two requests to the same host (publishers start challenging after repeated hits)."""
+    def __init__(self, delay_s, clock=None, sleep=None): self.delay, self.clock, self.sleep, self.last = delay_s, clock or time.monotonic, sleep or time.sleep, {}
+    def wait(self, url):
+        h = domain(url); t = self.last.get(h)
+        if t is not None and self.clock() - t < self.delay: self.sleep(self.delay - (self.clock() - t))
+        self.last[h] = self.clock()
+    def wrap(self, fn):
+        return lambda u: (self.wait(u), fn(u))[1]
+
+def plain_fetch(url, timeout=30, ua=None):
+    req = urllib.request.Request(url, headers={"User-Agent": ua or UA})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r: status, body = r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e: status, body = e.code, ""
+    return {"status": status, "html": body, "text": html_text(body)}
+
 def http_status(url, timeout=30, ua=None):
     req = urllib.request.Request(url, headers={"User-Agent": ua or UA})
     try:
@@ -78,8 +113,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if not a.live: ap.error("freeze needs --live (network) or use freeze() with injected checkers in tests")
     today = dt.datetime.now().astimezone().date().isoformat()
-    log = freeze(a.sets, load_yaml(BENCH / "config.yaml"), http_status, lambda u: chrome_reference_browser(u, a.chrome), today,
-                 lambda u: http_status(u, ua=HARNESS_UA), lambda u: chrome_reference_browser(u, a.chrome, ua=HARNESS_UA))
+    cfg = load_yaml(BENCH / "config.yaml"); th = HostThrottle(cfg.get("freeze_host_delay_s", 0)).wrap
+    log = freeze(a.sets, cfg, th(http_status), th(lambda u: chrome_reference_browser(u, a.chrome)), today,
+                 th(lambda u: http_status(u, ua=HARNESS_UA)), th(lambda u: chrome_reference_browser(u, a.chrome, ua=HARNESS_UA)),
+                 th(plain_fetch), th(lambda u: plain_fetch(u, ua=HARNESS_UA)))
     out = Path(a.sets) / f"freeze-{today}.json"; out.write_text(json.dumps(log, indent=1) + "\n")
     print(json.dumps({"out": out.name, "sha256": log["sha256"], "source_url": len(log["source_url"]), "markers": len(log["markers"]), "failures": log["failures"]}, indent=1))
     return 1 if log["failures"] else 0

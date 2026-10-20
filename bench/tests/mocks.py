@@ -22,7 +22,7 @@ def make_sets(d):
             n += 1
             sc.append({"id": f"sc-{n:03d}", "url": f"https://scrape{n}.example/a", "class": cls,
                        "marker": {"type": "text_contains", "value": f"marker phrase {n}"} if n % 5 else {"type": "selector_text", "value": f"div.content::marker phrase {n}"},
-                       "min_chars": 50, "robots_ok": True, "added": "2026-10-15"})
+                       "min_chars": 5000 if cls == "paywall_lite" else 50, "robots_ok": True, "added": "2026-10-15"})
     ts = []; n = 0; types = ["final_url_matches", "extracted_value_equals", "file_sha256", "dom_text_contains"]
     for cat, q in TASKS_Q.items():
         for _ in range(q):
@@ -70,7 +70,7 @@ class MockAdapters:
         return out
     def scrape(self, key, item):
         self.calls += 1; ok = self._ok(item); phrase = item["marker"]["value"].split("::")[-1]
-        body = ("lorem ipsum " * 10) + (phrase if ok else "")
+        body = ("lorem ipsum " * max(10, item["min_chars"] // 12 + 1)) + (phrase if ok else "")
         return {"text": body, "html": f'<div class="content">{body}</div>', "http_status": 200}
     def browser(self, key, item):
         self.calls += 1; ok = self._ok(item); t, v = item["pass"]["type"], item["pass"]["value"]

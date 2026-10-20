@@ -3,8 +3,8 @@ Stdlib-only Python package `awibench`. Run commands from `site/bench/`.
 
 | Module | Spec | Command |
 |---|---|---|
-| validate.py | §1, AC1, AC4 | `python -m awibench.validate [SETS_DIR]` (exit 1 on any error) |
-| freeze.py | AC2 | `python -m awibench.freeze --live` (urllib status + headless Chrome `--dump-dom` reference browser, `--chrome` or env `AWI_CHROME` picks the binary); `freeze()` takes injected checkers in tests; `retire()` logs retirements |
+| validate.py | §1, AC1, AC4, rules 8-9 | `python -m awibench.validate [SETS_DIR]` (exit 1 on any error); scrape: max 5 rows per host per class, paywall_lite min_chars >= 5000, markers unique across rows |
+| freeze.py | AC2 | `python -m awibench.freeze --live` (urllib status; scrape rows try a plain fetch first and fall back to the headless Chrome `--dump-dom` reference browser on HTTP 403/429 or a challenge page, js_heavy rows go straight to the browser; each attempt logs its `method`; one retry with the harness UA; config `freeze_host_delay_s` spaces requests to the same host; `--chrome` or env `AWI_CHROME` picks the binary); `freeze()` takes injected checkers in tests; `retire()` logs retirements |
 | newsgen.py | §1b, D1, AC3, AC13 | `python -m awibench.newsgen --date 2026-10-19T06:00:00-04:00 --seed 0 --fixtures tests/fixtures/rss --out /tmp/x.jsonl` |
 | checks.py | §1 pass rules | search / news / scrape (marker, min_chars, challenge list) / browser |
 | cost.py | §2, D3, AC5, AC6, AC14 | entry + volume tier columns, per 1k and per 1k successful |
