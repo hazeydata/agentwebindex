@@ -3,7 +3,7 @@ Exits non-zero on any count, quota, schema, robots or allowlist error."""
 import argparse, re, sys
 from collections import Counter
 from pathlib import Path
-from .util import BENCH, load_yaml, read_jsonl, domain
+from .util import BENCH, load_yaml, read_jsonl, domain, norm_text
 
 # SPEC-bench 1a, Spec final ruling Oct 15: no product category; 100 total.
 EVERGREEN_N = 100
@@ -11,6 +11,8 @@ EVERGREEN_Q = {"facts/reference": 30, "docs/API lookup": 25, "local/entity": 10,
                "academic": 10, "long-tail": 15, "non-English": 10}
 SCRAPE_N = 150
 SCRAPE_Q = {"static": 50, "js_heavy": 40, "paywall_lite": 30, "anti_bot": 30}
+HOST_CAP_PER_CLASS = 5
+PAYWALL_LITE_MIN_CHARS = 5000
 TASKS_N = 20
 TASKS_Q = {"forms": 5, "multi_page_navigation": 5, "search_and_extract": 5, "js_widgets": 3, "file_download": 2}
 SEARCH_CHECKS = {"url_domain", "url_exact", "snippet_contains"}
@@ -74,6 +76,19 @@ def check_scrape(rows, errs, warns):
         if r["robots_ok"] is not True: errs.append(f"{w}: robots_ok must be true (AC4)")
         if not DATE.match(str(r["added"])): errs.append(f"{w}: added not a date")
     _quota(Counter(r.get("class") for r in rows), SCRAPE_Q, SCRAPE_N, len(rows), "scrape_urls", errs)
+    hosts = Counter((r.get("class"), domain(str(r.get("url", "")))) for r in rows)
+    for (cls, host), n in sorted(hosts.items(), key=str):
+        if n > HOST_CAP_PER_CLASS: errs.append(f"scrape_urls: {n} {cls} rows on host {host}, max {HOST_CAP_PER_CLASS} per host per class (rule 8)")
+    for i, r in enumerate(rows, 1):
+        if r.get("class") == "paywall_lite" and isinstance(r.get("min_chars"), int) and r["min_chars"] < PAYWALL_LITE_MIN_CHARS:
+            errs.append(f"scrape_urls L{i}: paywall_lite min_chars {r['min_chars']} < {PAYWALL_LITE_MIN_CHARS} (rule 9)")
+    seen = {}
+    for i, r in enumerate(rows, 1):
+        m = r.get("marker")
+        if not isinstance(m, dict) or not m.get("value"): continue
+        k = norm_text(str(m["value"]))
+        if k in seen: errs.append(f"scrape_urls L{i}: marker duplicates L{seen[k]} (rule 9: each marker unique to its page)")
+        else: seen[k] = i
 
 def path_blocked(url, path_rules):
     """Per-host robots path rules from config (task_site_path_rules). Returns a reason or None."""

@@ -26,6 +26,8 @@
                           "cf-chl-", "Please enable JS and disable any ad blocker", "px-captcha", "Access to this page has been denied",
                           "verify you are human", "Request unsuccessful. Incapsula", "A required part of this site couldn"],
  "challenge_html_signatures": ["<title>Client Challenge</title>", "/_fs-ch-"],
+ "freeze_host_delay_s": 3.0,
+ "freeze_host_delay_note": "awibench.freeze --live waits this long between two requests to the same host",
  "challenge_html_signatures_note": "nature.com / link.springer.com Client Challenge interstitial (HTTP 200, JS-only; seen by plain clients 2026-10-19)",
  "task_site_allowlist": ["the-internet.herokuapp.com", "books.toscrape.com", "quotes.toscrape.com", "practicetestautomation.com", "webscraper.io"],
  "task_site_allowlist_decision": "Side Hustle CEO 2026-10-15: demoqa.com dropped; webscraper.io only on /test-sites/ paths its robots.txt does not block (see task_site_path_rules and task_site_robots_check_2026_10_15)",

@@ -1,5 +1,5 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
-import datetime as dt, hashlib, json, math, os, shutil, subprocess, sys, tempfile, unittest
+import contextlib, datetime as dt, hashlib, json, math, os, shutil, subprocess, sys, unittest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
@@ -8,7 +8,11 @@ from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
 import mocks
 
 def mktmp(tc):
-    p = Path(tempfile.mkdtemp(prefix="awi-test-")); tc.addCleanup(shutil.rmtree, p, True); return p
+    n = getattr(tc, "_tmp_n", 0) + 1; tc._tmp_n = n
+    p = tc.tmp_path / f"d{n}"; p.mkdir(); return p
+
+def tmpd(tc):
+    return contextlib.nullcontext(str(mktmp(tc)))
 
 CFG = load_yaml(BENCH / "config.yaml"); RSS = Path(__file__).parent / "fixtures" / "rss"
 RUN_AT = dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00")
@@ -46,7 +50,7 @@ class T(unittest.TestCase):
         good = freeze.freeze(self.tmp, self.cfg, lambda u: 200, lambda u: {"text": "x" * 60 + " marker phrase " + u.split("scrape")[1].split(".")[0], "html": ""}, "2026-10-15")
         # selector markers need html; supply html too
         def ref(u):
-            n = u.split("scrape")[1].split(".")[0]; body = "x" * 60 + f" marker phrase {n}"
+            n = u.split("scrape")[1].split(".")[0]; body = "x" * 5000 + f" marker phrase {n}"
             return {"text": body, "html": f'<div class="content">{body}</div>'}
         good = freeze.freeze(self.tmp, self.cfg, lambda u: 200, ref, "2026-10-15")
         self.assertEqual(good["failures"], []); self.assertEqual(len(good["source_url"]), 100); self.assertEqual(len(good["markers"]), 150)
@@ -217,7 +221,7 @@ class T(unittest.TestCase):
 
     # ---------- runner (AC9, AC11, AC12) ----------
     def _setup_run(self, units_per_month=1000, needs_card=False, tos_allowed="no", ap=None, providers=None):
-        self.tmp = Path(tempfile.mkdtemp(prefix="run-", dir=self.tmp)); sd = self.tmp / "sets"; ev, sc, ts = mocks.make_sets(sd)
+        self.tmp = mktmp(self); sd = self.tmp / "sets"; ev, sc, ts = mocks.make_sets(sd)
         rows, name, log = self._gen(); newsgen.write(rows, sd / name, newsgen.meta(rows, name, CFG, RUN_AT, "7", log))
         sets = {f: {"rows": read_jsonl(sd / f"{f}.jsonl"), "sha": sha256_file(sd / f"{f}.jsonl")} for f in ("search_evergreen", "scrape_urls", name[:-6])}
         sets["browser_tasks"] = {"rows": load_yaml(sd / "browser_tasks.yaml"), "sha": sha256_file(sd / "browser_tasks.yaml")}
@@ -289,7 +293,7 @@ class T(unittest.TestCase):
         kw, _, _ = self._setup_run(); kw["env"] = {}
         for p in runner.run(**kw)["providers"]: self.assertEqual(p["reason"], "not run (no key)")
     def test_missing_set_reason_has_no_path(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tmpd(self) as td:
             out = validate.validate_by_set(td, {"task_site_allowlist": []})
             for name in ("search_evergreen", "scrape_urls", "browser_tasks"):
                 self.assertTrue(out[name][0], name)
@@ -519,7 +523,7 @@ class OwnerRulingsStage2(unittest.TestCase):
 
     def test_429_rate_limited_bucket_any_provider(self):
         for pid in ("firecrawl", "someprovider"):
-            with tempfile.TemporaryDirectory() as d:
+            with tmpd(self) as d:
                 recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + \
                        [{"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}] + [{"status": "fail", "http_status": 429, "reason": "x"}]
                 doc = tables.build(self._log(d, pid, recs), {}, None, {})
@@ -534,7 +538,7 @@ class OwnerRulingsStage2(unittest.TestCase):
     RL = {"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}
 
     def test_rule3_6_of_16_429_is_quota_degraded(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             recs = [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + [self.RL] * 5 + [{"status": "fail", "http_status": 429, "reason": "x"}]
             self.assertTrue(runner.quota_degraded(recs))
             self.assertEqual(tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"], [])
@@ -542,11 +546,11 @@ class OwnerRulingsStage2(unittest.TestCase):
     def test_rule3_skipped_tos_lines_are_not_calls(self):
         recs = [{"status": "pass"}] * 12 + [self.RL] * 4 + [{"status": "skipped_tos"}] * 4
         self.assertTrue(runner.quota_degraded(recs))
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             self.assertEqual(tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"], [])
 
     def test_rule3_collect_counts_only_offset0_call_lines(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             recs = [{"status": "pass"}] * 13 + [self.RL] * 3
             runs = self._log(d, "firecrawl", recs)
             f = runs / "2026-10-15" / "firecrawl" / "news_2099-01.jsonl"
@@ -559,7 +563,7 @@ class OwnerRulingsStage2(unittest.TestCase):
 
     def test_rule3_rebuild_dropped_provider_absent_from_table_and_not_run_yet(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             runs = self._log(d, "firecrawl", [{"status": "pass"}] * 5 + [{"status": "fail", "reason": "no match"}] * 5 + [self.RL] * 6)
             f = Path(d) / "runs" / "2026-10-15" / "exa" / "news_2099-01.jsonl"; f.parent.mkdir(parents=True)
             f.write_text("".join(json.dumps({"ts": "2026-10-15T00:00:00+00:00", "set": "news_2099-01", "set_sha": "x", "set_rows": 16, "offset_h": 0,
@@ -577,7 +581,7 @@ class OwnerRulingsStage2(unittest.TestCase):
     def test_rule3_rebuild_drops_unstamped_old_log_over_20pct_429(self):
         rl = {"status": "fail", "reason": 'RuntimeError: HTTP 429: {"error":"Rate limit"}'}
         for n429, n_ok, shown in ((6, 10, False), (4, 12, False), (3, 12, True), (2, 14, True), (0, 16, True)):
-            with tempfile.TemporaryDirectory() as d:
+            with tmpd(self) as d:
                 recs = [{"status": "pass"}] * n_ok + [rl] * n429
                 rows = tables.build(self._log(d, "firecrawl", recs), {}, None, {})["tables"]["search"]
                 self.assertEqual(bool(rows), shown, (n429, n_ok))
@@ -585,7 +589,7 @@ class OwnerRulingsStage2(unittest.TestCase):
         self.assertNotIn(("firecrawl", "news_2026-42"), keys); self.assertIn(("exa", "news_2026-42"), keys)
 
     def test_no_429_has_no_rate_limited_value(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             r = tables.build(self._log(d, "exa", [{"status": "pass"}, {"status": "fail", "reason": "HTTP 500"}]), {}, None, {})["tables"]["search"][0]
             self.assertIsNone(r["rate_limited"]["v"]); self.assertEqual(r["answered_display"], "1/2 answered")
 
@@ -669,7 +673,7 @@ class Collectors2(unittest.TestCase):
         self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
 
     def test_late_run_gets_no_freshness_row(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             sd = Path(d) / "sets"; sd.mkdir(); rows = read_jsonl(BENCH_SETS / "news_2026-42.jsonl")
             (sd / "news_2026-42.jsonl").write_text((BENCH_SETS / "news_2026-42.jsonl").read_text())
             (sd / "news_2026-42.meta.json").write_text(json.dumps({"run_at": "2026-10-15T21:00:00-04:00"}))
@@ -1028,9 +1032,10 @@ class Rulings3(unittest.TestCase):
         self.assertNotIn("auth_error", r)
 
     def test_no_resource_warning(self):   # runner/tables close every file (with open); run the guard tests with ResourceWarning as error
-        tests = [f"tests.test_bench.Rulings3.{t}" for t in ("test_late_401_previous_row_byte_identical", "test_late_401_keeps_data_rows_and_spend", "test_complete_set_is_not_partial")]
-        r = subprocess.run([sys.executable, "-X", "dev", "-W", "error::ResourceWarning", "-m", "unittest", *tests], cwd=BENCH, capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:]); self.assertNotIn("ResourceWarning", r.stderr)
+        tests = [f"tests/test_bench.py::Rulings3::{t}" for t in ("test_late_401_previous_row_byte_identical", "test_late_401_keeps_data_rows_and_spend", "test_complete_set_is_not_partial")]
+        r = subprocess.run([sys.executable, "-X", "dev", "-W", "error::ResourceWarning", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-W", "error::ResourceWarning",
+                            f"--basetemp={mktmp(self)}", *tests], cwd=BENCH, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:]); self.assertIn("3 passed", r.stdout); self.assertNotIn("ResourceWarning", r.stdout + r.stderr)
 
     # ---------- PR #2 follow-up: stale providers never surface; stale-only runs leave latest.json alone ----------
     def _row(self, pid, v): return {"provider": pid, "set": "news_2026-42", "run_date": v, "attempted": {"v": 1, "src": []}}
@@ -1520,7 +1525,7 @@ class ChallengeInterstitial(unittest.TestCase):
         ok, why = runner._grade("scrape", "scrape_urls", self.ROW, {"text": "Deep learning everywhere", "html": self.PAGE}, CFG)
         self.assertFalse(ok); self.assertIn("challenge page signature", why)
     def test_freeze_logs_interstitial_failure(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             (Path(d) / "scrape_urls.jsonl").write_text(json.dumps(self.ROW) + "\n"); (Path(d) / "search_evergreen.jsonl").write_text("")
             log = freeze.freeze(d, CFG, lambda u: 200, lambda u: {"text": "Deep learning " + freeze.html_text(self.PAGE), "html": self.PAGE}, "2026-10-19")
         self.assertEqual(len(log["failures"]), 1); self.assertIn("sc-x: marker health check failed (challenge page signature", log["failures"][0])
@@ -1528,7 +1533,7 @@ class ChallengeInterstitial(unittest.TestCase):
         t = freeze.html_text("<p>a</p><script>b()</script><noscript>c</noscript><style>d{}</style><p>e</p>")
         self.assertEqual(t.split(), ["a", "e"])
     def test_chrome_reference_browser_hook(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             fake = Path(d) / "chrome"; seen = Path(d) / "argv"
             fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(seen)!r}, 'w').write(' '.join(sys.argv[1:]))\nprint('<html><body><p>Deep learning</p><script>x</script></body></html>')\n")
             fake.chmod(0o755)
@@ -1537,38 +1542,40 @@ class ChallengeInterstitial(unittest.TestCase):
         self.assertEqual(out["text"].split(), ["Deep", "learning"]); self.assertIn("<p>Deep learning</p>", out["html"])
         self.assertIn("--headless=new", argv); self.assertIn("--dump-dom https://www.nature.com/articles/nature14539", argv)
         ud = argv.split("--user-data-dir=")[1].split()[0]; self.assertFalse(Path(ud).exists())
-    def _live(self, d, script):
-        fake = Path(d) / "chrome"; calls = Path(d) / "calls"
+    def _live(self, d, script, plain=lambda u, **k: {"status": 403, "text": "", "html": ""}, row=None):
+        fake = Path(d) / "chrome"; calls = Path(d) / "calls"; self.sleeps = []; self.plain_calls = []
         fake.write_text(f"#!{sys.executable}\nimport sys\nopen({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\nn = len(open({str(calls)!r}).read().splitlines())\n{script}\n")
         fake.chmod(0o755); sd = Path(d) / "sets"; sd.mkdir()
-        (sd / "scrape_urls.jsonl").write_text(json.dumps(self.ROW) + "\n"); (sd / "search_evergreen.jsonl").write_text("")
-        with mock.patch("builtins.print"): rc = freeze.main(["--live", "--sets", str(sd), "--chrome", str(fake)])
+        (sd / "scrape_urls.jsonl").write_text(json.dumps(row or self.ROW) + "\n"); (sd / "search_evergreen.jsonl").write_text("")
+        def pf(u, **k): self.plain_calls.append((u, k.get("ua"))); return plain(u, **k)
+        with mock.patch("builtins.print"), mock.patch.object(freeze, "plain_fetch", pf), mock.patch.object(freeze.time, "sleep", self.sleeps.append), mock.patch.object(freeze.time, "monotonic", lambda: 0.0):
+            rc = freeze.main(["--live", "--sets", str(sd), "--chrome", str(fake)])
         log = json.loads(next(sd.glob("freeze-*.json")).read_text())
-        return rc, log, calls.read_text().splitlines()
+        return rc, log, calls.read_text().splitlines() if calls.exists() else []
     GOOD = "print('<html><body><p>Deep learning works</p></body></html>')"
     BAD = "print(open(" + repr(str(Path(__file__).parent / "fixtures" / "challenge" / "nature_client_challenge.html")) + ").read())"
     def test_live_retry_fail_then_pass_passes(self):
-        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, f"if n == 1: {self.BAD}\nelse: {self.GOOD}")
+        with tmpd(self) as d: rc, log, calls = self._live(d, f"if n == 1: {self.BAD}\nelse: {self.GOOD}")
         self.assertEqual(rc, 0); self.assertEqual(log["failures"], []); m = log["markers"][0]
         self.assertTrue(m["ok"]); self.assertEqual([a["ok"] for a in m["attempts"]], [False, True]); self.assertIn("challenge page signature", m["attempts"][0]["reason"])
     def test_live_retry_fail_fail_fails(self):
-        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.BAD)
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.BAD)
         self.assertEqual(rc, 1); m = log["markers"][0]; self.assertFalse(m["ok"]); self.assertEqual([a["ok"] for a in m["attempts"]], [False, False])
         self.assertEqual(len(log["failures"]), 1); self.assertEqual(log["failures"][0].count("challenge page signature"), 2)
     def test_live_retry_exactly_once_with_harness_ua(self):
-        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.BAD)
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.BAD)
         self.assertEqual(len(calls), 2); self.assertIn("AWI-Freeze/1", calls[0]); self.assertIn("--user-agent=AgentWebIndexBot/1.0 ", calls[1]); self.assertNotIn("FactDesk", " ".join(calls))
     def test_live_pass_first_time_no_retry(self):
-        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD)
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD)
         self.assertEqual(rc, 0); self.assertEqual(len(calls), 1); self.assertEqual(len(log["markers"][0]["attempts"]), 1)
     def test_status_retry_once(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             (Path(d) / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (Path(d) / "scrape_urls.jsonl").write_text("")
             seen = []
             log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 200, None)
         self.assertEqual(seen, ["https://a.example/"]); self.assertEqual(log["source_url"][0]["attempts"], [403, 200]); self.assertEqual(log["failures"], [])
     def test_status_retry_fail_fail_fails_with_two_attempts(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             (Path(d) / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (Path(d) / "scrape_urls.jsonl").write_text("")
             seen = []
             log = freeze.freeze(d, CFG, lambda u: 403, lambda u: {}, "2026-10-19", lambda u: seen.append(u) or 503, None)
@@ -1579,9 +1586,9 @@ class ChallengeInterstitial(unittest.TestCase):
         uas = []
         def fake(req, timeout=None):
             uas.append(req.get_header("User-agent")); raise urllib.error.HTTPError(req.full_url, 403, "x", {}, io.BytesIO(b""))
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             sd = Path(d); (sd / "search_evergreen.jsonl").write_text(json.dumps({"id": "s1", "source_url": "https://a.example/"}) + "\n"); (sd / "scrape_urls.jsonl").write_text("")
-            with mock.patch("urllib.request.urlopen", fake), mock.patch("builtins.print"): rc = freeze.main(["--live", "--sets", str(sd)])
+            with mock.patch("urllib.request.urlopen", fake), mock.patch("builtins.print"), mock.patch.object(freeze.time, "sleep", lambda t: None): rc = freeze.main(["--live", "--sets", str(sd)])
         self.assertEqual(rc, 1); self.assertEqual(uas, [freeze.UA, "AgentWebIndexBot/1.0"])
     def _html_only(self, html):
         return checks.scrape_check(self.ROW, {"text": "Deep learning is here", "html": html}, CFG["challenge_signatures"], CFG["challenge_html_signatures"])
@@ -1600,7 +1607,7 @@ class ChallengeInterstitial(unittest.TestCase):
 class RunTestsTmpGuard(unittest.TestCase):
     GUARD = "\n".join(l for l in (SITE / "run_tests.sh").read_text().splitlines() if l.startswith(("left=", "if [ \"$left\"", "echo \"temp hygiene")))
     def _guard(self, planted):
-        with tempfile.TemporaryDirectory() as d:
+        with tmpd(self) as d:
             t = Path(d) / "t"; t.mkdir()
             for n in planted: (t / n).mkdir()
             return subprocess.run(["bash", "-c", self.GUARD], env={**os.environ, "TMPDIR": str(t)}, capture_output=True, text=True)
@@ -1612,6 +1619,133 @@ class RunTestsTmpGuard(unittest.TestCase):
         r = self._guard(["awi-test-dummy", "awi-dry-dummy"]); self.assertEqual(r.returncode, 1); self.assertIn("left 2 awi-* temp dirs behind", r.stdout)
     def test_clean_or_foreign_dirs_pass(self):
         r = self._guard(["other-dummy"]); self.assertEqual(r.returncode, 0); self.assertIn("temp hygiene OK", r.stdout)
+
+
+
+class Rule8Rule9(unittest.TestCase):
+    FIX = Path(__file__).parent / "fixtures" / "challenge"
+    def _sets(self, d, mutate):
+        ev, sc, ts = mocks.make_sets(Path(d)); mutate(sc)
+        (Path(d) / "scrape_urls.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sc))
+        return validate.validate(d, mocks.mock_cfg(CFG))[0]
+    def _same_host(self, n, cls="static"):
+        def m(sc):
+            for r in [r for r in sc if r["class"] == cls][:n]: r["url"] = "https://www.pub.example/" + r["id"]
+        return m
+    def test_host_cap_5_per_class_passes(self):
+        with tmpd(self) as d: self.assertEqual(self._sets(d, self._same_host(5)), [])
+    def test_host_cap_6_per_class_fails(self):
+        with tmpd(self) as d: errs = self._sets(d, self._same_host(6))
+        self.assertEqual(errs, ["scrape_urls: 6 static rows on host pub.example, max 5 per host per class (rule 8)"])
+    def test_host_strip_www_normalizes_to_one_host(self):
+        from awibench.util import domain
+        self.assertEqual({domain("https://www.x.com/a"), domain("https://x.com/b"), domain("https://WWW.X.COM:443/c")}, {"x.com"})
+    def test_host_cap_mixed_www_and_bare_is_one_host(self):
+        def m(sc):
+            for i, r in enumerate([r for r in sc if r["class"] == "static"][:6]): r["url"] = ("https://www.x.com/" if i % 2 else "https://x.com/") + r["id"]
+        with tmpd(self) as d: errs = self._sets(d, m)
+        self.assertEqual(len(errs), 1); self.assertIn(" 6 static rows on host x.com,", errs[0])
+        def five(sc):
+            for i, r in enumerate([r for r in sc if r["class"] == "static"][:5]): r["url"] = ("https://www.x.com/" if i % 2 else "https://x.com/") + r["id"]
+        with tmpd(self) as d: self.assertEqual(self._sets(d, five), [])
+    def test_freeze_host_delay_is_pinned_at_3s(self):
+        self.assertEqual(CFG["freeze_host_delay_s"], 3.0)
+        for elapsed, want in ((3.0, []), (2.9, [round(3.0 - 2.9, 6)])):
+            now = [0.0]; slept = []
+            th = freeze.HostThrottle(CFG["freeze_host_delay_s"], clock=lambda: now[0], sleep=lambda t: slept.append(round(t, 6)))
+            th.wait("https://a.example/1"); now[0] += elapsed; th.wait("https://a.example/2")
+            self.assertEqual(slept, want, elapsed)
+    def test_host_cap_counts_per_class(self):
+        def m(sc): self._same_host(5, "static")(sc); self._same_host(5, "anti_bot")(sc)
+        with tmpd(self) as d: self.assertEqual(self._sets(d, m), [])
+    def test_paywall_lite_min_chars_floor(self):
+        def low(sc): next(r for r in sc if r["class"] == "paywall_lite")["min_chars"] = 4999
+        def at(sc): next(r for r in sc if r["class"] == "paywall_lite")["min_chars"] = 5000
+        def other(sc): next(r for r in sc if r["class"] == "static")["min_chars"] = 100
+        with tmpd(self) as d: errs = self._sets(d, low)
+        self.assertEqual(len(errs), 1); self.assertIn("paywall_lite min_chars 4999 < 5000 (rule 9)", errs[0])
+        with tmpd(self) as d: self.assertEqual(self._sets(d, at), [])
+        with tmpd(self) as d: self.assertEqual(self._sets(d, other), [])
+    def test_duplicate_marker_fails(self):
+        def dup(sc): sc[7]["marker"] = {"type": "text_contains", "value": sc[2]["marker"]["value"].upper() + "."}
+        with tmpd(self) as d: errs = self._sets(d, dup)
+        self.assertEqual(errs, ["scrape_urls L8: marker duplicates L3 (rule 9: each marker unique to its page)"])
+    def test_cloudflare_fixture_is_challenge(self):
+        h = (self.FIX / "cloudflare_just_a_moment.html").read_text()
+        self.assertEqual(checks.scrape_check(ChallengeInterstitial.ROW, {"text": "Deep learning " + freeze.html_text(h), "html": h}, CFG["challenge_signatures"], CFG["challenge_html_signatures"]), (False, "challenge page signature: Just a moment..."))
+    def test_perimeterx_fixture_is_challenge(self):
+        h = (self.FIX / "perimeterx_access_denied.html").read_text()
+        self.assertEqual(checks.scrape_check(ChallengeInterstitial.ROW, {"text": "Deep learning " + freeze.html_text(h), "html": h}, CFG["challenge_signatures"], CFG["challenge_html_signatures"]), (False, "challenge page signature: Access to this page has been denied"))
+    def test_host_throttle_waits_per_host(self):
+        now = [100.0]; slept = []
+        th = freeze.HostThrottle(3.0, clock=lambda: now[0], sleep=lambda t: (slept.append(t), now.__setitem__(0, now[0] + t)))
+        th.wait("https://www.a.example/1"); now[0] += 1.0; th.wait("https://a.example/2"); th.wait("https://b.example/1"); now[0] += 5.0; th.wait("https://a.example/3")
+        self.assertEqual(slept, [2.0])
+    def test_host_throttle_zero_never_sleeps(self):
+        slept = []; th = freeze.HostThrottle(0, clock=lambda: 0.0, sleep=slept.append)
+        th.wait("https://a.example/"); th.wait("https://a.example/"); self.assertEqual(slept, [])
+
+class FreezePlainFallback(unittest.TestCase):
+    ROW, GOOD, BAD, _live = ChallengeInterstitial.ROW, ChallengeInterstitial.GOOD, ChallengeInterstitial.BAD, ChallengeInterstitial._live
+    def ok_plain(self, u, **k): return {"status": 200, "html": "<p>Deep learning works</p>", "text": "Deep learning works"}
+    def test_plain_ok_uses_plain_no_browser(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.BAD, plain=self.ok_plain)
+        self.assertEqual(rc, 0); self.assertEqual(calls, []); self.assertEqual(log["markers"][0]["attempts"], [{"ok": True, "reason": "marker found, length ok", "method": "plain"}])
+    def test_plain_403_falls_back_to_reference_browser(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD)
+        self.assertEqual(rc, 0); self.assertEqual(len(calls), 1)
+        self.assertEqual(log["markers"][0]["attempts"], [{"ok": True, "reason": "marker found, length ok", "method": "reference_browser", "fallback": "plain refused: HTTP 403"}])
+    def test_plain_429_falls_back(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD, plain=lambda u, **k: {"status": 429, "html": "", "text": ""})
+        self.assertEqual(log["markers"][0]["attempts"][0]["fallback"], "plain refused: HTTP 429"); self.assertEqual(len(calls), 1)
+    def test_plain_challenge_page_falls_back(self):
+        h = (Rule8Rule9.FIX / "cloudflare_just_a_moment.html").read_text()
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD, plain=lambda u, **k: {"status": 200, "html": h, "text": freeze.html_text(h)})
+        a = log["markers"][0]["attempts"][0]; self.assertEqual((a["method"], a["fallback"], a["ok"]), ("reference_browser", "plain refused: challenge page signature: Just a moment...", True))
+    MISS = lambda self, u, **k: {"status": 200, "html": "<p>x</p>", "text": "x"}
+    def test_plain_200_missing_marker_falls_back_and_browser_has_it(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD, plain=self.MISS)
+        self.assertEqual(rc, 0); self.assertEqual(len(calls), 1)
+        self.assertEqual(log["markers"][0]["attempts"], [{"ok": True, "reason": "marker found, length ok", "method": "reference_browser", "fallback": "plain 200 lacks the marker (rule 10)"}])
+    def test_plain_200_missing_marker_and_browser_lacks_it_fails(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, "print('<html><body><p>nothing here</p></body></html>')", plain=self.MISS)
+        m = log["markers"][0]
+        self.assertEqual(rc, 1); self.assertFalse(m["ok"]); self.assertEqual(len(calls), 2)
+        self.assertEqual([(a["ok"], a["reason"], a["method"], a["fallback"]) for a in m["attempts"]], [(False, "marker not found", "reference_browser", "plain 200 lacks the marker (rule 10)")] * 2)
+        self.assertEqual([ua for _, ua in self.plain_calls], [None, "AgentWebIndexBot/1.0"])
+    def test_js_heavy_goes_straight_to_reference_browser(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD, plain=self.ok_plain, row=dict(self.ROW, **{"class": "js_heavy"}))
+        self.assertEqual(self.plain_calls, []); self.assertEqual(len(calls), 1); self.assertEqual(log["markers"][0]["attempts"][0]["method"], "reference_browser")
+    def test_retry_records_method_per_attempt(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, f"if n == 1: {self.BAD}\nelse: {self.GOOD}")
+        att = log["markers"][0]["attempts"]
+        self.assertEqual(rc, 0); self.assertEqual([(a["ok"], a["method"], a["fallback"]) for a in att], [(False, "reference_browser", "plain refused: HTTP 403"), (True, "reference_browser", "plain refused: HTTP 403")])
+        self.assertEqual([ua for _, ua in self.plain_calls], [None, "AgentWebIndexBot/1.0"])
+    def test_live_throttle_uses_config_delay_on_same_host(self):
+        with tmpd(self) as d: rc, log, calls = self._live(d, self.GOOD)
+        self.assertEqual(self.sleeps, [3.0])
+
+
+
+class FixtureHygiene(unittest.TestCase):
+    DIR = Path(__file__).parent / "fixtures"
+    UUID0 = "00000000-0000-0000-0000-000000000000"
+    PATTERNS = [(r"__cf_chl_[a-z_]+=([^&\"' ;]+)", "REDACTED-TOKEN"), (r"cRay:\s*'([^']*)'", "REDACTED-RAY"), (r"[?&]ray=([^&\"' ;]+)", "REDACTED-RAY"),
+                (r"\bcH:\s*'([^']*)'", "REDACTED-TOKEN"), (r"\bmd:\s*'([^']*)'", "REDACTED-TOKEN"), (r"\bcN:\s*'([^']*)'", "REDACTED-TOKEN"),
+                (r"_pxUuid\s*=\s*'([^']*)'", UUID0), (r"[?&]u=([^&\"' ;]+)", UUID0), (r"[?&]b=([^&\"' ;]+)", "REDACTED-TOKEN")]
+    UUID = r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
+    def bad_values(self, text):
+        import re
+        bad = [(p, v) for p, want in self.PATTERNS for v in re.findall(p, text) if v != want]
+        return bad + [("px uuid", v) for v in re.findall(self.UUID, text) if v != self.UUID0]
+    def test_challenge_fixtures_carry_only_placeholders(self):
+        files = sorted((self.DIR / "challenge").glob("*.html")); self.assertGreaterEqual(len(files), 3)
+        for f in files: self.assertEqual(self.bad_values(f.read_text()), [], f.name)
+    def test_hygiene_check_catches_real_tokens(self):
+        self.assertEqual(len(self.bad_values("cRay: '" + "0123456789" + "abcdef" + "',cH: 'abc',__cf_chl_tk=Xyz.1-2&u=12345678-1234-1234-1234-123456789abc")), 5)
+    def test_signatures_survive_redaction(self):
+        for f, sig in (("cloudflare_just_a_moment.html", "Just a moment..."), ("perimeterx_access_denied.html", "Access to this page has been denied")):
+            self.assertIn(sig, freeze.html_text((self.DIR / "challenge" / f).read_text()))
 
 
 if __name__ == "__main__": unittest.main()
