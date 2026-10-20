@@ -678,6 +678,16 @@ class Collectors2(unittest.TestCase):
         self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
         self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
 
+    def test_apify_t60_config_pins_60s_and_120s_client_wait(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t60"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 60})
+        seen = []; old_get, old_load = B._get_json, B.load_yaml
+        B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
+        B.load_yaml = lambda p: dict(old_load(p), apify_search_config="rag-raw-http-t60")
+        try: out = B._apify_search("k", {"query": "q"})
+        finally: B._get_json, B.load_yaml = old_get, old_load
+        qs = up.parse_qs(up.urlparse(seen[0][0]).query)
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["60"], ["raw-http"], 120, "rag-raw-http-t60"))
     def test_apify_named_config_sets_request_timeout_and_is_logged(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
         self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t120")
