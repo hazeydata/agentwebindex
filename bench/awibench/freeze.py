@@ -1,7 +1,8 @@
 """AC2: freeze-time checks + row retirement log.
 - every search source_url must return HTTP 200 (logged)
 - every scrape marker must pass the health check: a plain fetch first, falling back to the reference browser when the
-  plain fetch is refused (HTTP 403/429 or a challenge page; rule 8); js_heavy rows go straight to the reference browser
+  plain fetch is refused (HTTP 403/429 or a challenge page; rule 8) or is a 200 that lacks the marker (rule 10; the row fails
+  only if the browser also lacks it); js_heavy rows go straight to the reference browser
 Checkers are injected: `fetch_status(url)->int`, `reference_browser(url)->{text,html}`, `plain_fetch(url)->{status,text,html}`.
 python -m awibench.freeze --live uses urllib for status and plain fetch, headless Chrome (--dump-dom) as the reference browser,
 and waits config `freeze_host_delay_s` between requests to the same host.
@@ -28,6 +29,7 @@ def _scrape(r, browse, cfg, plain=None):
     if out.get("status") in REFUSED_STATUS: return (*_browser(r, browse, cfg), "reference_browser", f"plain refused: HTTP {out['status']}")
     ok, why = _check(r, out, cfg)
     if why.startswith("challenge page signature"): return (*_browser(r, browse, cfg), "reference_browser", f"plain refused: {why}")
+    if out.get("status") == 200 and why == "marker not found": return (*_browser(r, browse, cfg), "reference_browser", "plain 200 lacks the marker (rule 10)")
     return ok, why, "plain", None
 
 def _status(url, fetch):

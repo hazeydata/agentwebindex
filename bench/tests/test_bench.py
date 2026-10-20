@@ -1679,9 +1679,16 @@ class FreezePlainFallback(unittest.TestCase):
         h = (Rule8Rule9.FIX / "cloudflare_just_a_moment.html").read_text()
         with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD, plain=lambda u, **k: {"status": 200, "html": h, "text": freeze.html_text(h)})
         a = log["markers"][0]["attempts"][0]; self.assertEqual((a["method"], a["fallback"], a["ok"]), ("reference_browser", "plain refused: challenge page signature: Just a moment...", True))
-    def test_plain_marker_missing_does_not_fall_back(self):
-        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD, plain=lambda u, **k: {"status": 200, "html": "<p>x</p>", "text": "x"})
-        self.assertEqual(rc, 1); self.assertEqual(calls, []); self.assertEqual([a["method"] for a in log["markers"][0]["attempts"]], ["plain", "plain"])
+    MISS = lambda self, u, **k: {"status": 200, "html": "<p>x</p>", "text": "x"}
+    def test_plain_200_missing_marker_falls_back_and_browser_has_it(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD, plain=self.MISS)
+        self.assertEqual(rc, 0); self.assertEqual(len(calls), 1)
+        self.assertEqual(log["markers"][0]["attempts"], [{"ok": True, "reason": "marker found, length ok", "method": "reference_browser", "fallback": "plain 200 lacks the marker (rule 10)"}])
+    def test_plain_200_missing_marker_and_browser_lacks_it_fails(self):
+        with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, "print('<html><body><p>nothing here</p></body></html>')", plain=self.MISS)
+        m = log["markers"][0]
+        self.assertEqual(rc, 1); self.assertFalse(m["ok"]); self.assertEqual(len(calls), 2)
+        self.assertEqual([(a["ok"], a["reason"], a["method"], a["fallback"]) for a in m["attempts"]], [(False, "marker not found", "reference_browser", "plain 200 lacks the marker (rule 10)")] * 2)
         self.assertEqual([ua for _, ua in self.plain_calls], [None, "AgentWebIndexBot/1.0"])
     def test_js_heavy_goes_straight_to_reference_browser(self):
         with tempfile.TemporaryDirectory() as d: rc, log, calls = self._live(d, self.GOOD, plain=self.ok_plain, row=dict(self.ROW, **{"class": "js_heavy"}))
