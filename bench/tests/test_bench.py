@@ -1703,4 +1703,26 @@ class FreezePlainFallback(unittest.TestCase):
         self.assertEqual(len(self.sleeps), 1); self.assertTrue(0 < self.sleeps[0] <= CFG["freeze_host_delay_s"])
 
 
+
+class FixtureHygiene(unittest.TestCase):
+    DIR = Path(__file__).parent / "fixtures"
+    UUID0 = "00000000-0000-0000-0000-000000000000"
+    PATTERNS = [(r"__cf_chl_[a-z_]+=([^&\"' ;]+)", "REDACTED-TOKEN"), (r"cRay:\s*'([^']*)'", "REDACTED-RAY"), (r"[?&]ray=([^&\"' ;]+)", "REDACTED-RAY"),
+                (r"\bcH:\s*'([^']*)'", "REDACTED-TOKEN"), (r"\bmd:\s*'([^']*)'", "REDACTED-TOKEN"), (r"\bcN:\s*'([^']*)'", "REDACTED-TOKEN"),
+                (r"_pxUuid\s*=\s*'([^']*)'", UUID0), (r"[?&]u=([^&\"' ;]+)", UUID0), (r"[?&]b=([^&\"' ;]+)", "REDACTED-TOKEN")]
+    UUID = r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
+    def bad_values(self, text):
+        import re
+        bad = [(p, v) for p, want in self.PATTERNS for v in re.findall(p, text) if v != want]
+        return bad + [("px uuid", v) for v in re.findall(self.UUID, text) if v != self.UUID0]
+    def test_challenge_fixtures_carry_only_placeholders(self):
+        files = sorted((self.DIR / "challenge").glob("*.html")); self.assertGreaterEqual(len(files), 3)
+        for f in files: self.assertEqual(self.bad_values(f.read_text()), [], f.name)
+    def test_hygiene_check_catches_real_tokens(self):
+        self.assertEqual(len(self.bad_values("cRay: '0123456789abcdef',cH: 'abc',__cf_chl_tk=Xyz.1-2&u=12345678-1234-1234-1234-123456789abc")), 5)
+    def test_signatures_survive_redaction(self):
+        for f, sig in (("cloudflare_just_a_moment.html", "Just a moment..."), ("perimeterx_access_denied.html", "Access to this page has been denied")):
+            self.assertIn(sig, freeze.html_text((self.DIR / "challenge" / f).read_text()))
+
+
 if __name__ == "__main__": unittest.main()
