@@ -1816,6 +1816,30 @@ class ApifyMeterGuard(unittest.TestCase):
         self.assertEqual({k: p[k] for k in want}, want)
         log = json.loads((self.tmp / "spend" / "apify-meter-2026-10.json").read_text())
         self.assertEqual(log["runs"], [{"run_date": "2026-10-20"} | want])
+    def test_stop_at_exactly_stop_usd_even_without_next_call_term(self):
+        mb = CFG["meter_budget"] | {"apify": CFG["meter_budget"]["apify"] | {"ledger_unit_usd": 0.0}}
+        (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 0}, "over_free_units": 0}))
+        rows = [{"id": "n0", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}}]
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                       cfg={"meter_budget": mb}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 4.0})
+        self.assertEqual((s["providers"][0]["status"], self.called), ("stale_budget", []))
+
+class ApifyMainWiring(unittest.TestCase):
+    """main() must hand runner.run the live Apify usage meter (apify_meter with the run's token), not None."""
+    def test_main_passes_live_meter_to_guard(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = {}
+        class Stop(Exception): pass
+        def fake_run(**kw): seen.update(kw); raise Stop()
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"APIFY_API_TOKEN": "mock-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "smoke", "--only-providers", "apify"]), \
+             mock.patch.object(B.runner, "run", fake_run), mock.patch.object(B, "apify_meter", return_value=3.21) as am, \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")), mock.patch("builtins.print"):
+            with self.assertRaises(Stop): B.main()
+            self.assertIsNotNone(seen.get("meters")); self.assertIn("apify", seen["meters"])
+            self.assertEqual(seen["meters"]["apify"](), 3.21)   # read while the run's env is in place
+        am.assert_called_once_with("mock-dummy")
 
 
 class CanonScoring(unittest.TestCase):

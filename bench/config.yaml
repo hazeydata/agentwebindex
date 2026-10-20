@@ -30,7 +30,7 @@
  "apify_search_config": "rag-raw-http-t120",
  "apify_search_configs": {"rag-raw-http-t60": {"scrapingTool": "raw-http", "requestTimeoutSecs": 60},
                           "rag-raw-http-t120": {"scrapingTool": "raw-http", "requestTimeoutSecs": 120}},
- "apify_search_config_note": "PLAN step 5: 12 of 16 run-1 queries hit the 60 s Actor timeout; run 2 uses the named config rag-raw-http-t120 (client waits requestTimeoutSecs + 60 s). Each run-log line records the config name.",
+ "apify_search_config_note": "PLAN step 5: 12 of 16 run-1 queries timed out (11 Actor HTTP 500 Timed out. at ~60 s, 1 client read timeout at ~150 s; source bench/runs/2026-10-19/apify/news_2026-42.jsonl); run 2 uses the named config rag-raw-http-t120 (client waits requestTimeoutSecs + 60 s). Each run-log line records the config name.",
  "freeze_host_delay_note": "awibench.freeze --live waits this long between two requests to the same host",
  "challenge_html_signatures_note": "nature.com / link.springer.com Client Challenge interstitial (HTTP 200, JS-only; seen by plain clients 2026-10-19)",
  "task_site_allowlist": ["the-internet.herokuapp.com", "books.toscrape.com", "quotes.toscrape.com", "practicetestautomation.com", "webscraper.io"],
