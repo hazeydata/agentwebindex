@@ -61,8 +61,9 @@ def _apify_search(key, item):
     """Ranked results from the Actor's searchResult.rank; result URL = the fetched page's metadata.url (Google returns
     redirect links in searchResult.url). billed_units = US cents charged at Free-plan event prices (1 search + 1 per fetched page)."""
     import urllib.parse
-    q = urllib.parse.urlencode({"query": item["query"], "maxResults": 10, "scrapingTool": "raw-http", "outputFormats": "markdown", "requestTimeoutSecs": 60})
-    st, d = _get_json(f"{APIFY_RAG_URL}?{q}", {"Authorization": f"Bearer {key}"})
+    cfg = load_yaml(BENCH / "config.yaml"); name = cfg["apify_search_config"]; conf = cfg["apify_search_configs"][name]
+    q = urllib.parse.urlencode({"query": item["query"], "maxResults": 10, "outputFormats": "markdown"} | conf)
+    st, d = _get_json(f"{APIFY_RAG_URL}?{q}", {"Authorization": f"Bearer {key}"}, timeout=conf["requestTimeoutSecs"] + 60)
     d = sorted(d if isinstance(d, list) else [], key=lambda x: (x.get("searchResult") or {}).get("rank") or 99)
     res = []
     for x in d:
@@ -71,7 +72,11 @@ def _apify_search(key, item):
                     "snippet": sr.get("description"), "published_at": None})
     fetched = sum(1 for x in d if (x.get("crawl") or {}).get("requestStatus") == "handled")
     cents = 100 * (APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
-    return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res}
+    return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
+
+def apify_meter(key):
+    st, d = _get_json("https://api.apify.com/v2/users/me/limits", {"Authorization": f"Bearer {key}"}, timeout=30)
+    return d["data"]["current"]["monthlyUsageUsd"]
 
 BROWSERLESS_CONTENT_URL = "https://production-sfo.browserless.io/content"
 
@@ -215,7 +220,8 @@ def main():
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
       s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend",
-                   offset_h=a.reprobe_offset or 0, only_ids=only)
+                   offset_h=a.reprobe_offset or 0, only_ids=only,
+                   meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"])})
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"

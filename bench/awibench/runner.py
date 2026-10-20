@@ -139,6 +139,21 @@ def eligibility(pid, pricing, cfg):
         return False, "free tier needs a card (or unknown) and provider not on CEO list"
     return True, "free tier"
 
+def read_meter(meters, pid):
+    try: v = (meters or {})[pid]()
+    except Exception: return None
+    return v if _usd_ok(v) else None
+
+def meter_gap(meters, pid, m0, ledger_usd, spend_dir, run_date):
+    mv = read_meter(meters, pid)
+    if mv is None: return {"meter_usd": None, "ledger_usd": round(ledger_usd, 4), "meter_minus_ledger_usd": None}
+    d = {"meter_usd": round(mv, 4), "ledger_usd": round(ledger_usd, 4), "meter_minus_ledger_usd": round(mv - ledger_usd, 4),
+         "run_meter_usd": round(mv - m0[0], 4), "run_ledger_usd": round(ledger_usd - m0[1], 4), "run_meter_minus_ledger_usd": round((mv - m0[0]) - (ledger_usd - m0[1]), 4)}
+    f = Path(spend_dir) / f"{pid}-meter-{run_date[:7]}.json"; f.parent.mkdir(parents=True, exist_ok=True)
+    log = json.loads(f.read_text()) if f.exists() else {"provider": pid, "month": run_date[:7], "runs": []}
+    log["runs"].append({"run_date": run_date} | d); f.write_text(json.dumps(log, indent=1, sort_keys=True))
+    return d
+
 def benchmark_forbidden(tos_entry):
     return ((tos_entry or {}).get("benchmarking") or {}).get("status") == "forbidden"
 
@@ -177,7 +192,7 @@ def _grade(kind, set_name, item, out, cfg):
     return checks.browser_check(item, out)
 
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,
-        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None):
+        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None):
     """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0."""
     if mock and (is_under(runs_dir, PUBLISHED_DIRS) or is_under(ledger_path, PUBLISHED_DIRS)):
         raise RuntimeError("mock run output must not go to published data/, dist/ or bench/runs/")
@@ -208,6 +223,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
             status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
+            mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
             for set_name, s in sets.items():
                 if set_kind(set_name) != kind: continue
                 out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, []); reached = 0
@@ -226,6 +242,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     est = estimate_units(pr, kind, item, pid, cfg)
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
+                    if mb:
+                        mv = read_meter(meters, pid)
+                        if mv is None:
+                            status = stale("budget", status, "usage meter unreadable; failing closed (rule 6)"); break
+                        lv = ledger.used(pool) * mb["ledger_unit_usd"]; m0 = m0 or (mv, lv); g = max(mv, lv)
+                        if g >= mb["stop_usd"] or g + est * mb["ledger_unit_usd"] > mb["stop_usd"]:
+                            status = stale("budget", status, f"max(meter ${mv:.4f}, ledger ${lv:.4f}) + next call would reach the ${mb['stop_usd']:.2f} stop (cap ${mb['cap_usd']:.2f})"); break
                     sb = (cfg.get("spend_budget") or {}).get(pid); sf = None
                     if sb:
                         try: sf = SpendFile(spend_dir, pid, spend_month(line["ts"]), sb["usd_per_1k"])
@@ -259,6 +282,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
                                   "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
+                    if "config" in out: rec["config"] = out["config"]
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
                     elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached
@@ -288,7 +312,8 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if status["status"].startswith("stale_"):   # stamp the stale run's lines so tables.collect never publishes them
                         lines = [json.dumps(json.loads(l) | {"run_status": status["status"]}) + "\n" for l in lines]
                     with open(out_f, "a") as fh: fh.write("".join(lines))
-            summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota})
+            gap = meter_gap(meters, pid, m0, ledger.used(pool) * mb["ledger_unit_usd"], spend_dir, run_date) if mb and m0 else {}
+            summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota} | gap)
     if not any(p.get("data_calls") for p in summary["providers"]) and json.dumps(ledger.d, sort_keys=True) == used_start:
         return summary   # nothing returned data and nothing billed: leave ledger and runs untouched
     ledger.save()

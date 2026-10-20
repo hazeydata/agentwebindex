@@ -292,6 +292,12 @@ class T(unittest.TestCase):
     def test_no_key_reason_hides_env_name(self):
         kw, _, _ = self._setup_run(); kw["env"] = {}
         for p in runner.run(**kw)["providers"]: self.assertEqual(p["reason"], "not run (no key)")
+    def test_run_log_records_adapter_config_name(self):
+        kw, _, _ = self._setup_run(); pid = kw["providers"][0]["id"]; cat = kw["providers"][0]["categories"][0]
+        kw["adapters"] = {pid: {cat: lambda key, item: {"results": [], "config": "named-x"}}}
+        runner.run(**kw)
+        lines = [json.loads(l) for f in Path(kw["runs_dir"]).rglob("*.jsonl") for l in f.read_text().splitlines()]
+        self.assertTrue(lines); self.assertEqual({l.get("config") for l in lines if l["status"] in ("pass", "fail")}, {"named-x"})
     def test_missing_set_reason_has_no_path(self):
         with tmpd(self) as td:
             out = validate.validate_by_set(td, {"task_site_allowlist": []})
@@ -351,7 +357,7 @@ class T(unittest.TestCase):
         ad = mocks.MockAdapters(); adapters = {}
         for p in provs: adapters.update(ad.table(p["id"], p["categories"]))
         return runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
-                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True,
+                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True, meters={"apify": lambda: 0.0},
                           now_fn=lambda: dt.datetime.fromisoformat("2026-10-19T11:23:00+00:00")), pricing, tos
     def test_d1_brave_excluded_from_runner_and_tables(self):
         s, pricing, tos = self._real_run()
@@ -671,6 +677,26 @@ class Collectors2(unittest.TestCase):
         finally: B._get_json = old
         self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
         self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
+
+    def test_apify_t60_config_pins_60s_and_120s_client_wait(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t60"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 60})
+        seen = []; old_get, old_load = B._get_json, B.load_yaml
+        B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
+        B.load_yaml = lambda p: dict(old_load(p), apify_search_config="rag-raw-http-t60")
+        try: out = B._apify_search("k", {"query": "q"})
+        finally: B._get_json, B.load_yaml = old_get, old_load
+        qs = up.parse_qs(up.urlparse(seen[0][0]).query)
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["60"], ["raw-http"], 120, "rag-raw-http-t60"))
+    def test_apify_named_config_sets_request_timeout_and_is_logged(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
+        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t120")
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t120"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 120})
+        seen = []; old = B._get_json; B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
+        try: out = B._apify_search("k", {"query": "q"})
+        finally: B._get_json = old
+        qs = up.parse_qs(up.urlparse(seen[0][0]).query)
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["120"], ["raw-http"], 180, "rag-raw-http-t120"))
 
     def test_late_run_gets_no_freshness_row(self):
         with tmpd(self) as d:
@@ -1795,3 +1821,67 @@ class DryRunCleanup(unittest.TestCase):
         with mock.patch("builtins.print"): g = runpy.run_path(str(Path(__file__).parent / "dry_run.py"))
         td = g["td"]; self.addCleanup(td.cleanup)   # td is still referenced, so only the script's own cleanup() can have removed it
         self.assertFalse(Path(td.name).exists(), td.name)
+
+class ApifyMeterGuard(unittest.TestCase):
+    PROV = [{"id": "apify", "categories": ["search"], "key_env": "APIFY_API_TOKEN"}]
+    PRICING = {"apify": {"search": {"model": "per_request", "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
+    def setUp(self): self.tmp = mktmp(self); self.called = []
+    def _fn(self, key, item): self.called.append(item["id"]); return {"results": [], "billed_units": 1}
+    def _run(self, meter, ledger_cents=0, n=5):
+        (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": ledger_cents}, "over_free_units": 0}))
+        rows = [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                       cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": meter})
+        return s["providers"][0]
+    def test_config_meter_budget(self):
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01})
+    def test_meter_above_ledger_wins_and_trips_at_4(self):
+        p = self._run(lambda: 4.0, ledger_cents=184)
+        self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+        self.assertIn("max(meter $4.0000, ledger $1.8400)", p["reason"])
+        p = self._run(lambda: 3.995, ledger_cents=184); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+        p = self._run(lambda: 3.0, ledger_cents=184); self.assertEqual((p["status"], p["calls"]), ("ran", 5))
+    def test_ledger_above_meter_wins(self):
+        p = self._run(lambda: 0.5, ledger_cents=399.5); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+    def test_meter_unreadable_skips_apify(self):
+        def boom(): raise RuntimeError("HTTP 500")
+        for m in (boom, lambda: None, lambda: float("nan"), lambda: -1.0):
+            self.called = []; p = self._run(m)
+            self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+            self.assertIn("usage meter unreadable; failing closed (rule 6)", p["reason"])
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": [{"id": "n0", "query": "q", "check": {}}], "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"apify": {"search": self._fn}}, cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "r2", ledger_path=self.tmp / "q2.json",
+                       run_date="2026-10-20", env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        self.assertEqual(s["providers"][0]["status"], "stale_budget")
+    def test_meter_and_ledger_and_gap_logged(self):
+        reads = iter([1.0] * 5 + [1.5])
+        p = self._run(lambda: next(reads), ledger_cents=90)
+        want = {"meter_usd": 1.5, "ledger_usd": 0.95, "meter_minus_ledger_usd": 0.55, "run_meter_usd": 0.5, "run_ledger_usd": 0.05, "run_meter_minus_ledger_usd": 0.45}
+        self.assertEqual({k: p[k] for k in want}, want)
+        log = json.loads((self.tmp / "spend" / "apify-meter-2026-10.json").read_text())
+        self.assertEqual(log["runs"], [{"run_date": "2026-10-20"} | want])
+    def test_stop_at_exactly_stop_usd_even_without_next_call_term(self):
+        mb = CFG["meter_budget"] | {"apify": CFG["meter_budget"]["apify"] | {"ledger_unit_usd": 0.0}}
+        (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 0}, "over_free_units": 0}))
+        rows = [{"id": "n0", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}}]
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                       cfg={"meter_budget": mb}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 4.0})
+        self.assertEqual((s["providers"][0]["status"], self.called), ("stale_budget", []))
+
+class ApifyMainWiring(unittest.TestCase):
+    """main() must hand runner.run the live Apify usage meter (apify_meter with the run's token), not None."""
+    def test_main_passes_live_meter_to_guard(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = {}
+        class Stop(Exception): pass
+        def fake_run(**kw): seen.update(kw); raise Stop()
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"APIFY_API_TOKEN": "mock-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "smoke", "--only-providers", "apify"]), \
+             mock.patch.object(B.runner, "run", fake_run), mock.patch.object(B, "apify_meter", return_value=3.21) as am, \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")), mock.patch("builtins.print"):
+            with self.assertRaises(Stop): B.main()
+            self.assertIsNotNone(seen.get("meters")); self.assertIn("apify", seen["meters"])
+            self.assertEqual(seen["meters"]["apify"](), 3.21)   # read while the run's env is in place
+        am.assert_called_once_with("mock-dummy")
