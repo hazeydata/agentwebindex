@@ -7,7 +7,7 @@ import argparse, datetime as dt, json, statistics, sys
 from collections import defaultdict
 from pathlib import Path
 from .util import BENCH, load_yaml, read_jsonl
-from . import cost, freshness
+from . import cost, freshness, checks
 from .runner import set_kind, is_rate_limited, quota_degraded
 
 def _cell(v, refs, **extra): return {"v": v, "src": refs, **extra} if v is not None else {"v": None, "src": [], **extra}
@@ -60,13 +60,28 @@ def exclusions(tos):
     return [{"provider": pid, "reason": "terms forbid benchmarking", "quote": t["benchmarking"].get("quote"), "terms_url": t.get("terms_url"),
              "checked_at": t.get("checked_at"), "note": t.get("note")} for pid, t in sorted((tos or {}).items()) if benchmark_forbidden(t)]
 
+GRADED_REASONS = {"url_exact in top10", "url_exact not in top10", "domain in top5", "domain not in top5", "snippet match", "snippet not found in top5"}
+
+def regrade(set_name, lines, sets_dir):
+    """CEO ruling 2026-10-20: search lines are re-graded from their stored results with the current grader; the log stays raw."""
+    f = Path(sets_dir) / f"{set_name}.jsonl" if sets_dir else None
+    if set_kind(set_name) != "search" or not f or not f.exists(): return lines, None
+    rows = {r["id"]: r for r in read_jsonl(f)}; out = []
+    for n, r in lines:
+        item = rows.get(r.get("item_id"))
+        if r.get("status") in ("pass", "fail") and "results" in r and item and r.get("reason") in GRADED_REASONS:
+            ok, why = checks.news_check(item, r["results"]) if set_name.startswith("news_") else checks.search_check(item["check"], r["results"])
+            r = r | {"status": "pass" if ok else "fail", "pass": ok, "reason": why}
+        out.append((n, r))
+    return out, checks.GRADER_VERSION
+
 def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
     logs = collect(runs_dir); doc = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                                      "source": "run logs only (SPEC-bench §4)", "tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}
     doc["exclusions"] = exclusions(tos); excluded = {e["provider"] for e in doc["exclusions"]}
     for (pid, set_name), (rel, lines) in sorted(logs.items()):
         if pid in excluded: continue          # never shown in benchmark tables, even if a stray log exists
-        kind = set_kind(set_name)
+        kind = set_kind(set_name); lines, gv = regrade(set_name, lines, sets_dir)
         main = [(n, r) for n, r in lines if r.get("offset_h", 0) == 0]
         rl = [n for n, r in main if is_rate_limited(r)]
         scored = [(n, r) for n, r in main if r["status"] in ("pass", "fail") and n not in rl]
@@ -84,7 +99,7 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
         run_date = Path(rel).parts[-3]   # runs/<YYYY-MM-DD>/<provider>/<set>.jsonl
         row = {"provider": pid, "set": set_name, "run_date": run_date, "set_sha": main[0][1]["set_sha"] if main else None, "set_rows": main[0][1].get("set_rows") if main else None,
                "flags": (week_labels(main[0][1].get("set_rows"), cfg) if set_name.startswith("news_") else main[0][1].get("set_flags", [])) if main else [], "mock": any(r.get("mock") for _, r in lines),
-               "partial": is_partial(main),
+               "partial": is_partial(main), "grader_version": gv or "run-log",
                "attempted": _cell(len(alln) or None, _refs(rel, alln)),
                "passed": _cell(len(passn) if alln else None, _refs(rel, alln)),
                "failed": _cell(len(alln) - len(passn) if alln else None, _refs(rel, alln)),
@@ -121,6 +136,7 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
                 fr = freshness.freshness(rows, probes, run_at, set_name.removeprefix("news_"), main[0][1]["set_sha"])
                 doc["freshness"].append({"provider": pid, "set": set_name, "run_date": run_date, "flags": week_labels(main[0][1].get("set_rows"), cfg), "n": fr["n"], "week": fr["week"], "set_sha": fr["set_sha"],
                                          **{k: _cell(fr[k], _refs(rel, used)) for k in ("fresh_hit_at_10", "median_lag_h", "censored_share")}})
+    doc["grader_version"] = checks.GRADER_VERSION
     doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
     return doc
 

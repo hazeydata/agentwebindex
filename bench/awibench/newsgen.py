@@ -7,7 +7,7 @@ Same feeds + same date + same seed -> byte-identical output.
 Query text (spec rule, final ruling 1): the cleaned headline, i.e. any trailing " - Outlet" / " | Outlet"
 suffix removed, whitespace collapsed, trailing punctuation dropped, at most 14 words. No LLM rewrite.
 """
-import argparse, datetime as dt, email.utils, json, random, re, sys, xml.etree.ElementTree as ET
+import argparse, datetime as dt, email.utils, json, math, random, re, sys, xml.etree.ElementTree as ET
 from pathlib import Path
 from .util import BENCH, load_yaml, domain, norm_url
 
@@ -106,14 +106,24 @@ def generate(cfg, run_at, seed, read_feed, log):
         if not (lo <= x["published_at"] <= hi) or not x["link"] or key in seen or not x["title"]: continue
         seen.add(key); pool.append(x)
     random.Random(f"{seed}|{run_at.isoformat()}").shuffle(pool)
-    caps = {"feed": nc["per_feed"]}   # final ruling (3): 15 per feed is the only cap (no outlet or section caps)
-    used = {k: {} for k in caps}; chosen = []
-    for x in pool:
-        x["outlet"] = domain(x["link"])
-        if any(used[k].get(x[k], 0) >= c for k, c in caps.items()): continue
-        for k in caps: used[k][x[k]] = used[k].get(x[k], 0) + 1
-        chosen.append(x)
-        if len(chosen) == nc["total"]: break
+    caps = {"feed": nc["per_feed"]}   # final ruling (3): 15 per feed; from week domain_share_from_week also max_domain_share per source domain
+    for x in pool: x["outlet"] = domain(x["link"])
+    def pick(dom_cap):
+        used = {k: {} for k in caps}; per_dom = {}; out = []
+        for x in pool:
+            if any(used[k].get(x[k], 0) >= c for k, c in caps.items()) or per_dom.get(x["outlet"], 0) >= dom_cap: continue
+            for k in caps: used[k][x[k]] = used[k].get(x[k], 0) + 1
+            per_dom[x["outlet"]] = per_dom.get(x["outlet"], 0) + 1; out.append(x)
+            if len(out) == nc["total"]: break
+        return out
+    iy, iw, _ = run_at.isocalendar(); share = nc.get("max_domain_share")
+    if share and f"{iy}-{iw:02d}" >= nc.get("domain_share_from_week", "0"):
+        lim = math.floor(share * nc["total"])
+        while True:
+            chosen = pick(lim); m = math.floor(share * len(chosen))
+            if all(sum(c["outlet"] == d for c in chosen) <= m for d in {c["outlet"] for c in chosen}): break
+            lim = m
+    else: chosen = pick(float("inf"))
     iso_y, iso_w, _ = run_at.isocalendar()
     rows = []
     for n, x in enumerate(chosen, 1):
