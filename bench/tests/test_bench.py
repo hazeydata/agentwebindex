@@ -1766,6 +1766,16 @@ class UrlExactList(unittest.TestCase):
     def test_string_value_unchanged(self):
         ch = {"type": "url_exact", "value": self.ALLOW[1]}
         self.assertTrue(checks.search_check(ch, self.res(self.ALLOW[1]))[0]); self.assertFalse(checks.search_check(ch, self.res(self.ALLOW[0]))[0])
+    def test_prefix_match_rejected(self):
+        for v in (self.ALLOW[0], self.ALLOW):   # string and list forms
+            ch = {"type": "url_exact", "value": v}
+            for u in ("https://www.rfc-editor.org/rfc/rfc8259-errata", "https://www.rfc-editor.org/rfc/rfc8259/section-1"):
+                self.assertEqual(checks.search_check(ch, self.res(u))[0], False, (v, u))
+    def test_substring_match_rejected(self):
+        for v in (self.ALLOW[0], self.ALLOW):
+            ch = {"type": "url_exact", "value": v}
+            for u in ("https://mirror.example/https://www.rfc-editor.org/rfc/rfc8259", "https://mirror.example/r?u=https://www.rfc-editor.org/rfc/rfc8259"):
+                self.assertEqual(checks.search_check(ch, self.res(u))[0], False, (v, u))
     def _ev(self, d, value, typ="url_exact"):
         ev, sc, ts = mocks.make_sets(Path(d)); ev[0]["check"] = {"type": typ, "value": value}
         (Path(d) / "search_evergreen.jsonl").write_text("".join(json.dumps(r) + "\n" for r in ev))
@@ -1778,3 +1788,10 @@ class UrlExactList(unittest.TestCase):
             self.assertEqual(len(errs), 1, (v, t)); self.assertIn("check.value list must be a non-empty list", errs[0])
     def test_drafts_style_row_validates(self):
         with tmpd(self) as d: self.assertEqual(self._ev(d, self.ALLOW[:1]), [])
+
+class DryRunCleanup(unittest.TestCase):
+    def test_dry_run_removes_its_tempdir_before_exit(self):
+        import runpy
+        with mock.patch("builtins.print"): g = runpy.run_path(str(Path(__file__).parent / "dry_run.py"))
+        td = g["td"]; self.addCleanup(td.cleanup)   # td is still referenced, so only the script's own cleanup() can have removed it
+        self.assertFalse(Path(td.name).exists(), td.name)
