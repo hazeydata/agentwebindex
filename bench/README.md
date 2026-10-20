@@ -17,7 +17,7 @@ Config: `config.yaml` (feeds, caps, challenge signatures, demo-site allowlist, C
 All are JSON-compatible YAML so no PyYAML is needed. Every pricing/ToS value is `NOT CAPTURED`/null until read from the vendor.
 
 Tests (MOCK only, pytest `tmp_path`): `python -m pytest tests/test_bench.py` (`pip install pytest`; the only non-stdlib dependency, tests only). Fixtures: `tests/fixtures/rss/*.xml` (from `tests/make_rss_fixtures.py`), `tests/mocks.py`.
-Mock dry run of the full pipeline: `python tests/dry_run.py` (writes to /tmp only).
+Mock dry run of the full pipeline: `python tests/dry_run.py` (writes only to a temp dir that it removes).
 
 ## Bright Data Web Unlocker (scrape, paid spend guard)
 `collectors/benchmark.py` `_brightdata_scrape` POSTs `{"zone", "url", "format": "raw"}` to `https://api.brightdata.com/request` with `Authorization: Bearer $BRIGHTDATA_API_KEY`; the zone comes from env `BRIGHTDATA_ZONE` (`awi_unlocker`). With no key the provider is `skipped_no_key`; with no zone each call is an error billed 0 and no request is made.

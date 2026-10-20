@@ -1,0 +1,2647 @@
+{
+ "date": "2026-10-20",
+ "sha256": {
+  "search_evergreen.jsonl": "6b488a955e0896d91fd0db99b1936c38721f79e68c02cef0589e70664874a527",
+  "scrape_urls.jsonl": "118f46210f3c65135b8611319c8d91afe35fb9554f26469b0c1abf8baf2a3c1a",
+  "browser_tasks.yaml": "e78ac14e99ae3da36c820eedeb02dad3066db05025c06ba9646969e32c43ed1e"
+ },
+ "source_url": [
+  {
+   "id": "se-fr-001",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?c",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-002",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?h",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-003",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?na",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-004",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?k",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-005",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?e",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-006",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?gn",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-007",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?r",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-008",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?f",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-009",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?sigma",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-010",
+   "url": "https://www.bipm.org/en/si-base-units/second",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-011",
+   "url": "https://www.bipm.org/en/si-base-units/metre",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-012",
+   "url": "https://www.bipm.org/en/si-base-units/kilogram",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-013",
+   "url": "https://www.bipm.org/en/si-base-units/mole",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-014",
+   "url": "https://www.bipm.org/en/si-base-units/candela",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-015",
+   "url": "https://www.archives.gov/founding-docs/declaration-transcript",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-016",
+   "url": "https://www.un.org/en/about-us/un-charter",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-017",
+   "url": "https://www.un.org/en/about-us/universal-declaration-of-human-rights",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-018",
+   "url": "https://www.nasa.gov/mission/apollo-11/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-019",
+   "url": "https://www.nps.gov/wrbr/learn/historyculture/thefirstflight.htm",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-020",
+   "url": "https://www.ecb.europa.eu/euro/intro/html/index.en.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-021",
+   "url": "https://www.loc.gov/exhibits/gettysburg-address/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-022",
+   "url": "https://www.bipm.org/en/si-base-units/ampere",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-023",
+   "url": "https://www.bipm.org/en/si-base-units/kelvin",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-024",
+   "url": "https://www.archives.gov/exhibits/featured-documents/emancipation-proclamation",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-025",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?stdatm",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-026",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?hbar",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-027",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?kjos",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-028",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?rk",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-029",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?c22ndrc",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-fr-030",
+   "url": "https://physics.nist.gov/cgi-bin/cuu/Value?bwien",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-001",
+   "url": "https://docs.python.org/3/library/stdtypes.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-002",
+   "url": "https://docs.python.org/3/library/json.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-003",
+   "url": "https://docs.python.org/3/library/asyncio-task.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-004",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-005",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-006",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-direction",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-007",
+   "url": "https://doc.rust-lang.org/std/vec/struct.Vec.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-008",
+   "url": "https://pkg.go.dev/net/http",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-009",
+   "url": "https://www.postgresql.org/docs/current/functions-json.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-010",
+   "url": "https://git-scm.com/docs/git-rebase",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-011",
+   "url": "https://curl.se/docs/manpage.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-012",
+   "url": "https://nodejs.org/api/fs.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-013",
+   "url": "https://www.sqlite.org/lang_upsert.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-014",
+   "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-015",
+   "url": "https://docs.docker.com/reference/cli/docker/container/run/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-016",
+   "url": "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-017",
+   "url": "https://www.gnu.org/software/bash/manual/bash.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-018",
+   "url": "https://www.rfc-editor.org/rfc/rfc9110",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-019",
+   "url": "https://www.rfc-editor.org/rfc/rfc2119",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-020",
+   "url": "https://www.rfc-editor.org/rfc/rfc8259.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-021",
+   "url": "https://www.rfc-editor.org/rfc/rfc8446",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-022",
+   "url": "https://www.rfc-editor.org/rfc/rfc3339",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-023",
+   "url": "https://www.rfc-editor.org/rfc/rfc6749",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-024",
+   "url": "https://www.rfc-editor.org/rfc/rfc7519",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-doc-025",
+   "url": "https://www.rfc-editor.org/rfc/rfc9309",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-001",
+   "url": "https://www.louvre.fr/en",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-002",
+   "url": "https://www.cntower.ca/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-003",
+   "url": "https://www.rom.on.ca/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-004",
+   "url": "https://www.tpl.ca/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-005",
+   "url": "https://www.rijksmuseum.nl/en",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-006",
+   "url": "https://www.sydneyoperahouse.com/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-007",
+   "url": "https://airandspace.si.edu/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-008",
+   "url": "https://www.niagaraparks.com/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-009",
+   "url": "https://www.moma.org/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-loc-010",
+   "url": "https://www.guggenheim.org/",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-001",
+   "url": "https://arxiv.org/abs/1706.03762",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-002",
+   "url": "https://arxiv.org/abs/1810.04805",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-003",
+   "url": "https://arxiv.org/abs/1512.03385",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-004",
+   "url": "https://arxiv.org/abs/1412.6980",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-005",
+   "url": "https://arxiv.org/abs/1406.2661",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-006",
+   "url": "https://arxiv.org/abs/2005.14165",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-007",
+   "url": "https://arxiv.org/abs/1301.3781",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-008",
+   "url": "https://arxiv.org/abs/2010.11929",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-009",
+   "url": "https://arxiv.org/abs/2106.09685",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-aca-010",
+   "url": "https://arxiv.org/abs/2005.11401",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-001",
+   "url": "https://www.rfc-editor.org/rfc/rfc2324",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-002",
+   "url": "https://www.rfc-editor.org/rfc/rfc1149",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-003",
+   "url": "https://www.rfc-editor.org/rfc/rfc2549",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-004",
+   "url": "https://www.rfc-editor.org/rfc/rfc3514",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-005",
+   "url": "https://www.rfc-editor.org/rfc/rfc1925",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-006",
+   "url": "https://www.rfc-editor.org/rfc/rfc2795",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-007",
+   "url": "https://www.rfc-editor.org/rfc/rfc7168",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-008",
+   "url": "https://www.rfc-editor.org/rfc/rfc8771",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-009",
+   "url": "https://www.rfc-editor.org/rfc/rfc748",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-010",
+   "url": "https://www.rfc-editor.org/rfc/rfc1",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-011",
+   "url": "https://www.rfc-editor.org/rfc/rfc6214",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-012",
+   "url": "https://www.rfc-editor.org/rfc/rfc1118",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-013",
+   "url": "https://html.spec.whatwg.org/multipage/obsolete.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-014",
+   "url": "https://www.rfc-editor.org/rfc/rfc4824",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-lt-015",
+   "url": "https://www.rfc-editor.org/rfc/rfc9564",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-001",
+   "url": "https://www.bipm.org/fr/si-base-units/metre",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-002",
+   "url": "https://www.planalto.gov.br/ccivil_03/constituicao/constituicao.htm",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-003",
+   "url": "https://www.un.org/es/about-us/universal-declaration-of-human-rights",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-004",
+   "url": "https://www.un.org/fr/about-us/universal-declaration-of-human-rights",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-005",
+   "url": "https://www.un.org/zh/about-us/universal-declaration-of-human-rights",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-006",
+   "url": "https://www.un.org/ru/about-us/universal-declaration-of-human-rights",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-007",
+   "url": "https://www.ecb.europa.eu/euro/intro/html/index.de.html",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-008",
+   "url": "https://www.un.org/fr/about-us/un-charter",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-009",
+   "url": "https://www.un.org/es/about-us/un-charter",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  },
+  {
+   "id": "se-ne-010",
+   "url": "https://www.bipm.org/fr/si-base-units/second",
+   "status": 200,
+   "attempts": [
+    200
+   ]
+  }
+ ],
+ "markers": [
+  {
+   "id": "sc-static-001",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-002",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-003",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-004",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-005",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-006",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-007",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-008",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-009",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-010",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-011",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-012",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-013",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-014",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-015",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-016",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-017",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-018",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-019",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-020",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-021",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-022",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-023",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-024",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-025",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-026",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-027",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain error: TimeoutError"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-028",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-029",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-030",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-031",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-032",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-033",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-034",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-035",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-036",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-037",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-038",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-039",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-040",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-041",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-042",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-043",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-044",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-045",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-046",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-047",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-048",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-049",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-static-050",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-001",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-002",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-003",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-004",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-005",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-006",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-007",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-008",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-009",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-010",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-011",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-012",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-013",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-014",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-015",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-016",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-017",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-018",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-019",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-020",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-021",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-022",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-023",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-024",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-025",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-026",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-027",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-028",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-029",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-030",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-031",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-032",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-033",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-034",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-035",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-036",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-037",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-038",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-039",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-jsheavy-040",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-001",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-002",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-003",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-004",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-005",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-006",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-007",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-008",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-009",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-010",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-011",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-012",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-013",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-014",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": false,
+     "reason": "text 4941 < min_chars 5000",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    },
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-015",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-016",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-017",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-018",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-019",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-020",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-021",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-022",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-023",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-024",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-025",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-026",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-027",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-028",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-029",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-paywalllite-030",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-001",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-002",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-003",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-004",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-005",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-006",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-007",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-008",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain 200 lacks the marker (rule 10)"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-009",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-010",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-011",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-012",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-013",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-014",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-015",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-016",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-017",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-018",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-019",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-020",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-021",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-022",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-023",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-024",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-025",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain error: TimeoutError"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-026",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-027",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-028",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "plain"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-029",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain 200 lacks the marker (rule 10)"
+    }
+   ]
+  },
+  {
+   "id": "sc-antibot-030",
+   "ok": true,
+   "reason": "marker found, length ok",
+   "attempts": [
+    {
+     "ok": true,
+     "reason": "marker found, length ok",
+     "method": "reference_browser",
+     "fallback": "plain refused: HTTP 403"
+    }
+   ]
+  }
+ ],
+ "failures": []
+}

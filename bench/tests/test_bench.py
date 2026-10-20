@@ -1777,6 +1777,51 @@ class FixtureHygiene(unittest.TestCase):
 if __name__ == "__main__": unittest.main()
 
 
+class UrlExactList(unittest.TestCase):
+    ALLOW = ["https://www.rfc-editor.org/rfc/rfc8259", "https://www.rfc-editor.org/rfc/rfc8259.html",
+             "https://www.rfc-editor.org/rfc/rfc8259.txt", "https://datatracker.ietf.org/doc/html/rfc8259"]
+    def res(self, *urls): return [{"url": u} for u in urls]
+    def test_list_passes_on_any_normalised_member_in_top10(self):
+        ch = {"type": "url_exact", "value": self.ALLOW}
+        for u in ("https://rfc-editor.org/rfc/rfc8259/", "http://www.rfc-editor.org/rfc/rfc8259.txt", "https://datatracker.ietf.org/doc/html/rfc8259"):
+            self.assertEqual(checks.search_check(ch, self.res(*["https://x.example/%d" % i for i in range(9)], u)), (True, "url_exact in top10"), u)
+    def test_list_fails_outside_top10_or_no_member(self):
+        ch = {"type": "url_exact", "value": self.ALLOW}
+        self.assertFalse(checks.search_check(ch, self.res(*["https://x.example/%d" % i for i in range(10)], self.ALLOW[0]))[0])
+        self.assertFalse(checks.search_check(ch, self.res("https://www.rfc-editor.org/rfc/rfc8258.html"))[0])
+    def test_string_value_unchanged(self):
+        ch = {"type": "url_exact", "value": self.ALLOW[1]}
+        self.assertTrue(checks.search_check(ch, self.res(self.ALLOW[1]))[0]); self.assertFalse(checks.search_check(ch, self.res(self.ALLOW[0]))[0])
+    def test_prefix_match_rejected(self):
+        for v in (self.ALLOW[0], self.ALLOW):   # string and list forms
+            ch = {"type": "url_exact", "value": v}
+            for u in ("https://www.rfc-editor.org/rfc/rfc8259-errata", "https://www.rfc-editor.org/rfc/rfc8259/section-1"):
+                self.assertEqual(checks.search_check(ch, self.res(u))[0], False, (v, u))
+    def test_substring_match_rejected(self):
+        for v in (self.ALLOW[0], self.ALLOW):
+            ch = {"type": "url_exact", "value": v}
+            for u in ("https://mirror.example/https://www.rfc-editor.org/rfc/rfc8259", "https://mirror.example/r?u=https://www.rfc-editor.org/rfc/rfc8259"):
+                self.assertEqual(checks.search_check(ch, self.res(u))[0], False, (v, u))
+    def _ev(self, d, value, typ="url_exact"):
+        ev, sc, ts = mocks.make_sets(Path(d)); ev[0]["check"] = {"type": typ, "value": value}
+        (Path(d) / "search_evergreen.jsonl").write_text("".join(json.dumps(r) + "\n" for r in ev))
+        return validate.validate(d, mocks.mock_cfg(CFG))[0]
+    def test_validator_accepts_nonempty_url_list(self):
+        with tmpd(self) as d: self.assertEqual(self._ev(d, self.ALLOW), [])
+    def test_validator_rejects_bad_lists(self):
+        for v, t in (([], "url_exact"), (["not a url"], "url_exact"), ([self.ALLOW[0], 3], "url_exact"), (self.ALLOW, "url_domain")):
+            with tmpd(self) as d: errs = self._ev(d, v, t)
+            self.assertEqual(len(errs), 1, (v, t)); self.assertIn("check.value list must be a non-empty list", errs[0])
+    def test_drafts_style_row_validates(self):
+        with tmpd(self) as d: self.assertEqual(self._ev(d, self.ALLOW[:1]), [])
+
+class DryRunCleanup(unittest.TestCase):
+    def test_dry_run_removes_its_tempdir_before_exit(self):
+        import runpy
+        with mock.patch("builtins.print"): g = runpy.run_path(str(Path(__file__).parent / "dry_run.py"))
+        td = g["td"]; self.addCleanup(td.cleanup)   # td is still referenced, so only the script's own cleanup() can have removed it
+        self.assertFalse(Path(td.name).exists(), td.name)
+
 class ApifyMeterGuard(unittest.TestCase):
     PROV = [{"id": "apify", "categories": ["search"], "key_env": "APIFY_API_TOKEN"}]
     PRICING = {"apify": {"search": {"model": "per_request", "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}

@@ -9,7 +9,8 @@ def search_check(check, results, published_at=None, now=None):
     """results: list of {url,title,snippet,published_at?} in rank order. Returns (pass, reason)."""
     t, v = check["type"], check["value"]
     if t == "url_exact":
-        ok = norm_url(v) in [norm_url(r["url"]) for r in results[:10]]; return ok, "url_exact in top10" if ok else "url_exact not in top10"
+        top = {norm_url(r["url"]) for r in results[:10]}
+        ok = any(norm_url(u) in top for u in ([v] if isinstance(v, str) else v)); return ok, "url_exact in top10" if ok else "url_exact not in top10"
     if t == "url_domain":
         hits = [r for r in results[:5] if domain(r["url"]) == domain(v if "//" in v else "https://" + v)]
         if check.get("within_h") and published_at:
