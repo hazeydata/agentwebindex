@@ -357,7 +357,7 @@ class T(unittest.TestCase):
         ad = mocks.MockAdapters(); adapters = {}
         for p in provs: adapters.update(ad.table(p["id"], p["categories"]))
         return runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
-                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True,
+                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True, meters={"apify": lambda: 0.0},
                           now_fn=lambda: dt.datetime.fromisoformat("2026-10-19T11:23:00+00:00")), pricing, tos
     def test_d1_brave_excluded_from_runner_and_tables(self):
         s, pricing, tos = self._real_run()
@@ -1765,3 +1765,44 @@ class FixtureHygiene(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class ApifyMeterGuard(unittest.TestCase):
+    PROV = [{"id": "apify", "categories": ["search"], "key_env": "APIFY_API_TOKEN"}]
+    PRICING = {"apify": {"search": {"model": "per_request", "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
+    def setUp(self): self.tmp = mktmp(self); self.called = []
+    def _fn(self, key, item): self.called.append(item["id"]); return {"results": [], "billed_units": 1}
+    def _run(self, meter, ledger_cents=0, n=5):
+        (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": ledger_cents}, "over_free_units": 0}))
+        rows = [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                       cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": meter})
+        return s["providers"][0]
+    def test_config_meter_budget(self):
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01})
+    def test_meter_above_ledger_wins_and_trips_at_4(self):
+        p = self._run(lambda: 4.0, ledger_cents=184)
+        self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+        self.assertIn("max(meter $4.0000, ledger $1.8400)", p["reason"])
+        p = self._run(lambda: 3.995, ledger_cents=184); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+        p = self._run(lambda: 3.0, ledger_cents=184); self.assertEqual((p["status"], p["calls"]), ("ran", 5))
+    def test_ledger_above_meter_wins(self):
+        p = self._run(lambda: 0.5, ledger_cents=399.5); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+    def test_meter_unreadable_skips_apify(self):
+        def boom(): raise RuntimeError("HTTP 500")
+        for m in (boom, lambda: None, lambda: float("nan"), lambda: -1.0):
+            self.called = []; p = self._run(m)
+            self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+            self.assertIn("usage meter unreadable; failing closed (rule 6)", p["reason"])
+        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": [{"id": "n0", "query": "q", "check": {}}], "sha": "x"}}, pricing=self.PRICING, tos={},
+                       adapters={"apify": {"search": self._fn}}, cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "r2", ledger_path=self.tmp / "q2.json",
+                       run_date="2026-10-20", env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        self.assertEqual(s["providers"][0]["status"], "stale_budget")
+    def test_meter_and_ledger_and_gap_logged(self):
+        reads = iter([1.0] * 5 + [1.5])
+        p = self._run(lambda: next(reads), ledger_cents=90)
+        want = {"meter_usd": 1.5, "ledger_usd": 0.95, "meter_minus_ledger_usd": 0.55, "run_meter_usd": 0.5, "run_ledger_usd": 0.05, "run_meter_minus_ledger_usd": 0.45}
+        self.assertEqual({k: p[k] for k in want}, want)
+        log = json.loads((self.tmp / "spend" / "apify-meter-2026-10.json").read_text())
+        self.assertEqual(log["runs"], [{"run_date": "2026-10-20"} | want])

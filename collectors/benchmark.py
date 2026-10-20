@@ -74,6 +74,10 @@ def _apify_search(key, item):
     cents = 100 * (APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
     return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
 
+def apify_meter(key):
+    st, d = _get_json("https://api.apify.com/v2/users/me/limits", {"Authorization": f"Bearer {key}"}, timeout=30)
+    return d["data"]["current"]["monthlyUsageUsd"]
+
 BROWSERLESS_CONTENT_URL = "https://production-sfo.browserless.io/content"
 
 def _html_text(h):
@@ -216,7 +220,8 @@ def main():
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
       s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend",
-                   offset_h=a.reprobe_offset or 0, only_ids=only)
+                   offset_h=a.reprobe_offset or 0, only_ids=only,
+                   meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"])})
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"
