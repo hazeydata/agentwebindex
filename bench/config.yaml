@@ -1,6 +1,7 @@
 # AgentWebIndex bench config (JSON-compatible YAML). SPEC-bench §1b, D1, D2, D4.
 {
  "monthly_cap_usd": 0,
+ "freeze_manifest": "freeze-2026-10-20-thirdpass.json",
  "ceo_free_tier_allowlist": [],
  "news": {"total": 50, "min_total": 25, "per_feed": 15, "min_age_h": 24, "max_age_h": 72,
           "query_max_words": 14, "max_domain_share": 0.25, "domain_share_from_week": "2026-44", "schedule": "Mondays 06:00 America/Toronto"},

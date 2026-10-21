@@ -37,7 +37,7 @@ def make_sets(d):
     return ev, sc, ts
 
 def mock_cfg(base_cfg):
-    c = json.loads(json.dumps(base_cfg)); c["task_site_allowlist"] = [DEMO]
+    c = json.loads(json.dumps(base_cfg)); c["task_site_allowlist"] = [DEMO]; c.pop("freeze_manifest", None)
     c["month1_free_tier_providers"] = None   # mock provider ids aren't real; month-one list is tested separately
     return c
 

@@ -11,5 +11,5 @@ synthetic fixtures live only in `bench/tests/fixtures/`.
 Freeze manifest: `freeze-2026-10-20-thirdpass.json` (third pass, 0 failures: 100 source URLs, 150 markers). The committed files match its sha256 values.
 Earlier logs `freeze-2026-10-20.json` (8 failures) and `freeze-2026-10-20-refreeze.json` (3 failures) are kept for history; they describe superseded versions of `scrape_urls.jsonl`/`search_evergreen.jsonl`.
 
-Weekly `news_YYYY-WW.jsonl` (up to 50 rows; under 25 is published as "short week (n=X)", with a `.meta.json` count) come from `python -m awibench.newsgen`.
+Weekly `news_YYYY-WW.jsonl` (up to 50 rows; under 50 is published as "short week (n=X)", under 25 also as "below minimum (n=X)", with a `.meta.json` count) come from `python -m awibench.newsgen`.
 Validate with `python -m awibench.validate`.
