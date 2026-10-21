@@ -3,11 +3,11 @@
  "month": "2026-10",
  "over_free_units": 0,
  "used": {
-  "apify_usd_cents": 89.27,
-  "browserless": 17,
-  "exa": 33,
+  "apify_usd_cents": 184.35800000000003,
+  "browserless": 57,
+  "exa": 73,
   "firecrawl": 64,
-  "tavily": 66
+  "tavily": 146
  },
  "verification_calls_2026-10-19": "key checks after the Oct 15 rotation: 1 Exa search, 1 Tavily basic search (counted at the 2-credit guard), 1 Browserless /content of example.com, 1 Apify RAG Web Browser query (maxResults 10); not part of any table"
 }

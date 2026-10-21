@@ -1,0 +1,53 @@
+{
+ "run_date": "2026-10-20",
+ "mock": false,
+ "offset_h": 0,
+ "providers": [
+  {
+   "provider": "exa",
+   "category": "search",
+   "status": "ran",
+   "calls": 40,
+   "data_calls": 40,
+   "quota_used": 73,
+   "quota": 1428
+  },
+  {
+   "provider": "exa",
+   "category": "scrape",
+   "status": "not_implemented"
+  },
+  {
+   "provider": "tavily",
+   "category": "search",
+   "status": "ran",
+   "calls": 40,
+   "data_calls": 40,
+   "quota_used": 146,
+   "quota": 1000
+  },
+  {
+   "provider": "apify",
+   "category": "search",
+   "status": "ran",
+   "calls": 40,
+   "data_calls": 40,
+   "quota_used": 184.35800000000003,
+   "quota": 500
+  },
+  {
+   "provider": "apify",
+   "category": "scrape",
+   "status": "not_implemented"
+  },
+  {
+   "provider": "browserless",
+   "category": "browser",
+   "status": "ran",
+   "calls": 40,
+   "data_calls": 40,
+   "quota_used": 57,
+   "quota": 1000
+  }
+ ]
+}

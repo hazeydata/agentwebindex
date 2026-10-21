@@ -619,8 +619,8 @@ class Run1Published(unittest.TestCase):
     """Run 1 publication (owner rulings): Firecrawl 429s split from quality fails; below-minimum flag on every week-42 row;
     every published count equals a recount of the raw run log; later collectors (Apify, Browserless) on the same frozen set."""
     DOC = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
-    def _row(self, cat, pid):
-        return next(r for r in self.DOC["tables"][cat] if r["provider"] == pid)
+    def _row(self, cat, pid, set_name=None):
+        return next(r for r in self.DOC["tables"][cat] if r["provider"] == pid and set_name in (None, r["set"]))
 
     def test_firecrawl_2026_10_15_search_row_dropped_by_rule3(self):
         self.assertNotIn("firecrawl", {r["provider"] for r in self.DOC["tables"]["search"]})
@@ -637,12 +637,17 @@ class Run1Published(unittest.TestCase):
             n429 = sum(tables.is_rate_limited(x) for x in recs)
             scored = [x for x in recs if not tables.is_rate_limited(x)]
             self.assertEqual((sum(x["status"] == "pass" for x in scored), len(scored), n429), (pas, att, rl), pid)
-            r = self._row("search", pid); self.assertEqual((r["passed"]["v"], r["attempted"]["v"]), (pas, att))
-            self.assertEqual(r["run_date"], "2026-10-15")
+            # #18: the published row is the raw log re-graded with the current grader (the log itself stays raw)
+            lines, gv = tables.regrade("news_2026-42", [(i, x) for i, x in enumerate(recs, 1) if not tables.is_rate_limited(x)], SITE / "bench" / "sets")
+            r = self._row("search", pid, "news_2026-42"); self.assertEqual((r["passed"]["v"], r["attempted"]["v"]), (sum(x["status"] == "pass" for _, x in lines), att))
+            self.assertEqual(r["grader_version"], gv); self.assertEqual(r["run_date"], "2026-10-15")
 
     def test_below_minimum_flag_on_every_week42_row(self):
         rows = [r for t in self.DOC["tables"].values() for r in t] + self.DOC["freshness"]
-        self.assertTrue(rows)
+        wk42 = [r for r in rows if r["set"].endswith("_2026-42")]
+        for r in rows:
+            if r not in wk42: self.assertNotIn("below minimum (n=16)", r["flags"], r["provider"])
+        rows = wk42; self.assertTrue(rows)
         for r in rows:
             self.assertIn("below minimum (n=16)", r["flags"], r["provider"]); self.assertIn("short week (n=16)", r["flags"])
         self.assertIn({"set": "news_2026-42", "flag": "below minimum (n=16)"}, self.DOC["flags"])
