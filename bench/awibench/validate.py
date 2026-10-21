@@ -3,7 +3,7 @@ Exits non-zero on any count, quota, schema, robots or allowlist error."""
 import argparse, re, sys
 from collections import Counter
 from pathlib import Path
-from .util import BENCH, load_yaml, read_jsonl, domain, norm_text
+from .util import BENCH, load_yaml, read_jsonl, domain, norm_text, sha256_file
 
 # SPEC-bench 1a, Spec final ruling Oct 15: no product category; 100 total.
 EVERGREEN_N = 100
@@ -135,6 +135,16 @@ def check_news(rows, cfg, errs, warns, name="news"):
         for d, n in Counter(domain(str(r.get("source_url", ""))) for r in rows).items():
             if n > share * len(rows): errs.append(f"{name}: source domain {d} has {n}/{len(rows)} rows > {share:.0%} cap (from week {caps['domain_share_from_week']})")
 
+def check_freeze(sd, name):
+    mp = Path(sd) / name
+    if not mp.exists(): return [f"missing freeze manifest {name}"]
+    import json as _j
+    sums = _j.loads(mp.read_text()).get("sha256") or {}
+    if not sums: return [f"{name}: no sha256 entries"]
+    errs = [f"{name}: missing {f}" for f in sums if not (Path(sd) / f).exists()]
+    errs += [f"{f}: sha256 does not match {name}" for f, h in sums.items() if (Path(sd) / f).exists() and sha256_file(Path(sd) / f) != h]
+    return errs + [f"{f}: not in {name}" for f in ("search_evergreen.jsonl", "scrape_urls.jsonl", "browser_tasks.yaml") if f not in sums]
+
 def validate_by_set(sets_dir, cfg, only=None):
     """{set_name: (errors, warnings)} so one bad or missing set doesn't block the others. only: 'news' or None."""
     sd = Path(sets_dir); out = {}
@@ -168,6 +178,7 @@ def validate_by_set(sets_dir, cfg, only=None):
 def validate(sets_dir, cfg, only=None):
     errs, warns = [], []
     for e, w in validate_by_set(sets_dir, cfg, only).values(): errs += e; warns += w
+    if only != "news" and cfg.get("freeze_manifest"): errs += check_freeze(sets_dir, cfg["freeze_manifest"])
     return errs, warns
 
 def main(argv=None):

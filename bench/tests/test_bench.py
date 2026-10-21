@@ -33,8 +33,16 @@ class T(unittest.TestCase):
             (d / "search_evergreen.jsonl").write_text("".join(json.dumps(r) + "\n" for r in ev))
             cfgp = self.tmp / f"cfg-{mutate}.yaml"; cfgp.write_text(json.dumps(self.cfg))
             self.assertEqual(validate.main([str(d), "--config", str(cfgp)]), 1, mutate)
-    def test_ac1_real_sets_dir_currently_fails(self):
-        errs, _ = validate.validate(BENCH / "sets", CFG); self.assertTrue(any("missing" in e for e in errs))
+    def test_ac1_real_sets_dir_validates(self):
+        errs, _ = validate.validate(BENCH / "sets", CFG); self.assertEqual(errs, [])
+    def test_ac1_real_sets_match_freeze_manifest(self):
+        self.assertEqual(CFG["freeze_manifest"], "freeze-2026-10-20-thirdpass.json")
+        sums = json.loads((BENCH / "sets" / CFG["freeze_manifest"]).read_text())["sha256"]
+        self.assertEqual(sorted(sums), ["browser_tasks.yaml", "scrape_urls.jsonl", "search_evergreen.jsonl"])
+        for f, h in sums.items(): self.assertEqual(sha256_file(BENCH / "sets" / f), h, f)
+        self.assertEqual(validate.check_freeze(BENCH / "sets", CFG["freeze_manifest"]), [])
+        d = mktmp(self); (d / "scrape_urls.jsonl").write_text("x")
+        self.assertEqual(validate.check_freeze(d, CFG["freeze_manifest"]), [f"missing freeze manifest {CFG['freeze_manifest']}"])
     def test_search_check_tolerates_null_title_and_snippet(self):
         self.assertEqual(checks.search_check({"type": "snippet_contains", "value": "x"}, [{"url": "https://a.example/", "title": None, "snippet": None}]), (False, "snippet not found in top5"))
     def test_ac4_robots_and_allowlist(self):
