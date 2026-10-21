@@ -1,0 +1,305 @@
+# AWI browser_tasks v1 draft (fact desk, 2026-10-19 17:22:20 EDT). JSON-compatible YAML (see awibench.util.load_yaml).
+# Evidence: drafts/VERIFICATION.md and drafts/verification_browser_tasks.csv
+[
+ {
+  "id": "bt-form-01",
+  "start_url": "https://quotes.toscrape.com/search.aspx",
+  "goal": "Use the search form: choose author 'Albert Einstein', then tag 'change', submit, and read the quote shown.",
+  "steps_hint": [
+   "select author Albert Einstein",
+   "select tag change",
+   "click Search"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "The world as we have created it is a process of our thinking"
+  },
+  "timeout_s": 120,
+  "category": "forms"
+ },
+ {
+  "id": "bt-form-02",
+  "start_url": "https://quotes.toscrape.com/search.aspx",
+  "goal": "Use the search form: choose author 'Jane Austen', then tag 'humor', submit, and read the quote shown.",
+  "steps_hint": [
+   "select author Jane Austen",
+   "select tag humor",
+   "click Search"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "The person, be it gentleman or lady, who has not pleasure in a good novel"
+  },
+  "timeout_s": 120,
+  "category": "forms"
+ },
+ {
+  "id": "bt-form-03",
+  "start_url": "https://the-internet.herokuapp.com/dropdown",
+  "goal": "Select 'Option 2' in the dropdown list and report the selected option's visible text.",
+  "steps_hint": [
+   "open the select",
+   "choose Option 2"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "Option 2"
+  },
+  "timeout_s": 60,
+  "category": "forms"
+ },
+ {
+  "id": "bt-form-04",
+  "start_url": "https://the-internet.herokuapp.com/key_presses",
+  "goal": "Focus the input box and press the Enter key; the page reports the key.",
+  "steps_hint": [
+   "click the input",
+   "press Enter"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "You entered: ENTER"
+  },
+  "timeout_s": 60,
+  "category": "forms"
+ },
+ {
+  "id": "bt-form-05",
+  "start_url": "https://the-internet.herokuapp.com/javascript_alerts",
+  "goal": "Click 'Click for JS Prompt', type AWI into the prompt, accept it, and read the result line.",
+  "steps_hint": [
+   "click Click for JS Prompt",
+   "type AWI",
+   "accept"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "You entered: AWI"
+  },
+  "timeout_s": 60,
+  "category": "forms"
+ },
+ {
+  "id": "bt-nav-01",
+  "start_url": "https://books.toscrape.com/",
+  "goal": "Open the Travel category, then open the book 'It's Only the Himalayas'.",
+  "steps_hint": [
+   "click Travel in the sidebar",
+   "click It's Only the Himalayas"
+  ],
+  "pass": {
+   "type": "final_url_matches",
+   "value": "https://books.toscrape.com/catalogue/its-only-the-himalayas_981/index.html"
+  },
+  "timeout_s": 90,
+  "category": "multi_page_navigation"
+ },
+ {
+  "id": "bt-nav-02",
+  "start_url": "https://books.toscrape.com/",
+  "goal": "From the home page, click 'next' to reach page 2 of the catalogue.",
+  "steps_hint": [
+   "click next at the bottom"
+  ],
+  "pass": {
+   "type": "final_url_matches",
+   "value": "https://books.toscrape.com/catalogue/page-2.html"
+  },
+  "timeout_s": 60,
+  "category": "multi_page_navigation"
+ },
+ {
+  "id": "bt-nav-03",
+  "start_url": "https://quotes.toscrape.com/",
+  "goal": "Click the '(about)' link for Albert Einstein and report his birth date as shown.",
+  "steps_hint": [
+   "find an Albert Einstein quote",
+   "click (about)"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "March 14, 1879"
+  },
+  "timeout_s": 90,
+  "category": "multi_page_navigation"
+ },
+ {
+  "id": "bt-nav-04",
+  "start_url": "https://quotes.toscrape.com/",
+  "goal": "Click the tag 'love', then click Next to reach the second page of love quotes.",
+  "steps_hint": [
+   "click tag love",
+   "click Next"
+  ],
+  "pass": {
+   "type": "final_url_matches",
+   "value": "https://quotes.toscrape.com/tag/love/page/2/"
+  },
+  "timeout_s": 90,
+  "category": "multi_page_navigation"
+ },
+ {
+  "id": "bt-nav-05",
+  "start_url": "https://webscraper.io/test-sites/e-commerce/static",
+  "goal": "Navigate to Computers, then Laptops.",
+  "steps_hint": [
+   "click Computers",
+   "click Laptops"
+  ],
+  "pass": {
+   "type": "final_url_matches",
+   "value": "https://webscraper.io/test-sites/e-commerce/static/computers/laptops"
+  },
+  "timeout_s": 90,
+  "category": "multi_page_navigation"
+ },
+ {
+  "id": "bt-ext-01",
+  "start_url": "https://books.toscrape.com/",
+  "goal": "Find the book 'A Light in the Attic' and report its price exactly as shown.",
+  "steps_hint": [
+   "open the book page",
+   "read the price"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "£51.77"
+  },
+  "timeout_s": 90,
+  "category": "search_and_extract"
+ },
+ {
+  "id": "bt-ext-02",
+  "start_url": "https://books.toscrape.com/",
+  "goal": "Find the book 'Tipping the Velvet' and report its UPC from the product information table.",
+  "steps_hint": [
+   "open the book page",
+   "read UPC"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "90fa61229261140a"
+  },
+  "timeout_s": 90,
+  "category": "search_and_extract"
+ },
+ {
+  "id": "bt-ext-03",
+  "start_url": "https://the-internet.herokuapp.com/tables",
+  "goal": "In Example 1, report the Due amount for the row with first name Jason and last name Doe.",
+  "steps_hint": [
+   "locate Example 1 table",
+   "find Doe / Jason row",
+   "read Due"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "$100.00"
+  },
+  "timeout_s": 60,
+  "category": "search_and_extract"
+ },
+ {
+  "id": "bt-ext-04",
+  "start_url": "https://quotes.toscrape.com/",
+  "goal": "Find Albert Einstein's author page and report his birth location as shown (without the leading 'in').",
+  "steps_hint": [
+   "click (about) on an Einstein quote",
+   "read the born location"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "Ulm, Germany"
+  },
+  "timeout_s": 90,
+  "category": "search_and_extract"
+ },
+ {
+  "id": "bt-ext-05",
+  "start_url": "https://webscraper.io/test-sites/e-commerce/static/computers/laptops",
+  "goal": "Report the listed price of the laptop titled 'Packard 255 G2'.",
+  "steps_hint": [
+   "scan the laptop list",
+   "read the price under Packard 255 G2"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "$416.99"
+  },
+  "timeout_s": 90,
+  "category": "search_and_extract"
+ },
+ {
+  "id": "bt-js-01",
+  "start_url": "https://the-internet.herokuapp.com/dynamic_loading/1",
+  "goal": "Click Start and wait for the hidden element to appear; report its text.",
+  "steps_hint": [
+   "click Start",
+   "wait for loading bar"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "Hello World!"
+  },
+  "timeout_s": 60,
+  "category": "js_widgets"
+ },
+ {
+  "id": "bt-js-02",
+  "start_url": "https://the-internet.herokuapp.com/dynamic_controls",
+  "goal": "Click Enable next to the disabled text input and wait for the status message.",
+  "steps_hint": [
+   "click Enable",
+   "wait"
+  ],
+  "pass": {
+   "type": "dom_text_contains",
+   "value": "It's enabled!"
+  },
+  "timeout_s": 60,
+  "category": "js_widgets"
+ },
+ {
+  "id": "bt-js-03",
+  "start_url": "https://quotes.toscrape.com/js/",
+  "goal": "On the JavaScript-rendered quotes page, report the author of the first quote.",
+  "steps_hint": [
+   "wait for quotes to render",
+   "read the first author"
+  ],
+  "pass": {
+   "type": "extracted_value_equals",
+   "value": "Albert Einstein"
+  },
+  "timeout_s": 60,
+  "category": "js_widgets"
+ },
+ {
+  "id": "bt-dl-01",
+  "start_url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+  "goal": "Download the cover image of 'A Light in the Attic' from its product page.",
+  "steps_hint": [
+   "right-click or fetch the main product image"
+  ],
+  "pass": {
+   "type": "file_sha256",
+   "value": "595f877db08b24b75f7b59aa9a37d420786ac41ad8f270e98fb1daba7ebe0ca2"
+  },
+  "timeout_s": 60,
+  "category": "file_download"
+ },
+ {
+  "id": "bt-dl-02",
+  "start_url": "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html",
+  "goal": "Download the cover image of 'Tipping the Velvet' from its product page.",
+  "steps_hint": [
+   "fetch the main product image"
+  ],
+  "pass": {
+   "type": "file_sha256",
+   "value": "73e9950d4a2474d784171186208fc2821ff57d04bd1e55304c478273dd9dc341"
+  },
+  "timeout_s": 60,
+  "category": "file_download"
+ }
+]
