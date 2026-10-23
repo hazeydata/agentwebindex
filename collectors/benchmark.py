@@ -106,6 +106,13 @@ def _browserless_fetch(key, item):
         raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
     return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
 
+def _browserless_scrape(key, item):
+    """scrape_urls through Browserless /content: rendered HTML of item url. billed_units = Browserless units (30 s blocks)."""
+    import math
+    out = _browserless_fetch(key, {"start_url": item["url"], "timeout_s": 30})
+    sec = out["billed_units"] * 60
+    return {"http_status": out["http_status"], "billed_units": max(1, math.ceil(sec / 30 - 1e-9)), "text": out["dom_text"], "html_chars": out["html_chars"]}
+
 BRIGHTDATA_REQUEST_URL = "https://api.brightdata.com/request"
 
 def _brightdata_scrape(key, item):
@@ -121,7 +128,7 @@ def _brightdata_scrape(key, item):
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
-            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch},
+            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
             "brightdata": {"scrape": _brightdata_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
@@ -163,6 +170,25 @@ def finish_doc(doc, s, cfg, prev_path, skips):
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     return stale
 
+def merge_previous(doc, s, prev_path, sets_seen):
+    """Scoped runs (--only-sets/--only-providers) must not drop earlier entries (AWI-EVERGREEN-RUN-001 fix). Keeps previous
+    latest.json skips and not_run_yet entries for providers/categories and sets this run did not touch; this run's entries win."""
+    prev = json.loads(Path(prev_path).read_text()) if Path(prev_path).exists() else {}
+    doc["skips"] = list(doc["skips"]); doc["not_run_yet"] = list(doc["not_run_yet"])   # copies: the run's own _skips log stays this run only
+    touched = {(p["provider"], p["category"]) for p in s["providers"]}
+    shown = {r["provider"] for t in doc["tables"].values() for r in t} | {p["provider"] for p in s["providers"]}
+    def key(k): return ("set", k.get("set")) if k.get("scope") == "set" else (k.get("scope"), k.get("provider"), k.get("category"))
+    have = {key(k) for k in doc["skips"]}
+    for k in prev.get("skips", []):
+        if key(k) in have: continue
+        if k.get("scope") == "set" and k.get("set") in sets_seen: continue
+        if k.get("scope") == "provider" and (k.get("provider"), k.get("category")) in touched: continue
+        if k.get("scope") == "run": continue
+        doc["skips"].append(k); have.add(key(k))
+    names = {n["provider"] for n in doc["not_run_yet"]}
+    for n in prev.get("not_run_yet", []):
+        if n["provider"] not in names and n["provider"] not in shown: doc["not_run_yet"].append(n); names.add(n["provider"])
+
 def load_test_set(name):
     f = BENCH / "sets" / (name if "." in name else f"{name}.jsonl")
     return load_yaml(f) if f.suffix == ".yaml" else read_jsonl(f)
@@ -174,7 +200,8 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--mode", choices=["smoke", "full"], default="smoke")
     ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H)
     ap.add_argument("--only-providers", help="comma-separated provider ids to call (others are not called and not listed)")
-    ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE"); a = ap.parse_args()
+    ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE")
+    ap.add_argument("--only-sets", help="comma-separated set names to run (others are not loaded)"); a = ap.parse_args()
     cfg = load_yaml(BENCH / "config.yaml"); provs = json.loads((ROOT / "collectors/providers.json").read_text())["providers"]
     pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
     today = dt.date.today().isoformat(); sets = {}; skips = []; flags = []
@@ -194,6 +221,7 @@ def main():
     for old in news[:-1]: sets.pop(old)   # only the latest week is run
     if news:   # browser providers fetch the same frozen week's article URLs (derived, the news file is not touched)
         fname, fset = newsfetch.from_news_file(BENCH / "sets" / f"{news[-1]}.jsonl"); sets[fname] = fset | {"flags": sets[news[-1]]["flags"]}
+    if a.only_sets: sets = {k: v for k, v in sets.items() if k in a.only_sets.split(",")}
     only = None
     if a.reprobe_offset:   # §3: re-query only the misses of the latest news set at +6/+24/+72 h
         sets = {k: v for k, v in sets.items() if k.startswith("news_")}
@@ -228,6 +256,7 @@ def main():
     finish_doc(doc, s, cfg, out, skips)
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
     doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
+    merge_previous(doc, s, out, set(sets) | {k["set"] for k in skips if k.get("scope") == "set"})
     if not a.rebuild_only and not fresh_data(s):   # at least one non-stale call must have returned data
         print(f"SKIP publish: no provider call returned publishable data ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)
