@@ -106,6 +106,13 @@ def _browserless_fetch(key, item):
         raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
     return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
 
+def _browserless_scrape(key, item):
+    """scrape_urls through Browserless /content: rendered HTML of item url. billed_units = Browserless units (30 s blocks)."""
+    import math
+    out = _browserless_fetch(key, {"start_url": item["url"], "timeout_s": 30})
+    sec = out["billed_units"] * 60
+    return {"http_status": out["http_status"], "billed_units": max(1, math.ceil(sec / 30 - 1e-9)), "text": out["dom_text"], "html_chars": out["html_chars"]}
+
 BRIGHTDATA_REQUEST_URL = "https://api.brightdata.com/request"
 
 def _brightdata_scrape(key, item):
@@ -121,7 +128,7 @@ def _brightdata_scrape(key, item):
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
-            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch},
+            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
             "brightdata": {"scrape": _brightdata_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
@@ -174,7 +181,8 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--mode", choices=["smoke", "full"], default="smoke")
     ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H)
     ap.add_argument("--only-providers", help="comma-separated provider ids to call (others are not called and not listed)")
-    ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE"); a = ap.parse_args()
+    ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE")
+    ap.add_argument("--only-sets", help="comma-separated set names to run (others are not loaded)"); a = ap.parse_args()
     cfg = load_yaml(BENCH / "config.yaml"); provs = json.loads((ROOT / "collectors/providers.json").read_text())["providers"]
     pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
     today = dt.date.today().isoformat(); sets = {}; skips = []; flags = []
@@ -194,6 +202,7 @@ def main():
     for old in news[:-1]: sets.pop(old)   # only the latest week is run
     if news:   # browser providers fetch the same frozen week's article URLs (derived, the news file is not touched)
         fname, fset = newsfetch.from_news_file(BENCH / "sets" / f"{news[-1]}.jsonl"); sets[fname] = fset | {"flags": sets[news[-1]]["flags"]}
+    if a.only_sets: sets = {k: v for k, v in sets.items() if k in a.only_sets.split(",")}
     only = None
     if a.reprobe_offset:   # §3: re-query only the misses of the latest news set at +6/+24/+72 h
         sets = {k: v for k, v in sets.items() if k.startswith("news_")}

@@ -136,7 +136,8 @@
    "id": "browserless",
    "name": "Browserless",
    "categories": [
-    "browser"
+    "browser",
+    "scrape"
    ],
    "pricing_url": "https://www.browserless.io/pricing",
    "key_env": "BROWSERLESS_API_KEY"

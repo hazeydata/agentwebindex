@@ -1,0 +1,61 @@
+{
+ "ts": "2026-10-23T10:23:58-04:00",
+ "label": "after",
+ "apify": {
+  "http": 200,
+  "monthlyUsageUsd": 3.0201643851898834,
+  "maxMonthlyUsageUsd": 5,
+  "source": "GET /v2/users/me/limits"
+ },
+ "tavily": {
+  "http": 200,
+  "body": {
+   "key": {
+    "usage": 41,
+    "limit": null,
+    "search_usage": 41,
+    "crawl_usage": 0,
+    "extract_usage": 0,
+    "map_usage": 0,
+    "research_usage": 0
+   },
+   "account": {
+    "current_plan": "Researcher",
+    "plan_usage": 78,
+    "plan_limit": 1000,
+    "search_usage": 78,
+    "crawl_usage": 0,
+    "extract_usage": 0,
+    "map_usage": 0,
+    "research_usage": 0,
+    "paygo_usage": 0,
+    "paygo_limit": null
+   }
+  },
+  "source": "GET https://api.tavily.com/usage"
+ },
+ "exa_attempts": [
+  {
+   "url": "https://api.exa.ai/v1/usage",
+   "http": 404,
+   "body": "{\"requestId\":\"69ae6bd5eaa55d44d5ab58ad2560cc34\",\"error\":\"Not found\",\"tag\":\"NOT_FOUND\"}"
+  },
+  {
+   "url": "https://api.exa.ai/usage",
+   "http": 404,
+   "body": "{\"requestId\":\"676715ae79d4db21cf5989a3fab67e98\",\"error\":\"Not found\",\"tag\":\"NOT_FOUND\"}"
+  }
+ ],
+ "browserless_attempts": [
+  {
+   "url": "https://production-sfo.browserless.io/meta",
+   "http": 200,
+   "body": "{'version': '2.57.3', 'chromium': '156.0.8078.4', 'firefox': '157.0', 'webkit': '27.2', 'playwright': ['1.64.1', '1.63.0', '1.62.1', '1.61.1', '1.60.0'], 'puppeteer': ['25.14.0']}"
+  },
+  {
+   "url": "https://production-sfo.browserless.io/pressure",
+   "http": 404,
+   "body": "No route or file found for resource GET: /pressure (requestId: b210cfc4-da6e-4534-99f1-c3264bc4c8ab)\n"
+  }
+ ]
+}
