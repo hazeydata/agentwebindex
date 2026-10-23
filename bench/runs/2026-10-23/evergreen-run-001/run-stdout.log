@@ -1,0 +1,9 @@
+FLAG news_2026-42 short week (n=16)
+FLAG news_2026-42 below minimum (n=16)
+FLAG news_2026-43 short week (n=40)
+{"provider": "exa", "category": "search", "status": "ran", "calls": 100, "data_calls": 100, "quota_used": 173, "quota": 1428}
+{"provider": "exa", "category": "scrape", "status": "not_implemented"}
+{"provider": "tavily", "category": "search", "status": "ran", "calls": 100, "data_calls": 100, "quota_used": 346, "quota": 1000}
+{"provider": "browserless", "category": "browser", "status": "ran", "calls": 0, "data_calls": 0, "quota_used": 57, "quota": 1000}
+{"provider": "browserless", "category": "scrape", "status": "ran", "calls": 120, "data_calls": 120, "quota_used": 177, "quota": 1000}
+wrote data/benchmarks/latest.json has_results: True

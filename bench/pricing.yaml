@@ -558,6 +558,20 @@
    }
   },
   "browserless": {
+   "scrape": {
+    "pricing_url": "https://www.browserless.io/pricing",
+    "source_url": "https://www.browserless.io/pricing",
+    "checked_at": "2026-10-15",
+    "verified_date": "2026-10-15",
+    "model": "tier",
+    "credits_per_call": {"scrape": 2},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {"units_per_month": 1000, "needs_card": false, "pool": "browserless",
+     "note": "same 1k units/month pool as browser; /content scrape billed in 30 s units, guard assumes 2 (60 s client timeout)"},
+    "tiers": {"entry": {"name": "Prototyping $25/mo billed annually (20k units)", "plan_fee": 25, "included_units": 20000, "overage_per_unit": 0.002},
+              "volume": {"name": "Scale $350/mo billed annually (500k units)", "plan_fee": 350, "included_units": 500000, "overage_per_unit": 0.0015}},
+    "note": null
+   },
    "browser": {
     "pricing_url": "https://www.browserless.io/pricing",
     "source_url": "https://www.browserless.io/pricing",

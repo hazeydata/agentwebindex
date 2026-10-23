@@ -432,7 +432,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 20)   # 19 + apify search (RAG Web Browser, added 2026-10-19)
+        self.assertEqual(n, 21)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
