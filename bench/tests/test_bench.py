@@ -2025,3 +2025,45 @@ class NewsgenDomainCap(unittest.TestCase):
         self.assertEqual(len(rows), 100)
         self.assertEqual(Counter(r["outlet"] for r in rows)["bbc.co.uk"], 25)
         e, w = [], []; validate.check_news(rows, cfg, e, w, name); self.assertEqual([x for x in e if "cap (from week" in x], [])
+
+
+class ScopedRunMergesLatest(unittest.TestCase):
+    """AWI-EVERGREEN-RUN-001 regression: an --only-sets / --only-providers run must merge into latest.json, not overwrite
+    earlier skips and not_run_yet entries for providers/categories and sets it did not touch."""
+    PREV = {"tables": {"search": [], "scrape": [], "browser": []}, "freshness": [],
+            "skips": [{"scope": "set", "set": "search_evergreen", "status": "skipped_invalid_set", "reason": "missing search_evergreen.jsonl"},
+                      {"scope": "set", "set": "browser_tasks", "status": "skipped_invalid_set", "reason": "missing browser_tasks.yaml"},
+                      {"scope": "provider", "provider": "exa", "category": "scrape", "status": "not_implemented", "reason": "not_implemented"},
+                      {"scope": "provider", "provider": "firecrawl", "category": "scrape", "status": "skipped_no_key", "reason": "not run (no key)"},
+                      {"scope": "provider", "provider": "tavily", "category": "search", "status": "skipped_no_key", "reason": "not run (no key)"}],
+            "not_run_yet": [{"provider": "brightdata", "categories": ["scrape"], "status": "not run yet", "reason": "collector ready; not run yet"}]}
+
+    def _merge(self, s, skips, sets_seen, rows=()):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        with tmpd(self) as d:
+            latest = Path(d) / "latest.json"; latest.write_text(json.dumps(self.PREV))
+            doc = {"tables": {"search": [{"provider": p} for p in rows], "scrape": [], "browser": []}, "skips": skips, "not_run_yet": []}
+            B.merge_previous(doc, s, latest, sets_seen); return doc
+
+    def test_untouched_skips_and_not_run_yet_survive(self):
+        s = {"providers": [{"provider": "exa", "category": "search", "status": "ran"}, {"provider": "exa", "category": "scrape", "status": "not_implemented"},
+                           {"provider": "tavily", "category": "search", "status": "ran"}]}
+        doc = self._merge(s, [{"scope": "provider", "provider": "exa", "category": "scrape", "status": "not_implemented", "reason": "not_implemented"}],
+                          {"search_evergreen"}, rows=("exa", "tavily"))
+        keys = [(k.get("scope"), k.get("set") or k.get("provider"), k.get("category"), k["status"]) for k in doc["skips"]]
+        self.assertIn(("provider", "firecrawl", "scrape", "skipped_no_key"), keys)        # outside this run: kept
+        self.assertIn(("set", "browser_tasks", None, "skipped_invalid_set"), keys)         # set not in this run: kept
+        self.assertNotIn(("set", "search_evergreen", None, "skipped_invalid_set"), keys)   # set ran this run: superseded
+        self.assertNotIn(("provider", "tavily", "search", "skipped_no_key"), keys)         # provider ran this run: superseded
+        self.assertEqual(sum(1 for k in keys if k[1] == "exa" and k[2] == "scrape"), 1)    # no duplicates
+        self.assertEqual([n["provider"] for n in doc["not_run_yet"]], ["brightdata"])
+
+    def test_provider_that_ran_leaves_not_run_yet(self):
+        s = {"providers": [{"provider": "brightdata", "category": "scrape", "status": "ran"}]}
+        doc = self._merge(s, [], set(), rows=())
+        self.assertEqual(doc["not_run_yet"], [])
+
+    def test_main_calls_merge_before_publish(self):
+        src = (SITE / "collectors" / "benchmark.py").read_text()
+        self.assertIn("merge_previous(doc, s, out,", src)
+        self.assertLess(src.index("merge_previous(doc, s, out,"), src.index("out.write_text(json.dumps(doc"))

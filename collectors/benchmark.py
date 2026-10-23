@@ -170,6 +170,25 @@ def finish_doc(doc, s, cfg, prev_path, skips):
             skips.append({"scope": "provider", "provider": p["provider"], "category": p["category"], "status": p["status"], "reason": p.get("reason", p["status"])})
     return stale
 
+def merge_previous(doc, s, prev_path, sets_seen):
+    """Scoped runs (--only-sets/--only-providers) must not drop earlier entries (AWI-EVERGREEN-RUN-001 fix). Keeps previous
+    latest.json skips and not_run_yet entries for providers/categories and sets this run did not touch; this run's entries win."""
+    prev = json.loads(Path(prev_path).read_text()) if Path(prev_path).exists() else {}
+    doc["skips"] = list(doc["skips"]); doc["not_run_yet"] = list(doc["not_run_yet"])   # copies: the run's own _skips log stays this run only
+    touched = {(p["provider"], p["category"]) for p in s["providers"]}
+    shown = {r["provider"] for t in doc["tables"].values() for r in t} | {p["provider"] for p in s["providers"]}
+    def key(k): return ("set", k.get("set")) if k.get("scope") == "set" else (k.get("scope"), k.get("provider"), k.get("category"))
+    have = {key(k) for k in doc["skips"]}
+    for k in prev.get("skips", []):
+        if key(k) in have: continue
+        if k.get("scope") == "set" and k.get("set") in sets_seen: continue
+        if k.get("scope") == "provider" and (k.get("provider"), k.get("category")) in touched: continue
+        if k.get("scope") == "run": continue
+        doc["skips"].append(k); have.add(key(k))
+    names = {n["provider"] for n in doc["not_run_yet"]}
+    for n in prev.get("not_run_yet", []):
+        if n["provider"] not in names and n["provider"] not in shown: doc["not_run_yet"].append(n); names.add(n["provider"])
+
 def load_test_set(name):
     f = BENCH / "sets" / (name if "." in name else f"{name}.jsonl")
     return load_yaml(f) if f.suffix == ".yaml" else read_jsonl(f)
@@ -237,6 +256,7 @@ def main():
     finish_doc(doc, s, cfg, out, skips)
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
     doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
+    merge_previous(doc, s, out, set(sets) | {k["set"] for k in skips if k.get("scope") == "set"})
     if not a.rebuild_only and not fresh_data(s):   # at least one non-stale call must have returned data
         print(f"SKIP publish: no provider call returned publishable data ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)

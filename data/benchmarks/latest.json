@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-23T14:23:50+00:00",
+ "generated_at": "2026-10-23T17:33:47+00:00",
  "source": "run logs only (SPEC-bench \u00a74)",
  "tables": {
   "search": [
@@ -6269,9 +6269,21 @@
  ],
  "grader_version": "canon-2026-10-20",
  "has_results": true,
- "not_run_yet": [],
+ "not_run_yet": [
+  {
+   "provider": "brightdata",
+   "categories": [
+    "scrape"
+   ],
+   "status": "not run yet",
+   "reason": "collector ready; not run yet"
+  }
+ ],
  "run_summary": {
   "run_date": "2026-10-23",
+  "run_dates": [
+   "2026-10-23"
+  ],
   "mock": false,
   "offset_h": 0,
   "providers": [
@@ -6282,12 +6294,14 @@
     "calls": 100,
     "data_calls": 100,
     "quota_used": 173,
-    "quota": 1428
+    "quota": 1428,
+    "run_date": "2026-10-23"
    },
    {
     "provider": "exa",
     "category": "scrape",
-    "status": "not_implemented"
+    "status": "not_implemented",
+    "run_date": "2026-10-23"
    },
    {
     "provider": "tavily",
@@ -6296,7 +6310,8 @@
     "calls": 100,
     "data_calls": 100,
     "quota_used": 346,
-    "quota": 1000
+    "quota": 1000,
+    "run_date": "2026-10-23"
    },
    {
     "provider": "browserless",
@@ -6305,7 +6320,8 @@
     "calls": 0,
     "data_calls": 0,
     "quota_used": 57,
-    "quota": 1000
+    "quota": 1000,
+    "run_date": "2026-10-23"
    },
    {
     "provider": "browserless",
@@ -6314,7 +6330,8 @@
     "calls": 120,
     "data_calls": 120,
     "quota_used": 177,
-    "quota": 1000
+    "quota": 1000,
+    "run_date": "2026-10-23"
    }
   ]
  },
@@ -6336,6 +6353,103 @@
    "category": "scrape",
    "status": "not_implemented",
    "reason": "not_implemented"
+  },
+  {
+   "scope": "set",
+   "set": "browser_tasks",
+   "status": "skipped_invalid_set",
+   "reason": "missing browser_tasks.yaml"
+  },
+  {
+   "scope": "provider",
+   "provider": "brave",
+   "category": "search",
+   "status": "excluded_tos_benchmarking",
+   "reason": "terms forbid benchmarking: '(xiii) use the Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve artificial intelligence models or services offered by Customer or third parties' (https://api-dashboard.search.brave.com/documentation/resources/terms-of-service, checked 2026-10-15)"
+  },
+  {
+   "scope": "provider",
+   "provider": "linkup",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "parallel",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "parallel",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "serper",
+   "category": "search",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "firecrawl",
+   "category": "scrape",
+   "status": "skipped_no_key",
+   "reason": "not run (no key)"
+  },
+  {
+   "scope": "provider",
+   "provider": "jina",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "apify",
+   "category": "scrape",
+   "status": "not_implemented",
+   "reason": "not_implemented"
+  },
+  {
+   "scope": "provider",
+   "provider": "hyperbrowser",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "hyperbrowser",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "scrapingbee",
+   "category": "scrape",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "browserbase",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
+  },
+  {
+   "scope": "provider",
+   "provider": "steel",
+   "category": "browser",
+   "status": "skipped_not_month1",
+   "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"
   }
  ],
  "flags": [
