@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-22T09:29:22+00:00",
+ "generated_at": "2026-10-23T09:29:31+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -15,7 +15,7 @@
    "http": 200,
    "n_prices": 3,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "brave",
@@ -53,7 +53,7 @@
    "provider": "firecrawl",
    "status": "ok",
    "http": 200,
-   "n_prices": 15,
+   "n_prices": 21,
    "error": null,
    "changed": true
   },
@@ -71,7 +71,7 @@
    "http": 200,
    "n_prices": 16,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "apify",
@@ -79,7 +79,7 @@
    "http": 200,
    "n_prices": 56,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "hyperbrowser",
@@ -111,7 +111,7 @@
    "http": 200,
    "n_prices": 14,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "browserless",
