@@ -2067,3 +2067,25 @@ class ScopedRunMergesLatest(unittest.TestCase):
         src = (SITE / "collectors" / "benchmark.py").read_text()
         self.assertIn("merge_previous(doc, s, out,", src)
         self.assertLess(src.index("merge_previous(doc, s, out,"), src.index("out.write_text(json.dumps(doc"))
+
+class TavilyPhase0(unittest.TestCase):
+    """AWI-PAGE-REDO-001 Phase 0 (R3/R4): Tavily re-verified 2026-10-24 (pricing page + credit-count docs).
+    pricing.yaml carries the verified price and today's date on every Tavily input, and latest.json's
+    published Tavily rows equal what cost.py/tables.py compute from that pricing.yaml."""
+    VERIFIED_USD_PER_CREDIT = 0.008; VERIFIED_DATE = "2026-10-24"
+    def test_pricing_yaml_tavily_matches_verified(self):
+        t = load_yaml(BENCH / "pricing.yaml")["providers"]["tavily"]["search"]
+        self.assertEqual(t["tiers"]["entry"]["name"], "Pay As You Go")
+        self.assertEqual(t["tiers"]["entry"]["usd_per_credit"], self.VERIFIED_USD_PER_CREDIT)
+        self.assertEqual((t["checked_at"], t["verified_date"]), (self.VERIFIED_DATE, self.VERIFIED_DATE))
+        self.assertEqual(t["source_url"], "https://www.tavily.com/pricing")
+        ver = t["credits_per_call_verified"]
+        self.assertEqual((ver["checked_at"], ver["source_url"]), (self.VERIFIED_DATE, "https://docs.tavily.com/documentation/api-credits"))
+    def test_latest_json_tavily_rows_match_pricing_yaml(self):
+        doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
+        built = tables.build(BENCH / "runs", tables.load_pricing(BENCH / "pricing.yaml"), BENCH / "sets",
+                             load_yaml(BENCH / "tos_matrix.yaml")["providers"], load_yaml(BENCH / "config.yaml"))
+        pub = [r for rows in doc["tables"].values() for r in rows if r["provider"] == "tavily"]
+        exp = [r for rows in built["tables"].values() for r in rows if r["provider"] == "tavily"]
+        self.assertTrue(pub); self.assertEqual(pub, exp)
+        for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
