@@ -4,7 +4,7 @@ Describes hazeydata/agentwebindex @ 6b8bd87d778b3fe0fe049f9274796ab498928cc5.
 
 Spec desk, written Oct 15, 2026; reconciled with the code and the CEO rulings on 2026-10-24 (ticket AWI-SPEC-BENCH-001).
 This file describes what the code at the pin does. Where the Oct 15 text and the code disagree, the difference is either
-folded in below with its ruling date, or listed under "Open: code vs spec". Every number in a published table must come from a logged run.
+folded in below with its ruling date, or listed under "Open gaps (pending ruling)". Every number in a published table must come from a logged run.
 
 ## Goal
 A repeatable benchmark that scores search, scrape and cloud-browser providers on success, cost and freshness. Every published figure must be traceable to a raw run log.
@@ -103,12 +103,15 @@ Scoring (CEO 2026-10-20): (12) canonical URLs: host lowercased without `www.`, b
 - D3 (cost columns): `entry_tier_cost_per_1k` and `volume_tier_cost_per_1k`, each with a per-successful-1k variant; the free-tier quota is a note, never a cost.
 - D4 (spend): free tiers only, `monthly_cap_usd` = 0 for month one. Exceptions approved later: Bright Data hard cap $5/month (stop at $4.00) and the Apify meter guard ($4.00 stop, CEO ruling 2026-10-20); see bench/README.md.
 
-## Open: code vs spec
+## Open gaps (pending ruling)
+The code and a ruling (or the Oct 15 text) differ on each item below. This doc takes no side; each needs a ruling.
 - Canonical URLs: `util.norm_url` also drops `srsltid` and unwraps Google `/url` and `/goto` redirects. Ruling 12 lists only `utm_*`, `at_medium`, `at_campaign`. No ruling found for the extra behaviour.
-- News pass vs same-event: tables grade a news query by §3a (url_exact top 10, or same outlet top 5 within 72 h), while fresh_hit@10 uses final ruling 2 (Jaccard ≥ 0.5 same-event). The two rules differ and no ruling reconciles them. This doc describes the code; the gap needs a CEO ruling.
+- News pass vs same-event: tables grade a news query by §3a (url_exact top 10, or same outlet top 5 within 72 h), while fresh_hit@10 uses final ruling 2 (Jaccard ≥ 0.5 same-event). The two rules differ and no ruling reconciles them.
 - Ruling 14 cites `rescore.json` as evidence; at the pin only `bench/tests/fixtures/rescore/rescore.json` exists. No top-level rescore evidence file is committed.
-- Billing ruling 4 is missing from RULINGS.md (numbering jumps 3 → 5).
-- RULINGS.md is not in the repo at the pin; rulings above are taken from the off-repo RULINGS.md and the meta repo DECISIONS.md.
 - `bench/awibench/util.py` comments still say `site/bench` and `site/`; the paths are `bench/` and the repo root.
 - README.md "Benchmark" section is stale: it says sets are not authored yet and pricing/ToS are all NOT CAPTURED, and says the runner "halts" a provider (now `stale_quota`).
 - §1a/§2 Oct 15 text "show the cheapest public tier that covers 100k/month" is not computed by the code; it uses whatever pricing.yaml lists as `entry` and `volume`.
+
+## Sources of rulings
+- RULINGS.md is not in the repo at the pin; rulings above are taken from the off-repo RULINGS.md and the meta repo DECISIONS.md.
+- Billing ruling 4 is missing from RULINGS.md (numbering jumps 3 → 5).
