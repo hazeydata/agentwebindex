@@ -55,6 +55,7 @@ The price snapshot needs no secrets. Both workflows use the built-in `GITHUB_TOK
 - **Hooks (spec pending):** `load_test_set`, `cost_per_1k`, `freshness_score`, `ADAPTERS` in `collectors/benchmark.py`.
 
 ## Benchmark (SPEC-bench v1), see bench/README.md
+Spec: [SPEC-bench.md](SPEC-bench.md).
 - Sets live in `bench/sets/` (not authored yet, so the validator fails and the live harness makes no calls). `bench/pricing.yaml` and `bench/tos_matrix.yaml` are all `NOT CAPTURED`/null until verified.
 - Live runs: free tier only, `MONTHLY_CAP_USD` is hard-wired to `0` (D4). The runner halts a provider before a call would exceed its free quota. Quota usage goes to `data/spend/YYYY-MM-quota.json` and logs to `bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl`. Tables are built from those logs into `data/benchmarks/latest.json`.
 - Cron (UTC): news set Mondays 10:00 (06:00 ET during EDT; change it to 11:00 for EST); full run Mondays 11:23; re-probes Mon 17:23 (+6 h), Tue 11:23 (+24 h) and Thu 11:23 (+72 h); smoke run daily 10:41.

@@ -1,0 +1,114 @@
+# SPEC-bench: AgentWebIndex benchmark v1
+
+Describes hazeydata/agentwebindex @ 6b8bd87d778b3fe0fe049f9274796ab498928cc5.
+
+Spec desk, written Oct 15, 2026; reconciled with the code and the CEO rulings on 2026-10-24 (ticket AWI-SPEC-BENCH-001).
+This file describes what the code at the pin does. Where the Oct 15 text and the code disagree, the difference is either
+folded in below with its ruling date, or listed under "Open: code vs spec". Every number in a published table must come from a logged run.
+
+## Goal
+A repeatable benchmark that scores search, scrape and cloud-browser providers on success, cost and freshness. Every published figure must be traceable to a raw run log.
+
+## In scope / out of scope
+In scope: the test-set files and their schemas, the cost mapping rule, the freshness metric, the run log format, and acceptance criteria.
+Out of scope: signing up for providers, spending beyond the approved caps, the site UI, the newsletter. Live runs need CEO/Fred approval for spend (D4).
+
+## 1. Test sets
+Files live under `bench/sets/` (versioned; each run log line records the set sha256). Frozen sets are listed with their sha256 in the freeze manifest named by `bench/config.yaml` `freeze_manifest` (currently `freeze-2026-10-20-thirdpass.json`); the validator checks the committed files against it.
+
+### 1a. search_evergreen.jsonl (100 rows)
+`{id, query, category, check:{type, value}, source_url, added}` (exactly these keys).
+- Category quotas (100 total, no product category; spec final ruling Oct 15): facts/reference 30, docs/API lookup 25, local/entity 10, academic 10, long-tail 15, non-English 10.
+- `check.type` is one of: `url_domain` (an expected domain in the top 5), `url_exact` (an expected URL in the top 10; `value` may be a string or a non-empty list of URLs, any one matching), or `snippet_contains` (a normalized string in any top-5 title or snippet).
+- Every check has a public `source_url` proving the answer. Evergreen answers must not change within a year; the validator warns on time-relative words (latest, current, newest, today, this year).
+- URLs are compared in canonical form (ruling 12, see §5).
+- A human or the fact desk reviews the set before it is frozen. Rows retire only with a logged reason.
+
+### 1b. search_news weekly rule (up to 50 per week)
+- Generated Mondays 06:00 America/Toronto from the approved feed list in `config.yaml` `news_feeds`, taking stories published 24–72 h before the run.
+- Feeds must be the outlet's official RSS/Atom feed and robots.txt must allow the fetch (CEO ruling 2026-10-19); non-feed documents and robots-disallowed URLs are logged and skipped. The same story in two feeds (same canonical URL) counts once.
+- Up to 50 stories, at most 15 per feed (final ruling 3; replaces the section and outlet caps). From week 2026-44, no single source domain may exceed 25% of the set (ruling 15; `news.max_domain_share`, `news.domain_share_from_week`).
+- Query = the cleaned headline (final ruling 1): a trailing " - Outlet" / " | Outlet" suffix removed, whitespace collapsed, trailing punctuation dropped, at most 14 words. Deterministic, no LLM rewrite.
+- Each row carries `check: {type: url_exact, value: <article link>}` and `alt_check: {type: url_domain, value: <outlet domain>, within_h: 72}`. Pass rule as graded: see §3a.
+- The generated `news_YYYY-WW.jsonl` plus its `.meta.json` (count, flags) is frozen before any provider runs and is never overwritten.
+
+### 1c. scrape_urls.jsonl (150 rows)
+`{id, url, class, marker:{type, value}, min_chars, robots_ok, added}`
+- Class quotas: static 50, js_heavy 40, paywall_lite 30, anti_bot 30. No login or hard-paywall content; `robots_ok` must be true.
+- `marker.type` is `text_contains` or `selector_text` (`"<selector>::<text>"`, selector = `tag`, `#id`, `.class` or `tag.class`). Each marker must be unique to its page (rule 9).
+- At most 5 rows per host per class (rule 8). Every paywall_lite row has `min_chars` ≥ 5000 (rule 9).
+- Pass = no challenge-page signature (config `challenge_signatures` on text, `challenge_html_signatures` on raw HTML) AND the marker is found AND extracted text ≥ `min_chars`.
+- A dead marker or changed page retires and replaces the row (logged); it is never scored as a provider failure.
+
+### 1d. browser_tasks.yaml (20 tasks)
+`{id, start_url, goal, steps_hint, pass:{type, value}, timeout_s, category}`
+- Mix: forms 5, multi_page_navigation 5, search_and_extract 5, js_widgets 3, file_download 2. Only hosts on `config.yaml` `task_site_allowlist`, within `task_site_path_rules` (robots path rules); no real purchases, sign-ups or messages.
+- `pass.type` is one of: final_url_matches, extracted_value_equals, file_sha256, dom_text_contains. Each is binary and machine-checked.
+
+### 1e. Set freeze (rulings 7–11, CEO 2026-10-19)
+- Freeze logs a 200 for every search `source_url` and a health check for every scrape marker: a plain fetch first; js_heavy rows go straight to the reference browser; the reference browser is used when the plain fetch is refused (HTTP 403/429 or a challenge page; rule 8) or is a 200 that lacks the marker (rule 10; fail only if the browser also lacks it).
+- A failed row is retried exactly once with the standard harness user agent `AgentWebIndexBot/1.0` (rule 7). Rows failing both attempts are swapped like-for-like (same id, category, class) and re-frozen; domains tripping the sister-project guard are swapped, never exempted.
+- Test fixtures captured from live pages have per-request tokens redacted before first commit (rule 11, 11a).
+
+## 2. Cost mapping
+Each run log line records billed units and the plan context. `bench/pricing.yaml` gives per provider and category: `model` (per_request | credits | tier | per_hour_browser | per_gb), `tiers.entry` and `tiers.volume` (D3), `free_tier`, optional `proxy_per_gb`, the pricing page URL and `checked_at`. A value not on the vendor's page is `NOT CAPTURED`; that column then has no cost ("n/a").
+- per_request = units × unit_price. credits = units × usd_per_credit.
+- tier = units × plan_fee ÷ included_units; above included_units, plan_fee + (units − included_units) × overage_per_unit (no cost if the overage price is NOT CAPTURED).
+- per_hour_browser = billed minutes per call (vendor minimum and rounding applied) × rate ÷ 60. If min/rounding fields are absent, the cost is shown as a lower bound ("≥ $x (lower bound)"); if they are explicitly NOT CAPTURED, the column shows "lower bound n/a (not published)".
+- per_gb = units × usd_per_gb. Proxy GB are added when logged.
+- `credits_per_call_verified` in pricing.yaml (when numeric for the category) replaces the runner's logged `billed_units` for cost, because the runner's guard is deliberately conservative (example: Tavily search, guard 2 units, documented 1 credit). The row then carries a `cost_units_note`.
+- Denominators: only pass/fail lines count; skipped_tos (D2) and HTTP 429 lines (owner ruling 2) are excluded from cost too.
+- cost_per_1k = 1000 × billed $ ÷ attempted; cost_per_successful_1k = 1000 × billed $ ÷ passed (∞ at 0 passes).
+- Free credits never lower the cost: cost is always at list price; the free quota appears only as a note (D3).
+
+## 3. Freshness metric (search, news sets)
+### 3a. Per-query pass (tables)
+A news query passes if the article's canonical URL is in the top 10 (`url_exact`), or, failing that, a result from the same outlet domain is in the top 5 with a publish date within 72 h of the article (`alt_check`). A result without a publish date never passes on domain alone (ruling 13).
+### 3b. fresh_hit@10, median lag, censored share
+- fresh_hit@10 = share of queries whose offset-0 top 10 contains a same-event article. Same-event (final ruling 2) = the same canonical URL, OR an article published within 72 h (inclusive) whose title has Jaccard ≥ 0.5 with the headline on content tokens (casefolded, punctuation stripped, stopwords removed).
+- median_lag_h = median over found queries of (run time + offset of the first probe that finds it − published_at). Misses are re-queried at +6, +24 and +72 h. Not found by +72 h = censored; the censored share is reported.
+- Published with n, the week and the set sha. A freshness row is published only for a run on the set's freeze date; later runs get a `freshness_notes` entry instead.
+
+## 4. Run log
+`bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl`: request, response hash, latency_ms, status, billed_units, pass/fail with reason, set sha, set_rows, offset_h. Line statuses: pass, fail, skipped_tos, auth_error, unbilled_no_response. Published tables (`data/benchmarks/latest.json`) are generated only from these files; every numeric cell carries `src` file/line references.
+- Search lines are re-graded from their stored results with the current grader on every build (CEO ruling 2026-10-20); the log stays raw. Grader version `canon-2026-10-20`.
+- `tables.collect` uses the latest complete log per (provider, set) and skips any log that is partial, has an auth_error line, is stamped `run_status: stale_<reason>`, or is quota-degraded (publish rulings 1–3).
+
+## 5. Rulings folded in
+Final rulings (spec, Oct 15, 8:00 PM): (1) query = cleaned headline, ≤ 14 words; (2) same-event = same canonical URL or Jaccard ≥ 0.5 within 72 h; (3) at most 15 per feed is the only cap; 1a has no product category.
+Owner rulings (2026-10-15 stage 2): (1) week labels from the real row count ('short week (n=X)', 'below minimum (n=X)'); (2) any HTTP 429 is `rate_limited`, not a quality fail, outside the pass-rate denominator; (3) month-one providers with no table row show as 'not run yet' (a provider that ran is never 'not run yet').
+Publish (CEO 2026-10-19): (1) a row publishes only for a full-set run that is not quota-degraded; (2) partial runs keep the previous row, run_summary `stale_<reason>` (quota, timeout, auth_error, error, budget); (3) quota-degraded = more than 20% of calls answered 429 (exactly 20% publishes) → `stale_quota`, also applied to old logs on rebuild; (4) a provider with no previous row is omitted, never shown as 0%.
+Billing (CEO 2026-10-19, status-line rule): (1) no status line → bills 0, logged `unbilled_no_response`; (2) 401 bills 0 (assumption accepted by the CEO); (3) any status line bills the estimate (403, 429, 5xx, mid-body cut-off, 200 with error text); (5) rule 3 applies to old logs; (6) the Bright Data spend guard fails closed on a missing current-month spend file except for a permitted $0 seed (details in bench/README.md). Ruling 4 is not present in RULINGS.md.
+Scoring (CEO 2026-10-20): (12) canonical URLs: host lowercased without `www.`, bbc.com = bbc.co.uk, tracking params `utm_*`, `at_medium`, `at_campaign` dropped; (13) no date fallback loosening; (14) weeks 42 and 43 rescored from stored run-log results with no new provider calls; (15) 25% source-domain cap from week 2026-44.
+
+## Acceptance criteria
+1. The three set files exist with the exact row counts, quotas and schema above; `python -m awibench.validate` exits non-zero on any count, quota, schema, host-cap, marker or freeze-manifest error.
+2. Every search check has a reachable source_url (logged 200 at freeze) and every scrape marker passes the freeze health check (§1e).
+3. The news generator is deterministic (same feeds, date and seed → byte-identical file), ≤ 15 per feed. Every week publishes: under 50 shows 'short week (n=X)', under 25 also 'below minimum (n=X)', n=0 publishes as 'no data (n=0)' with no scores.
+4. robots_ok is true for every scrape URL; task sites are on the demo-site allowlist and path rules, checked by the validator.
+5. Cost calculator unit tests cover one fixture per pricing model plus a NOT CAPTURED case that produces no cost.
+6. cost_per_successful_1k ≥ cost_per_1k always, and ∞ at 0 passes.
+7. Freshness tests on a synthetic timeline give known fresh_hit@10, median lag and censored share.
+8. Every number in a generated table traces to a run log line; `untraced_cells` fails a cell with no source.
+9. A dry run with a mock provider produces the full table pipeline with no network spend.
+10. No API keys in the repo: env var names only; `python -m awibench.secrets_scan` passes.
+11. The runner tracks each provider's free quota from pricing.yaml and stops that provider before a call would exceed it (`stale_quota`; the Oct 15 name `halted_quota` was replaced by publish ruling 2, 2026-10-19). Billed units above the free quota raise a cap violation. A provider without a usable free tier (or needing a card) is `skipped_no_free_tier` unless the CEO lists it; providers not on `month1_free_tier_providers` are `skipped_not_month1`.
+12. A skipped_tos pair never appears as a failure in any table, and the tos_matrix entry backs it.
+13. The feed generator drops AP cleanly (logged) when no official feed URL is configured.
+14. Tables show both cost columns plus the free-quota note. A NOT CAPTURED tier shows "n/a" in that column only.
+
+## Decisions (Side Hustle CEO, Oct 15)
+- D1 (1b feeds): official RSS only. Week 1: Hacker News front page, BBC World, NPR News, AP top news (dropped: no official AP RSS), GitHub changelog. Extended 2026-10-19 with section feeds of the same outlets (see config `news_feeds_growth_2026_10_19`).
+- D2 (anti-bot): only robots-allowed paths, never behind a login. A provider whose terms forbid a pair gets `skipped_tos`, excluded from success and cost denominators. `tos_matrix.yaml` lists each provider's terms. Providers whose terms forbid benchmarking are listed under `exclusions` and never shown.
+- D3 (cost columns): `entry_tier_cost_per_1k` and `volume_tier_cost_per_1k`, each with a per-successful-1k variant; the free-tier quota is a note, never a cost.
+- D4 (spend): free tiers only, `monthly_cap_usd` = 0 for month one. Exceptions approved later: Bright Data hard cap $5/month (stop at $4.00) and the Apify meter guard ($4.00 stop, CEO ruling 2026-10-20); see bench/README.md.
+
+## Open: code vs spec
+- Canonical URLs: `util.norm_url` also drops `srsltid` and unwraps Google `/url` and `/goto` redirects. Ruling 12 lists only `utm_*`, `at_medium`, `at_campaign`. No ruling found for the extra behaviour.
+- News pass vs same-event: tables grade a news query by §3a (url_exact top 10, or same outlet top 5 within 72 h), while fresh_hit@10 uses final ruling 2 (Jaccard ≥ 0.5 same-event). The two rules differ and no ruling reconciles them. This doc describes the code; the gap needs a CEO ruling.
+- Ruling 14 cites `rescore.json` as evidence; at the pin only `bench/tests/fixtures/rescore/rescore.json` exists. No top-level rescore evidence file is committed.
+- Billing ruling 4 is missing from RULINGS.md (numbering jumps 3 → 5).
+- RULINGS.md is not in the repo at the pin; rulings above are taken from the off-repo RULINGS.md and the meta repo DECISIONS.md.
+- `bench/awibench/util.py` comments still say `site/bench` and `site/`; the paths are `bench/` and the repo root.
+- README.md "Benchmark" section is stale: it says sets are not authored yet and pricing/ToS are all NOT CAPTURED, and says the runner "halts" a provider (now `stale_quota`).
+- §1a/§2 Oct 15 text "show the cheapest public tier that covers 100k/month" is not computed by the code; it uses whatever pricing.yaml lists as `entry` and `volume`.
