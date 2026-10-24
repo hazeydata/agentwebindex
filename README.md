@@ -56,7 +56,7 @@ The price snapshot needs no secrets. Both workflows use the built-in `GITHUB_TOK
 
 ## Benchmark (SPEC-bench v1), see bench/README.md
 Spec: [SPEC-bench.md](SPEC-bench.md).
-- Sets live in `bench/sets/` (not authored yet, so the validator fails and the live harness makes no calls). `bench/pricing.yaml` and `bench/tos_matrix.yaml` are all `NOT CAPTURED`/null until verified.
-- Live runs: free tier only, `MONTHLY_CAP_USD` is hard-wired to `0` (D4). The runner halts a provider before a call would exceed its free quota. Quota usage goes to `data/spend/YYYY-MM-quota.json` and logs to `bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl`. Tables are built from those logs into `data/benchmarks/latest.json`.
+- Sets live in `bench/sets/`: `search_evergreen.jsonl` (100 rows), `scrape_urls.jsonl` (150 rows), `browser_tasks.yaml` (20 tasks) and the weekly `news_YYYY-WW.jsonl` sets, frozen against the manifest named in `bench/config.yaml` and checked by `python -m awibench.validate`. `bench/pricing.yaml` and `bench/tos_matrix.yaml` carry verified values where captured; a value not on the vendor's page stays `NOT CAPTURED` (pricing) or null (ToS) and shows as "n/a".
+- Live runs: free tier only, `MONTHLY_CAP_USD` must be `0` (D4). The runner stops a provider before a call would exceed its free quota and marks the run `stale_quota`. Quota usage goes to `data/spend/YYYY-MM-quota.json` and logs to `bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl`. Tables are built from those logs into `data/benchmarks/latest.json`.
 - Cron (UTC): news set Mondays 10:00 (06:00 ET during EDT; change it to 11:00 for EST); full run Mondays 11:23; re-probes Mon 17:23 (+6 h), Tue 11:23 (+24 h) and Thu 11:23 (+72 h); smoke run daily 10:41.
-- Tests: `cd bench && python -m pytest tests/test_bench.py` (mock only, pytest `tmp_path`); `python tests/dry_run.py` runs the full mock pipeline in a temp dir that it removes.
+- Tests: `./run_tests.sh` (pytest `tests/test_bench.py`, the mock dry run, the secrets scan); or `cd bench && python -m pytest tests/test_bench.py` (mock only, pytest `tmp_path`) and `python tests/dry_run.py`, which runs the full mock pipeline in a temp dir that it removes.

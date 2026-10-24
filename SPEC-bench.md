@@ -2,7 +2,7 @@
 
 Describes hazeydata/agentwebindex @ 6b8bd87d778b3fe0fe049f9274796ab498928cc5.
 
-Spec desk, written Oct 15, 2026; reconciled with the code and the CEO rulings on 2026-10-24 (ticket AWI-SPEC-BENCH-001).
+Spec desk, written Oct 15, 2026; reconciled with the code and the CEO rulings on 2026-10-24 (tickets AWI-SPEC-BENCH-001 and AWI-SPEC-BENCH-002).
 This file describes what the code at the pin does. Where the Oct 15 text and the code disagree, the difference is either
 folded in below with its ruling date, or listed under "Open gaps (pending ruling)". Every number in a published table must come from a logged run.
 
@@ -79,7 +79,7 @@ Final rulings (spec, Oct 15, 8:00 PM): (1) query = cleaned headline, ≤ 14 word
 Owner rulings (2026-10-15 stage 2): (1) week labels from the real row count ('short week (n=X)', 'below minimum (n=X)'); (2) any HTTP 429 is `rate_limited`, not a quality fail, outside the pass-rate denominator; (3) month-one providers with no table row show as 'not run yet' (a provider that ran is never 'not run yet').
 Publish (CEO 2026-10-19): (1) a row publishes only for a full-set run that is not quota-degraded; (2) partial runs keep the previous row, run_summary `stale_<reason>` (quota, timeout, auth_error, error, budget); (3) quota-degraded = more than 20% of calls answered 429 (exactly 20% publishes) → `stale_quota`, also applied to old logs on rebuild; (4) a provider with no previous row is omitted, never shown as 0%.
 Billing (CEO 2026-10-19, status-line rule): (1) no status line → bills 0, logged `unbilled_no_response`; (2) 401 bills 0 (assumption accepted by the CEO); (3) any status line bills the estimate (403, 429, 5xx, mid-body cut-off, 200 with error text); (5) rule 3 applies to old logs; (6) the Bright Data spend guard fails closed on a missing current-month spend file except for a permitted $0 seed (details in bench/README.md). Ruling 4 is not present in RULINGS.md.
-Scoring (CEO 2026-10-20): (12) canonical URLs: host lowercased without `www.`, bbc.com = bbc.co.uk, tracking params `utm_*`, `at_medium`, `at_campaign` dropped; (13) no date fallback loosening; (14) weeks 42 and 43 rescored from stored run-log results with no new provider calls; (15) 25% source-domain cap from week 2026-44.
+Scoring (CEO 2026-10-20): (12, amended 2026-10-24 by AWI-SPEC-BENCH-002) canonical URLs: host lowercased without `www.`, bbc.com = bbc.co.uk, tracking params `utm_*`, `at_medium`, `at_campaign` and `srsltid` dropped (bench/awibench/util.py:29), Google `google.com/url` (param `q`) and `google.com/goto` (param `url`) redirects unwrapped to their target URL, and an opaque redirect token that is not a URL reduced to the bare redirect URL, which never matches (bench/awibench/util.py:30, util.py:37-41); (13) no date fallback loosening; (14, amended 2026-10-24 by AWI-SPEC-BENCH-002) weeks 42 and 43 rescored from stored run-log results with no new provider calls; the rescore is reproduced by the tests `RegradeFromStoredResults` (bench/tests/test_bench.py:1957-1991) against the test fixture `bench/tests/fixtures/rescore/rescore.json`, which is a test fixture only, not published evidence; (15) 25% source-domain cap from week 2026-44.
 
 ## Acceptance criteria
 1. The three set files exist with the exact row counts, quotas and schema above; `python -m awibench.validate` exits non-zero on any count, quota, schema, host-cap, marker or freeze-manifest error.
@@ -103,15 +103,12 @@ Scoring (CEO 2026-10-20): (12) canonical URLs: host lowercased without `www.`, b
 - D3 (cost columns): `entry_tier_cost_per_1k` and `volume_tier_cost_per_1k`, each with a per-successful-1k variant; the free-tier quota is a note, never a cost.
 - D4 (spend): free tiers only, `monthly_cap_usd` = 0 for month one. Exceptions approved later: Bright Data hard cap $5/month (stop at $4.00) and the Apify meter guard ($4.00 stop, CEO ruling 2026-10-20); see bench/README.md.
 
-## Open gaps (pending ruling)
-The code and a ruling (or the Oct 15 text) differ on each item below. This doc takes no side; each needs a ruling.
-- Canonical URLs: `util.norm_url` also drops `srsltid` and unwraps Google `/url` and `/goto` redirects. Ruling 12 lists only `utm_*`, `at_medium`, `at_campaign`. No ruling found for the extra behaviour.
-- News pass vs same-event: tables grade a news query by §3a (url_exact top 10, or same outlet top 5 within 72 h), while fresh_hit@10 uses final ruling 2 (Jaccard ≥ 0.5 same-event). The two rules differ and no ruling reconciles them.
-- Ruling 14 cites `rescore.json` as evidence; at the pin only `bench/tests/fixtures/rescore/rescore.json` exists. No top-level rescore evidence file is committed.
-- `bench/awibench/util.py` comments still say `site/bench` and `site/`; the paths are `bench/` and the repo root.
-- README.md "Benchmark" section is stale: it says sets are not authored yet and pricing/ToS are all NOT CAPTURED, and says the runner "halts" a provider (now `stale_quota`).
-- §1a/§2 Oct 15 text "show the cheapest public tier that covers 100k/month" is not computed by the code; it uses whatever pricing.yaml lists as `entry` and `volume`.
+## Open gaps
+Rulings on 2026-10-24 (AWI-SPEC-BENCH-002) closed the canonical-URL gap (ruling 12 amended) and the rescore.json gap (ruling 14 amended), and moved the 100k/month tier text to the backlog. Still open:
+- News grading vs same-event (open gap, non-blocking; deferred to the freshness cycle): the same-event ruling stands (final ruling 2, fresh_hit@10 with Jaccard >= 0.5 within 72 h, bench/awibench/freshness.py:30-37). The per-query table grade (`news_check`, bench/awibench/checks.py:25-28) still follows §3a (url_exact top 10, or same outlet top 5), not same-event. The code change belongs to the freshness cycle and does not block publishing.
+- `bench/awibench/util.py:5-6` comments still say `site/bench` and `site/`; the paths are `bench/` and the repo root. Code comment, out of scope for a docs ticket.
+- Cost tiers: the code uses whatever `bench/pricing.yaml` lists as `entry` and `volume` (D3). The Oct 15 text that also asked for a 100k/month tier is not computed and is not published; backlog ticket AWI-BACKLOG-100K-TIER in agentwebindex-meta.
 
 ## Sources of rulings
-- RULINGS.md is not in the repo at the pin; rulings above are taken from the off-repo RULINGS.md and the meta repo DECISIONS.md.
-- Billing ruling 4 is missing from RULINGS.md (numbering jumps 3 → 5).
+- RULINGS.md is kept in hazeydata/agentwebindex-meta (RULINGS.md), rebuilt from recorded rulings with a source per ruling. The meta repo DECISIONS.md holds the dated decision records.
+- Billing ruling 4: missing, not reconstructed.
