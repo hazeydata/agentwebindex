@@ -2,10 +2,10 @@
  "provider": "firecrawl",
  "name": "Firecrawl",
  "url": "https://www.firecrawl.dev/pricing",
- "fetched_at": "2026-10-23T09:29:31+00:00",
+ "fetched_at": "2026-10-24T09:25:04+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "87d5af0d9166015a97c9168860578ee1a9420359e1b0e750fa72e3f55b406391",
+ "text_sha256": "70860f702eecc880f1d8c247617c81de670006dde91a88ce50428f51ea652782",
  "text_lines": 739,
  "prices_found": [
   "$ 0 /month",
@@ -31,39 +31,16 @@
   "$99/month billed monthly"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-22T09:29:22+00:00",
+  "previous_fetched_at": "2026-10-23T09:29:31+00:00",
   "changed": true,
-  "prices_added": [
-   "$333/month billed annuall",
-   "$399/month billed monthly",
-   "$599/month billed annuall",
-   "$749/month billed monthly",
-   "$83/month billed annuall",
-   "$99/month billed monthly"
-  ],
+  "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
    "@@ -12 +12 @@",
-   "-194K",
-   "+194.4K",
-   "@@ -16,0 +17 @@",
-   "+Are you an AI agent? See pricing",
-   "@@ -168 +168,0 @@",
-   "-View pricing as Markdown",
-   "@@ -176,0 +177,6 @@",
-   "+Paid plans",
-   "+Hobby: $19/month billed monthly ($16/month billed annually), 5,000 credits/month",
-   "+Standard: $99/month billed monthly ($83/month billed annually), 100,000 credits/month",
-   "+Growth: $399/month billed monthly ($333/month billed annually), 500,000 credits/month",
-   "+Scale: $749/month billed monthly ($599/month billed annually), 1,000,000 credits/month",
-   "+Enterprise: custom pricing, credits and concurrency.",
-   "@@ -653 +659 @@",
-   "-Scrape, Crawl, Map, and Monitor each cost 1 credit per page. Search costs 2 credits per 10 results. Interact costs 2 credits per browser minute. The Firecrawl Research Index paper endpoints are free across every category, including AI/ML and life sciences. Agent is in preview with 5 free daily runs and dynamic pricing. Advanced features (JSON format, etc.) cost additional credits. Check out the credits table on the pricing page for more details.",
-   "+Scrape, Crawl, and Map each cost 1 credit per page, and Monitor costs 1 credit per page per check. Search costs 2 credits per 10 results. Interact costs 2 credits per browser minute. The Firecrawl Research Index paper endpoints are free across every category, including AI/ML and life sciences. Agent is in preview with 5 free daily runs and dynamic pricing. Advanced features (JSON format, etc.) cost additional credits. Check out the credits table on the pricing page for more details.",
-   "@@ -688,0 +695 @@",
-   "+Government & Legal Index"
+   "-194.4K",
+   "+194.8K"
   ]
  }
 }
