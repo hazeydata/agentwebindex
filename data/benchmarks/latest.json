@@ -2210,7 +2210,7 @@
      ]
     },
     "free_quota_note": "Researcher: '1,000 API credits / month ... No credit card required'; resets the 1st of each month",
-    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-19); the run log's billed_units held the runner's unverified guard",
+    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-24); the run log's billed_units held the runner's unverified guard",
     "entry_tier_cost_per_1k": {
      "v": 8.0,
      "src": [
@@ -2636,7 +2636,7 @@
      ]
     },
     "free_quota_note": "Researcher: '1,000 API credits / month ... No credit card required'; resets the 1st of each month",
-    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-19); the run log's billed_units held the runner's unverified guard",
+    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-24); the run log's billed_units held the runner's unverified guard",
     "entry_tier_cost_per_1k": {
      "v": 8.0,
      "src": [
@@ -3456,7 +3456,7 @@
      ]
     },
     "free_quota_note": "Researcher: '1,000 API credits / month ... No credit card required'; resets the 1st of each month",
-    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-19); the run log's billed_units held the runner's unverified guard",
+    "cost_units_note": "cost uses 1 credit(s) per call as documented at https://docs.tavily.com/documentation/api-credits (checked 2026-10-24); the run log's billed_units held the runner's unverified guard",
     "entry_tier_cost_per_1k": {
      "v": 8.0,
      "src": [

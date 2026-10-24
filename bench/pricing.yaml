@@ -1,4 +1,4 @@
-# AgentWebIndex pricing (JSON-compatible YAML). Filled 2026-10-15; null/NOT CAPTURED where the vendor page did not state a value.
+# AgentWebIndex pricing (JSON-compatible YAML). Filled 2026-10-15; null/NOT CAPTURED where the vendor page did not state a value. Tavily search re-verified 2026-10-24 (AWI-PAGE-REDO-001 Phase 0: pricing page + credit-count docs; price unchanged).
 {
  "_doc": "SPEC-bench \u00a72. Every value must be read from the vendor's own pricing page and dated in checked_at. Unknown = \"NOT CAPTURED\" (no cost score; free tier unknown = provider skipped). See awibench/cost.py for fields per model. Filled 2026-10-15 from official pricing pages (source_url per entry); free quotas given only when the page states a monthly figure, else null + note.",
  "providers": {
@@ -60,8 +60,8 @@
    "search": {
     "pricing_url": "https://www.tavily.com/pricing",
     "source_url": "https://www.tavily.com/pricing",
-    "checked_at": "2026-10-15",
-    "verified_date": "2026-10-15",
+    "checked_at": "2026-10-24",
+    "verified_date": "2026-10-24",
     "model": "credits",
     "credits_per_call": {},
     "proxy_per_gb": "NOT CAPTURED",
@@ -86,7 +86,7 @@
     "credits_per_call_verified": {
      "search": 1,
      "source_url": "https://docs.tavily.com/documentation/api-credits",
-     "checked_at": "2026-10-19",
+     "checked_at": "2026-10-24",
      "quote": "Basic Search (basic): Each request costs 1 API credit."
     }
    }

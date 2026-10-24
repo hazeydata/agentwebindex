@@ -17,6 +17,7 @@ Config: `config.yaml` (feeds, caps, challenge signatures, demo-site allowlist, C
 All are JSON-compatible YAML so no PyYAML is needed. Every pricing/ToS value is `NOT CAPTURED`/null until read from the vendor.
 
 Tests (MOCK only, pytest `tmp_path`): `python -m pytest tests/test_bench.py` (`pip install pytest`; the only non-stdlib dependency, tests only). Fixtures: `tests/fixtures/rss/*.xml` (from `tests/make_rss_fixtures.py`), `tests/mocks.py`.
+Live-data check (AWI-PAGE-REDO-001 Phase 0): `TavilyPhase0` in tests/test_bench.py asserts that pricing.yaml's Tavily Pay As You Go price is the verified $0.008/credit with every Tavily date (`checked_at`, `verified_date`, `credits_per_call_verified.checked_at`) = 2026-10-24, and that latest.json's Tavily rows equal a `tables.build` rebuild from pricing.yaml. Re-verifying Tavily means updating those constants.
 Mock dry run of the full pipeline: `python tests/dry_run.py` (writes only to a temp dir that it removes).
 
 ## Bright Data Web Unlocker (scrape, paid spend guard)
