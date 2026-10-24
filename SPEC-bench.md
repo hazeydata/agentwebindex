@@ -63,7 +63,7 @@ Each run log line records billed units and the plan context. `bench/pricing.yaml
 
 ## 3. Freshness metric (search, news sets)
 ### 3a. Per-query pass (tables)
-A news query passes if the article's canonical URL is in the top 10 (`url_exact`), or, failing that, a result from the same outlet domain is in the top 5 with a publish date within 72 h of the article (`alt_check`). A result without a publish date never passes on domain alone (ruling 13).
+A news query passes if the article's canonical URL is in the top 10 (`url_exact`), or, failing that, a result from the same outlet domain is in the top 5 (`alt_check`, `url_domain`). The publish-date filter applies only when the alt_check sets `within_h` and the row has a `published_at` (checks.py:16): then a top-5 same-domain result passes only if it has its own publish date within `within_h` hours of the article, before or after. Without `within_h`, the domain match alone passes, dated or not; ruling 13 (no date never passes on domain alone) therefore holds only for alt_checks that set `within_h`.
 ### 3b. fresh_hit@10, median lag, censored share
 - fresh_hit@10 = share of queries whose offset-0 top 10 contains a same-event article. Same-event (final ruling 2) = the same canonical URL, OR an article published within 72 h (inclusive) whose title has Jaccard ≥ 0.5 with the headline on content tokens (casefolded, punctuation stripped, stopwords removed).
 - median_lag_h = median over found queries of (run time + offset of the first probe that finds it − published_at). Misses are re-queried at +6, +24 and +72 h. Not found by +72 h = censored; the censored share is reported.
@@ -92,7 +92,7 @@ Scoring (CEO 2026-10-20): (12) canonical URLs: host lowercased without `www.`, b
 8. Every number in a generated table traces to a run log line; `untraced_cells` fails a cell with no source.
 9. A dry run with a mock provider produces the full table pipeline with no network spend.
 10. No API keys in the repo: env var names only; `python -m awibench.secrets_scan` passes.
-11. The runner tracks each provider's free quota from pricing.yaml and stops that provider before a call would exceed it (`stale_quota`; the Oct 15 name `halted_quota` was replaced by publish ruling 2, 2026-10-19). Billed units above the free quota raise a cap violation. A provider without a usable free tier (or needing a card) is `skipped_no_free_tier` unless the CEO lists it; providers not on `month1_free_tier_providers` are `skipped_not_month1`.
+11. The runner tracks each provider's free quota from pricing.yaml and stops that provider before a call would exceed it (`stale_quota`; the Oct 15 name `halted_quota` was replaced by publish ruling 3, 2026-10-19). Billed units above the free quota raise a cap violation. A provider without a usable free tier (or needing a card) is `skipped_no_free_tier` unless the CEO lists it; providers not on `month1_free_tier_providers` are `skipped_not_month1`.
 12. A skipped_tos pair never appears as a failure in any table, and the tos_matrix entry backs it.
 13. The feed generator drops AP cleanly (logged) when no official feed URL is configured.
 14. Tables show both cost columns plus the free-quota note. A NOT CAPTURED tier shows "n/a" in that column only.
