@@ -2768,7 +2768,7 @@ class VendorConfirmationGate(ContextDevBase):
                       "bench/awibench/runner.py", ".github/workflows/confirmation-diff.yml", "cycles/x/notes.md",
                       cyc + "evidence/sub/reply.txt", "cycles/x/evidence/a/b.txt",
                       "cycles/README.md", cyc + "README.md", cyc + "notes.md", "cycles/summary.md", "cycles/x/y/summary.md"):   # F12: only cycles/<slug>/{summary,decisions}.md   # M23: evidence is ONE path segment
-            self.assertEqual(len(cd.check([T, C, extra], base, head)), 1, extra)
+            r = cd.check([T, C, extra], base, head); self.assertTrue(any("flip-only" in x for x in r), extra); self.assertEqual(len(r), 1 + (extra in cd.PROTECTED), extra)   # protected files also hit SQ2
         self.assertEqual(cd.check([T], base, base), [])                                                           # no change: nothing to check
     def test_ac24e_kitty_probe_cases_all_fail(self):   # AC24e: every Kitty v2 probe, plus the v1 field cases, is rejected
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
@@ -2896,6 +2896,45 @@ class VendorConfirmationGate(ContextDevBase):
                                env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": "HEAD"})
             if rc: self.assertNotEqual(p.returncode, 0, p.stdout); self.assertNotIn("REACHED_END", p.stdout); self.assertIn("FAILED: confirmation_diff", p.stdout)
             else: self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("confirmation_diff OK", p.stdout)
+    def test_r16_sq1_bootstrap_fails_closed(self):   # SQ1: base without a checker fails unless THIS PR adds confirmation_diff.py
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        r = self.tmp / "sq1"; (r / "bench").mkdir(parents=True); (r / "bench/tos_matrix.yaml").write_text("{}\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base: no checker")
+        judge = lambda head: subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": head})
+        git("checkout", "-qb", "other"); (r / "README.md").write_text("x\n"); (r / "bench/awibench").mkdir(); (r / "bench/awibench/confirmation_diff2.py").write_text("x=1\n")
+        git("add", "-A"); git("commit", "-qm", "unrelated"); git("checkout", "-q", "main")
+        p = judge("other"); self.assertEqual(p.returncode, 1, p.stdout); self.assertIn("SQ1: fail closed", p.stdout)        # no checker, not the bootstrap PR: FAIL
+        git("checkout", "-qb", "boot"); (r / "bench/awibench").mkdir(exist_ok=True); shutil.copy(BENCH / "awibench/confirmation_diff.py", r / "bench/awibench/confirmation_diff.py")
+        git("add", "-A"); git("commit", "-qm", "adds the checker"); git("checkout", "-q", "main")
+        p = judge("boot"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("BOOTSTRAP", p.stdout)       # positive control: the PR that adds it
+        self.assertNotRegex(block, r"PR_NUMBER|pull_request\.number|#27\b(?!.*BOOTSTRAP)")                                   # structural, not by PR number
+    def test_r16_sq2_protected_files(self):   # SQ2: the base checker fails any diff touching gates.py, confirmation_diff.py or the workflows
+        cd = confirmation_diff; base, head = self._cd_docs()
+        for f in cd.PROTECTED:
+            r = cd.check([f], base, head); self.assertTrue(any(x.startswith("SQ2") and f in x for x in r), f)
+            self.assertTrue(any(x.startswith("SQ2") for x in cd.check([f], base, head, base_has=list(cd.PROTECTED))), f)
+            self.assertEqual(cd.check([f], base, head, base_has=[]), [], f)                                               # bootstrap: absent at base -> added, exempt
+        self.assertEqual(cd.check(["bench/awibench/runner.py", "README.md"], base, head), [])                                 # positive control
+        self.assertEqual(set(cd.PROTECTED), {"bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
+                                              ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml"})
+    def test_r16_sq3_strict_type_and_value(self):   # SQ3: false->0/'false'/null and true->1/'true' are changes
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; files = [T, C, "bench/awibench/runner.py"]
+        for old, news in ((False, (0, "false", None, 0.0)), (True, (1, "true", None, 1.0))):
+            for new in news:
+                self.assertFalse(cd.same(old, new), (old, new)); self.assertTrue(cd.same(old, old))
+                b, h = self._cd_docs(); b[T]["providers"]["exa"]["vendor_confirmation_required"] = old; h[T]["providers"]["exa"]["vendor_confirmation_required"] = new
+                self.assertTrue(any("AC24h" in x for x in cd.check(files, b, h)), (old, new))                               # the flag
+                b, h = self._cd_docs(); b[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = old; h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = new
+                self.assertTrue(cd.changed_paths(b[C], h[C]), (old, new))
+                self.assertTrue(any("flip-only" in x for x in cd.check(files, b, h)), (old, new))                          # a confirmation field + code
+        b, h = self._cd_docs(); b[T]["providers"]["exa"]["vendor_confirmation_required"] = False; h[T]["providers"]["exa"]["vendor_confirmation_required"] = True
+        self.assertEqual(cd.check(files, b, h), [])                                                                        # positive control: raising false -> true
+        b, h = self._cd_docs(); self.assertEqual(cd.check(files, b, h), [])                                                 # identical values: no change
+        b, h = self._cd_docs(); del b[T]["providers"]["contextdev"]; del b[C]["free_tier_guard"]["contextdev"]
+        h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = 0
+        self.assertTrue(cd.check(files, b, h))                                                                             # bootstrap allowance is strict: 0 is not false
     def test_ac24h_base_judged_ci_r15(self):   # R15: the BASE checker judges the PR; a PR that rewrites the checker, the flag name and the key still fails
         wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
         self.assertRegex(wf, r"(?m)^on:\n  pull_request_target:"); self.assertIn("ref: \"${{ github.event.pull_request.base.sha }}\"", wf)

@@ -4,6 +4,8 @@ name: confirmation-diff-base
 # pull_request_target runs this file as it is on the base branch. It NEVER executes PR code: only the base is checked out,
 # and the PR head is fetched as git data (diff and `git show` of the two yaml files).
 # Still open: a branch ruleset must make this check required (Fred); see the cycle's decisions.md.
+# SQ2 (R16): once this exists on the base, the base checker rejects any change to gates.py, confirmation_diff.py or the
+# confirmation workflows; such a change needs a separate Fred or CEO ruling.
 on:
   pull_request_target: {}
 permissions: {contents: read}
@@ -27,7 +29,13 @@ jobs:
           set -euo pipefail
           base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"
           if ! git cat-file -e "$base:bench/awibench/confirmation_diff.py" 2>/dev/null; then
-            echo "BOOTSTRAP: the base has no confirmation_diff.py yet (only before #27 merges); nothing to judge with"; exit 0
+            # SQ1 (R16): fail closed. The only exemption is the bootstrap PR, detected structurally: the checker is absent at the
+            # base and ADDED by this PR (never by PR number).
+            mb="$(git merge-base "$base" "$head")"
+            if git diff --name-status --no-renames "$mb" "$head" -- bench/awibench/confirmation_diff.py | grep -q '^A'; then
+              echo "BOOTSTRAP: this PR adds confirmation_diff.py to a base without one; no base checker exists to judge it"; exit 0
+            fi
+            echo "FAILED: the base has no confirmation_diff.py and this PR does not add it (SQ1: fail closed)"; exit 1
           fi
           judge="$(mktemp -d)"; trap 'rm -rf "$judge"' EXIT
           mkdir -p "$judge/awibench"; : > "$judge/awibench/__init__.py"
