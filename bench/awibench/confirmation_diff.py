@@ -115,7 +115,7 @@ def main(argv=None):
     def show(rev, f):
         r = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{f}"], capture_output=True, text=True)
         return r.stdout if r.returncode == 0 else None
-    probs = check([f for f in git("diff", "--name-only", "-z", f"{mb}..{rev}").split("\0") if f],   # NUL-split: paths may hold spaces
+    probs = check([f for f in git("diff", "--name-only", "--no-renames", "-z", f"{mb}..{rev}").split("\0") if f],   # NUL-split: paths may hold spaces; --no-renames: a move lists the old path too
                   {f: parse(show(mb, f)) or {} for f in DATA_FILES}, {f: parse(show(rev, f)) for f in DATA_FILES})
     for p in probs: print("FAIL:", p)
     return 1 if probs else 0

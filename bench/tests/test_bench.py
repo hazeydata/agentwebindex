@@ -2886,6 +2886,10 @@ class VendorConfirmationGate(ContextDevBase):
     def test_ac24e_run_tests_propagates_failure(self):   # Kitty v4 F-B: a failing confirmation_diff must make run_tests.sh exit non-zero
         src = (SITE / "run_tests.sh").read_text(); block = src[src.index("# >>> AC24e"):src.index("# <<< AC24e")]
         stub = self.tmp / "stub"; stub.mkdir()
+        (stub / "python3").write_text(f"#!/bin/sh\necho \"ARGS:$*\"\nexit 0\n"); (stub / "python3").chmod(0o755)   # Kitty v5 V08: default base is origin/main
+        env = {k: v for k, v in os.environ.items() if k != "AWI_CONFIRMATION_BASE"}; env["PATH"] = f"{stub}:{os.environ['PATH']}"
+        p = subprocess.run(["bash", "-c", "set -eo pipefail\n" + block], cwd=SITE, capture_output=True, text=True, env=env)
+        self.assertIn("ARGS:-m awibench.confirmation_diff origin/main", p.stdout, p.stdout + p.stderr); self.assertIn("confirmation_diff OK vs origin/main", p.stdout)
         for rc in (1, 0):
             (stub / "python3").write_text(f"#!/bin/sh\nexit {rc}\n"); (stub / "python3").chmod(0o755)
             p = subprocess.run(["bash", "-c", "set -eo pipefail\n" + block + "echo REACHED_END\n"], cwd=SITE, capture_output=True, text=True,
@@ -2919,6 +2923,27 @@ class VendorConfirmationGate(ContextDevBase):
         p = judge("attack"); self.assertNotEqual(p.returncode, 0, p.stdout); self.assertIn("AC24h", p.stdout)        # ...the base-judged path fails it (head read as data)
         self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")                         # judging never checked anything out
         p = judge("ok"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr)                                   # and the clean PR still passes from a base checkout
+    def test_ac24e_move_into_evidence_fails_both_checkers(self):   # Kitty v5: `git mv X cycles/s/evidence/X` in a flip PR must fail (old path counts)
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        for src in ("bench/tests/test_bench.py", "run_tests.sh", ".github/workflows/confirmation-diff.yml"):
+            r = self.tmp / ("mv-" + src.replace("/", "_")); (r / "bench/awibench").mkdir(parents=True)
+            for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+            (r / "bench/awibench/__init__.py").write_text("")
+            tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}}}
+            w = lambda d: (r / "bench/tos_matrix.yaml").write_text(json.dumps(d, indent=1) + "\n")
+            w(tos); (r / "bench/config.yaml").write_text("{}\n")
+            (r / src).parent.mkdir(parents=True, exist_ok=True); shutil.copy(SITE / src, r / src)   # real content, so git would see a 100% rename
+            git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+            git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+            tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); w(tos)
+            (r / "cycles/s/evidence").mkdir(parents=True); git("mv", src, "cycles/s/evidence/" + Path(src).name); git("add", "-A"); git("commit", "-qm", "flip + move")
+            self.assertIn("R", git("diff", "--name-status", "-M", "main..pr").stdout)                              # git itself sees a rename here
+            with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+                self.assertEqual(confirmation_diff.main(["main"]), 1, src)                                         # PR checker
+            git("checkout", "-q", "main")
+            p = subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": "pr"})
+            self.assertNotEqual(p.returncode, 0, src + p.stdout); self.assertIn(src, p.stdout)                       # base-judged path names the old path
     def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
         self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
         wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional

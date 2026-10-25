@@ -1,5 +1,6 @@
 name: confirmation-diff
-# AWI-PROVIDER-CONTEXTDEV-001 AC24e: fails a PR that changes a vendor_confirmation / live_run_allowed value together with code.
+# AWI-PROVIDER-CONTEXTDEV-001 AC24e: ADVISORY self-test. It runs the PR's OWN confirmation_diff.py, which the PR can edit, so it is not
+# the gate. The authoritative check is confirmation-diff-base.yml (base-judged, R15).
 on:
   pull_request: {}
 permissions: {contents: read}
@@ -11,6 +12,6 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: python -m awibench.confirmation_diff (PR head vs base)
+      - name: advisory self-test - PR's own confirmation_diff (authoritative check is confirmation-diff-base)
         working-directory: bench
         run: python -m awibench.confirmation_diff "origin/${{ github.base_ref }}"
