@@ -2915,8 +2915,10 @@ class VendorConfirmationGate(ContextDevBase):
         cd_e["vendor_confirmation_requirement"] = False; w(tos); git("commit", "-qam", "attack")                    # 3. rename the key, set to false
         own = subprocess.run([sys.executable, "-m", "awibench.confirmation_diff", "main"], cwd=r / "bench", capture_output=True, text=True)
         self.assertEqual(own.returncode, 0, own.stdout)                                                            # the PR's own checker would pass it...
-        p = judge("attack"); self.assertNotEqual(p.returncode, 0, p.stdout); self.assertIn("AC24h", p.stdout)        # ...the base-judged path fails it
-        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "attack")                       # judging never checked anything out
+        git("checkout", "-q", "main")                                                                              # CI has only the base checked out
+        p = judge("attack"); self.assertNotEqual(p.returncode, 0, p.stdout); self.assertIn("AC24h", p.stdout)        # ...the base-judged path fails it (head read as data)
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")                         # judging never checked anything out
+        p = judge("ok"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr)                                   # and the clean PR still passes from a base checkout
     def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
         self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
         wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional
