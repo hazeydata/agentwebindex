@@ -2968,7 +2968,7 @@ class VendorConfirmationGate(ContextDevBase):
             "extra key": dict(R, note="x"), "missing recorded_pr": {k: v for k, v in R.items() if k != "recorded_pr"},
             "missing quote key": {k: v for k, v in R.items() if k != "quote"}, "non-str key": dict(R, **{}) | {1: "x"},
             "unquoted yaml date": dict(R, date=datetime.date(2026, 10, 30)), "invalid date": dict(R, date="2026-02-30"),
-            "bad date format": dict(R, date="2026-10-3"), "date with time": dict(R, date="2026-10-30T00:00"), "date int": dict(R, date=20261030),
+            "bad date format": dict(R, date="2026-10-3"), "basic iso date": dict(R, date="20261030"), "week date": dict(R, date="2026-W44-5"), "date with time": dict(R, date="2026-10-30T00:00"), "date int": dict(R, date=20261030),
             "empty sender": dict(R, sender=" "), "sender int": dict(R, sender=7), "sender set (K8-02n)": dict(R, sender={"a"}),
             "http url": dict(R, recorded_pr="http://github.com/x/pull/1"), "int PR (Z02)": dict(R, recorded_pr=27), "bare https": dict(R, recorded_pr="https://"),
             "PR not url": dict(R, recorded_pr="#27"), "PR with space": dict(R, recorded_pr="https://x y"),
