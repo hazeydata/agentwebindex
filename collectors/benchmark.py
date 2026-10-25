@@ -11,7 +11,7 @@ Search adapters only (run 1); there is no mock path here (mocks live in bench/te
 import argparse, datetime as dt, json, os, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(ROOT / "bench"))
-from awibench import runner, tables, validate, cost, freshness, newsfetch
+from awibench import runner, tables, validate, cost, freshness, newsfetch, guard, gates
 from awibench.util import load_yaml, read_jsonl, sha256_file
 
 BENCH = ROOT / "bench"
@@ -127,9 +127,51 @@ def _brightdata_scrape(key, item):
         raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
+# context.dev (AWI-PROVIDER-CONTEXTDEV-001). Bearer auth only; the key is never put in a URL, a log line or an error text.
+# Endpoint paths and request/response field names are from docs.context.dev and are UNVERIFIED (never called live: R9).
+CONTEXTDEV_SEARCH_URL = "https://api.context.dev/v1/web/search"   # unverified; never called live (R9)
+CONTEXTDEV_SCRAPE_URL = "https://api.context.dev/v1/web/scrape"   # unverified; never called live (R9)
+CONTEXTDEV_USAGE_URL = "https://api.context.dev/v1/org/usage"     # docs.context.dev/api-reference/usage/retrieve (GET, 0 credits, needs logs:read)
+
+def _contextdev_post(key, url, body):
+    import urllib.request, urllib.error
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(_body(r))
+    except urllib.error.HTTPError as e:   # status + Retry-After + short vendor text only; any echo of the key is scrubbed
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None
+        raise RuntimeError(f"HTTP {e.code}: {f'Retry-After: {ra}; ' if ra else ''}{e.read()[:200].decode('utf-8', 'replace').replace(key, '***')}") from None
+    except RuntimeError as e:   # _body: "HTTP 200: body cut off"
+        raise RuntimeError(str(e).replace(key, "***")[:200]) from None
+    except Exception as e:
+        raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
+
+def _contextdev_search(key, item):   # request options come from guard.contextdev_request, the same source as the runner's pre-call credit estimate
+    o = guard.contextdev_request("search", item)
+    st, d = _contextdev_post(key, CONTEXTDEV_SEARCH_URL, {"query": item["query"], "maxResults": o["max_results"]} | {k: True for k in ("markdown", "highlights") if o.get(k)})
+    rows = d.get("results") or d.get("data") or []
+    return {"http_status": st, "billed_units": guard.contextdev_credits("search", o, len(rows)), "results": [{"url": r.get("url"), "title": r.get("title"),
+            "snippet": r.get("snippet") or r.get("description"), "published_at": r.get("published_at") or r.get("publishedDate")} for r in rows]}
+
+def _contextdev_scrape(key, item):
+    st, d = _contextdev_post(key, CONTEXTDEV_SCRAPE_URL, {"url": item["url"]})
+    html = d.get("html") or ""
+    return {"http_status": st, "billed_units": guard.contextdev_credits("scrape", guard.contextdev_request("scrape", item), None),
+            "text": d.get("markdown") or d.get("text") or d.get("content") or _html_text(html), "html": html}
+
+def contextdev_meter(key):
+    """Read-only usage meter: GET /v1/org/usage (0 credits). Returns credits used in the current period, or None on any error
+    (no period, bad shape, HTTP error, no response). GET only; the key goes in the Authorization header and is never echoed."""
+    try:
+        st, d = _get_json(CONTEXTDEV_USAGE_URL, {"Authorization": f"Bearer {key}"}, timeout=30)
+        used = (d.get("period") or {}).get("credits_used")
+        return used if type(used) is int and used >= 0 else None
+    except Exception: return None
+
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
             "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
-            "brightdata": {"scrape": _brightdata_scrape}}
+            "brightdata": {"scrape": _brightdata_scrape}, "contextdev": {"search": _contextdev_search, "scrape": _contextdev_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
 def keyed_providers(provs, env):
@@ -151,9 +193,9 @@ def keep_previous_rows(doc, prev_path, stale):
 def is_stale(p): return p["status"].startswith("stale_")
 def stale_providers(s): return {p["provider"] for p in s["providers"] if is_stale(p)}
 
-def fresh_data(s):
-    """True if a provider that is not stale returned data. Data only from stale providers -> latest.json not rewritten."""
-    return any(p.get("data_calls") and not is_stale(p) for p in s["providers"])
+def fresh_data(s, held=()):
+    """True if a provider that is not stale returned data. Data only from stale (or publish-held) providers -> latest.json not rewritten."""
+    return any(p.get("data_calls") and not is_stale(p) and p["provider"] not in held for p in s["providers"])
 
 def finish_doc(doc, s, cfg, prev_path, skips):
     """Previous rows for stale providers, not_run_yet and provider skips. A stale provider is never in not_run_yet or skips
@@ -247,9 +289,10 @@ def main():
           print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
       s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
-                   ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend",
+                   ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
                    offset_h=a.reprobe_offset or 0, only_ids=only,
-                   meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"])})
+                   meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),
+                           "contextdev": lambda: contextdev_meter(os.environ["CONTEXT_DEV_API_KEY"])})
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"
@@ -257,7 +300,9 @@ def main():
     if not sets: skips.append({"scope": "run", "status": "no_valid_sets", "reason": "no test set passed validation; no provider calls made"})
     doc["run_summary"] = s; doc["run_date"] = today; doc["run_dates"] = sorted({r["run_date"] for t in doc["tables"].values() for r in t if r.get("run_date")}) or [today]; doc["sets_valid"] = sorted(sets); doc["skips"] = skips; doc["flags"] = flags
     merge_previous(doc, s, out, set(sets) | {k["set"] for k in skips if k.get("scope") == "set"})
-    if not a.rebuild_only and not fresh_data(s):   # at least one non-stale call must have returned data
+    held = tables.held_providers(cfg, pricing, tos) | {p["provider"] for p in s["providers"] if not gates.vendor_confirmed(tos.get(p["provider"]))}   # R10 shared gate
+    tables.strip_held(doc, held)   # publish_hold / P0-P1 gate: run logs stay, latest.json never shows them
+    if not a.rebuild_only and not fresh_data(s, held):   # at least one non-stale call must have returned data
         print(f"SKIP publish: no provider call returned publishable data ({today}); data/benchmarks/latest.json and the skips log left unchanged"); return 0
     (BENCH / "runs" / today).mkdir(parents=True, exist_ok=True)
     (BENCH / "runs" / today / f"_skips-offset{a.reprobe_offset or 0}.json").write_text(json.dumps({"skips": skips, "flags": flags}, indent=1))

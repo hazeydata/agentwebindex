@@ -227,6 +227,53 @@
     "quote": "'(k) to interfere with or circumvent the security features of the Service or any related website, other websites, or the Internet' (same list also includes '(i) to spam, phish, pharm, pretext, spider, crawl, or scrape')"
    },
    "note": "2026-10-19 re-check: S11 restricts use of \"the site or its content\" (browserless.io's own pages); item (i) \"spider, crawl, or scrape\" does not cover the API service, so benchmarking the /content endpoint on public news pages is published. Terms page carries no date; re-check at each publish. allowed=no still applies to anti-bot target pairs only."
+  },
+  "contextdev": {
+   "terms_url": "https://www.context.dev/term",
+   "terms_url_requested": "https://www.context.dev/terms (redirects)",
+   "terms_last_updated": "2026-10-01",
+   "sections": 27,
+   "checked_at": "2026-10-25",
+   "verified_date": "2026-10-25",
+   "allowed": null,
+   "verdict": "unverified",
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "No clause found in full read. Only vendor-side: '23. User data': 'we may use and disclose such data in aggregated, de-identified, or anonymized form for analytics, security, service improvement, benchmarking, and marketing of the Services'"
+   },
+   "publishing_results": {
+    "status": "unclear",
+    "quote": "No clause found in full read. Closest, \u00a73 Restrictions on Use: 'You may not copy, reproduce, distribute, modify, create derivative works of, publicly display, publicly perform, republish, download, store, transmit, or exploit any Content or Marks in our Services without our express prior written consent'"
+   },
+   "automated_access": {
+    "status": "forbidden_literal",
+    "quote": "\u00a74: 'You will not access the Services through automated or non-human means, whether through a bot, script or otherwise'; \u00a78: 'Engage in any automated use of the system, such as using scripts ... or using any data mining, robots, or similar data gathering and extraction tools.'"
+   },
+   "attribution": {
+    "status": "marks_restricted",
+    "quote": "\u00a73: 'the trademarks, service marks, and logos contained therein (the \"Marks\") ... are protected by copyright and trademark laws'; /brand: 'use their official names and capitalization'"
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "\u00a78: 'Interfere with, disrupt, or create an undue burden on the Services'"
+   },
+   "vendor_confirmation_required": true,
+   "vendor_confirmation": null,
+   "full_read": true,
+   "source": "fact-check-lucille.md",
+   "note": "F6: P1 = UNVERIFIED; publish gate closed. Plain name only, no logo. R10: unpublished until the vendor replies in writing."
+  },
+  "keenable": {
+   "terms_url": "https://keenable.ai/terms",
+   "checked_at": "2026-10-25",
+   "allowed": "no",
+   "benchmarking": {
+    "status": "forbidden",
+    "quote": "to any third party the results of any benchmark tests of the Service"
+   },
+   "vendor_confirmation_required": true,
+   "vendor_confirmation": null,
+   "note": "R10: unpublished until Keenable replies in writing. Quote from /workspace/agentwebindex/sponsor-leads-draft.md (lead record), to be re-verified against the live terms before any confirmation is recorded. Gate entry only: no adapter, pricing or providers.json entry, no live calls."
   }
  }
 }

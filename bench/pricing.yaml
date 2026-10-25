@@ -603,6 +603,84 @@
     },
     "note": null
    }
+  },
+  "contextdev": {
+   "search": {
+    "pricing_url": "https://www.context.dev/pricing",
+    "source_url": "https://www.context.dev/pricing",
+    "checked_at": "2026-10-25",
+    "verified_date": "NOT CAPTURED",
+    "model": "NOT CAPTURED",
+    "credits_per_call": {
+     "search": 1,
+     "scrape": 1
+    },
+    "credits_per_call_rule": {
+     "search": "ceil(results/10) + ceil(results/10) if markdown + ceil(results/10) if highlights",
+     "scrape": "1; 2 with browser actions",
+     "source_url": "https://docs.context.dev/account/credits",
+     "checked_at": "2026-10-25",
+     "quote": "Scrape 1 base; 2 with browser actions. ... Search 1 per 10 returned results, rounded up. Markdown and highlights each add 1 per 10 results"
+    },
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "contextdev",
+     "refill": "grant-anchor day",
+     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25)"
+    },
+    "tiers": {
+     "entry": {
+      "name": "NOT CAPTURED",
+      "plan_fee": "NOT CAPTURED",
+      "included_units": "NOT CAPTURED",
+      "overage_per_unit": "NOT CAPTURED"
+     },
+     "volume": {
+      "name": "NOT CAPTURED"
+     }
+    },
+    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, /workspace/agentwebindex-evidence/contextdev/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Search category."
+   },
+   "scrape": {
+    "pricing_url": "https://www.context.dev/pricing",
+    "source_url": "https://www.context.dev/pricing",
+    "checked_at": "2026-10-25",
+    "verified_date": "NOT CAPTURED",
+    "model": "NOT CAPTURED",
+    "credits_per_call": {
+     "search": 1,
+     "scrape": 1
+    },
+    "credits_per_call_rule": {
+     "search": "ceil(results/10) + ceil(results/10) if markdown + ceil(results/10) if highlights",
+     "scrape": "1; 2 with browser actions",
+     "source_url": "https://docs.context.dev/account/credits",
+     "checked_at": "2026-10-25",
+     "quote": "Scrape 1 base; 2 with browser actions. ... Search 1 per 10 returned results, rounded up. Markdown and highlights each add 1 per 10 results"
+    },
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 1000,
+     "needs_card": false,
+     "pool": "contextdev",
+     "refill": "grant-anchor day",
+     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25)"
+    },
+    "tiers": {
+     "entry": {
+      "name": "NOT CAPTURED",
+      "plan_fee": "NOT CAPTURED",
+      "included_units": "NOT CAPTURED",
+      "overage_per_unit": "NOT CAPTURED"
+     },
+     "volume": {
+      "name": "NOT CAPTURED"
+     }
+    },
+    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, /workspace/agentwebindex-evidence/contextdev/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Scrape category; same pool 'contextdev'."
+   }
   }
  }
 }

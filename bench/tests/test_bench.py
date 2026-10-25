@@ -1,9 +1,9 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
-import contextlib, datetime as dt, hashlib, json, math, os, shutil, subprocess, sys, unittest
+import contextlib, datetime as dt, hashlib, json, math, os, re, shutil, subprocess, sys, unittest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
-from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks
+from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks, guard as guard_mod, gates as gates_mod, confirmation_diff
 from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
 import mocks
 
@@ -412,6 +412,7 @@ class T(unittest.TestCase):
         st = {(p["provider"], p["category"]): p["status"] for p in s["providers"]}
         ran = {k for k, v in st.items() if v in ("ran", "stale_quota")}
         self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"})
+        self.assertEqual(st[("contextdev", "search")], "skipped_no_vendor_confirmation")   # AC6a: committed config keeps contextdev out of live runs
         for (pid, cat), v in st.items():
             if pid == "brave": self.assertEqual(v, "excluded_tos_benchmarking")
             elif pid not in CFG["month1_free_tier_providers"]: self.assertEqual(v, "skipped_not_month1", pid)
@@ -432,7 +433,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 21)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001)
+        self.assertEqual(n, 23)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + contextdev search/scrape
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -440,7 +441,7 @@ class T(unittest.TestCase):
         provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
         banned = {"free_quota", "entry_cost", "costs", "cost", "pricing", "free_tier", "quota", "units_per_month", "unit_price", "tiers"}
         for p in provs:
-            self.assertEqual(set(p) & banned, set(), p["id"]); self.assertEqual(set(p), {"id", "name", "categories", "pricing_url", "key_env"}, p["id"])
+            self.assertEqual(set(p) & banned, set(), p["id"]); self.assertEqual(set(p) - {"exclude_from_also_priced"}, {"id", "name", "categories", "pricing_url", "key_env"}, p["id"])   # exclude_from_also_priced: optional R3 flag
     def test_4_worst_case_guard_is_data_and_halts_before_call(self):
         wc = CFG["worst_case_units_per_call"]
         self.assertEqual({k: v for k, v in wc.items()}.keys(), {"tavily", "apify"})
@@ -2089,3 +2090,710 @@ class TavilyPhase0(unittest.TestCase):
         exp = [r for rows in built["tables"].values() for r in rows if r["provider"] == "tavily"]
         self.assertTrue(pub); self.assertEqual(pub, exp)
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
+
+
+MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "mock"}
+
+class ContextDevBase(unittest.TestCase):
+    """AWI-PROVIDER-CONTEXTDEV-001 rev 3 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
+    self.cfg is the committed config with the R9 live gate opened and grant_anchor_day 15, so the guard logic is reachable; the committed gate is tested separately."""
+    TS = "2026-10-26T10:00:00+00:00"   # anchor 15 -> window 2026-10-15
+    W = "2026-10-15"
+    def setUp(self):
+        self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
+        self.cfg["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation="mock-record", grant_anchor_day=15)
+        self.pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; self.tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        self.tos["contextdev"] = self.tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}   # in-memory R10 record so the live/publish paths are reachable
+        sd = self.tmp / "sets"; mocks.make_sets(sd); self.rows = read_jsonl(sd / "search_evergreen.jsonl"); self.srows = read_jsonl(sd / "scrape_urls.jsonl")
+        self.spend = self.tmp / "spend"; self.spend.mkdir(); self.calls = []; self.sleeps = []
+    def prov_def(self, kinds=("search",)): return [{"id": "contextdev", "categories": list(kinds), "key_env": "CONTEXT_DEV_API_KEY"}]
+    def seed(self, attempted, billed=0, window=None):
+        w = window or self.W
+        (self.spend / f"contextdev-{w}.json").write_text(json.dumps({"provider": "contextdev", "window": w, "attempted": attempted, "billed": billed}))
+    def counter(self, window=None): return json.loads((self.spend / f"contextdev-{window or self.W}.json").read_text())
+    def ad_search(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "results": [{"url": "https://a.example/", "title": "t", "snippet": "s"}]}
+    def ad_scrape(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "text": "x", "html": "<p>x</p>"}
+    adapter = ad_search
+    def go(self, n=3, kinds=("search",), adapters=None, cfg=None, pricing=None, meters=None, providers=None, tos=None, env=None, ts=None, run_date="2026-10-26",
+           ledger="ledger.json", sets=None):
+        ts = ts or self.TS
+        sets = sets or ({"search_evergreen": {"rows": self.rows[:n], "sha": "x"}} if "search" in kinds else {}) | ({"scrape_urls": {"rows": self.srows[:n], "sha": "x"}} if "scrape" in kinds else {})
+        ad = adapters or {"contextdev": {"search": self.ad_search, "scrape": self.ad_scrape}}
+        return runner.run(providers=providers or self.prov_def(kinds), sets=sets, pricing=pricing or self.pricing, tos=tos if tos is not None else self.tos, adapters=ad,
+                          cfg=cfg or self.cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / ledger, run_date=run_date, env=env or {"CONTEXT_DEV_API_KEY": "mock-key"},
+                          mock=True, spend_dir=self.spend, meters=meters, now_fn=lambda: dt.datetime.fromisoformat(ts), sleep=self.sleeps.append)
+    def prov(self, s, pid="contextdev", cat=None): return next(p for p in s["providers"] if p["provider"] == pid and (cat is None or p["category"] == cat))
+    def lines(self, kind="search"): return read_jsonl(self.tmp / f"runs/2026-10-26/contextdev/{'search_evergreen' if kind == 'search' else 'scrape_urls'}.jsonl")
+    def cfg_with(self, **g):
+        c = json.loads(json.dumps(self.cfg)); c["free_tier_guard"]["contextdev"].update(g); return c
+
+def http_err(code, text="vendor text"):
+    def f(key, item): raise RuntimeError(f"HTTP {code}: {text}")
+    return f
+
+class ContextDevConfig(ContextDevBase):
+    def test_ac2_no_price_in_pricing_and_cost_na(self):   # AC2
+        for kind in ("search", "scrape"):
+            e = self.pricing["contextdev"][kind]
+            for tier in e["tiers"].values():
+                for k, v in tier.items(): self.assertEqual(v, "NOT CAPTURED", (kind, k))   # no numeric price field
+            self.assertNotRegex(json.dumps(e), r"TBD|PLACEHOLDER|XXX")
+            for q in ("$20", "$19", "7,500", "$3.00", "$2.20"): self.assertIn(q, e["note"])   # the conflict is quoted, not resolved
+            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["entry_tier_cost_per_1k"], None)
+            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["volume_tier_cost_per_1k"], None)
+            self.assertEqual((e["credits_per_call"], e["free_tier"]["units_per_month"], e["free_tier"]["needs_card"], e["free_tier"]["pool"], e["free_tier"]["refill"]),
+                             ({"search": 1, "scrape": 1}, 1000, False, "contextdev", "grant-anchor day"))
+            self.assertEqual(e["credits_per_call_rule"]["source_url"], "https://docs.context.dev/account/credits")
+            self.assertEqual(e["credits_per_call_rule"]["scrape"], "1; 2 with browser actions")
+    def test_ac3_p0_still_not_passed(self):   # AC3: the committed state keeps P0 unpassed (recorded as still broken in summary.md, meta repo)
+        for kind in ("search", "scrape"): self.assertIsNone(cost.billed_usd(self.pricing["contextdev"][kind], "entry", []))
+        self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0]); self.assertIn("P0 pricing not passed", tables.publish_gate("contextdev", self.pricing, self.tos)[1])
+    def test_ac4_tos_entry_matches_rev3_shape(self):   # AC4
+        t = self.tos["contextdev"]
+        self.assertEqual((t["terms_url"], t["sections"], t["verdict"], t["allowed"], t["full_read"], t["terms_last_updated"]), ("https://www.context.dev/term", 27, "unverified", None, True, "2026-10-01"))
+        for c in ("benchmarking", "publishing_results", "automated_access", "attribution", "anti_bot_scraping"): self.assertTrue(t[c]["quote"].strip(), c)
+        self.assertIn("23. User data", t["benchmarking"]["quote"]); self.assertIn("Restrictions on Use", t["publishing_results"]["quote"])
+        self.assertIn("§4", t["automated_access"]["quote"]); self.assertIn("§8", t["automated_access"]["quote"]); self.assertEqual(t["automated_access"]["status"], "forbidden_literal")
+        self.assertIn("§3", t["attribution"]["quote"]); self.assertIn("/brand", t["attribution"]["quote"])
+        self.assertEqual((t["benchmarking"]["status"], t["publishing_results"]["status"]), ("unclear", "unclear"))
+    def test_ac6_name_plain_text_and_no_logo(self):   # AC6
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        self.assertEqual(next(p for p in provs if p["id"] == "contextdev")["name"], "Context.dev")
+        skip = {".git", "__pycache__", "node_modules"}; imgs = (".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".gif")
+        url = re.compile(r"context\.dev[^\s\"']*(logo|\.(svg|png|jpe?g|webp|ico))", re.I)
+        for f in SITE.rglob("*"):
+            if not f.is_file() or skip & set(f.relative_to(SITE).parts): continue
+            if f.suffix.lower() in imgs: self.assertNotIn("context", f.name.lower(), str(f))
+            elif f.suffix in (".py", ".json", ".yaml", ".md", ".html", ".js", ".css", ".txt", ".yml") and f.name != "test_bench.py":
+                self.assertIsNone(url.search(f.read_text(errors="replace")), str(f))
+    def test_ac7_providers_json_entry_and_keyed(self):   # AC7
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        self.assertEqual(next(p for p in provs if p["id"] == "contextdev"), {"id": "contextdev", "name": "Context.dev", "categories": ["search", "scrape"],
+                         "pricing_url": "https://www.context.dev/pricing", "key_env": "CONTEXT_DEV_API_KEY", "exclude_from_also_priced": True})
+        self.assertNotIn("contextdev", B.keyed_providers(provs, {})); self.assertNotIn("contextdev", B.keyed_providers(provs, {"CONTEXT_DEV_API_KEY": ""}))
+        self.assertIn("contextdev", B.keyed_providers(provs, {"CONTEXT_DEV_API_KEY": "mock"}))
+        self.assertEqual(set(B.ADAPTERS["contextdev"]), {"search", "scrape"})
+        self.assertIn("exclude_from_also_priced", json.loads((SITE / "collectors/providers.json").read_text())["_note"])   # new optional field documented (AC28)
+    def test_ac8_no_key_skipped_and_others_run(self):   # AC8
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}
+        pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        for env in ({"K": "x", "CONTEXT_DEV_API_KEY": ""}, {"K": "x"}):
+            s = self.go(providers=self.prov_def() + [other], adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]), pricing=pricing, env=env)
+            self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_key", [])); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+            self.assertFalse(list(self.spend.glob("contextdev-*.json")))
+    def test_config_block_matches_rev3_shape(self):   # AC10/AC11/AC13/AC6a/AC26 config values, committed file
+        g = CFG["free_tier_guard"]["contextdev"]
+        self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
+                                            "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")},
+                         {"pool": "contextdev", "quota_credits": 1000, "stop_at_credits": 900, "grant_anchor_day": None, "live_run_allowed": False, "vendor_confirmation": None,
+                          "meter": "https://api.context.dev/v1/org/usage", "max_concurrent": 1, "count": "attempts", "retry_after_429_s": 1,
+                          "quota_stop_errors": ["HTTP 402 USAGE_EXCEEDED", "HTTP 401 USAGE_EXCEEDED"], "paid_tier": False})
+        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        self.assertNotIn("contextdev", CFG["ceo_free_tier_allowlist"])   # needs_card is false in pricing.yaml; no allowlist exception
+    def test_also_priced_helper_eleven_with_flag(self):   # AC22 support (the site repo tests the page itself): helper honours exclude_from_also_priced
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        latest = json.loads((SITE / "data/benchmarks/latest.json").read_text())
+        names = tables.also_priced_providers(self.pricing, latest, provs)
+        self.assertEqual(sorted(names), sorted(["Brave Search API", "Linkup", "Parallel", "Serper", "Firecrawl", "Jina Reader", "Bright Data Web Unlocker",
+                                                "Hyperbrowser", "ScrapingBee", "Browserbase", "Steel"]))
+        self.assertEqual(len(names), 11); self.assertNotIn("Context.dev", names)
+        unflagged = [{k: v for k, v in p.items() if k != "exclude_from_also_priced"} for p in provs]
+        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 12)   # the flag, not chance, excludes it
+
+class ContextDevLiveGate(ContextDevBase):
+    def test_ac6a_live_allowed_function(self):   # AC6a
+        real_tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; tos = {"contextdev": real_tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}
+        self.assertFalse(guard_mod.live_allowed(CFG, real_tos)); self.assertFalse(guard_mod.live_allowed(CFG, tos))   # committed config / committed tos
+        g = lambda **kw: {"free_tier_guard": {"contextdev": kw}}
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=None), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=False, vendor_confirmation="rec"), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed="yes", vendor_confirmation="rec"), tos))
+        self.assertTrue(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), tos))
+        # R10: config flags alone are not enough; the tos_matrix record must pass vendor_confirmed
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), real_tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), {"contextdev": tos["contextdev"] | {"vendor_confirmation": {"date": "2026-11-01"}}}))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), {}))
+    def test_ac6a_default_config_zero_calls(self):   # AC6a (a): committed gate, key set
+        cfg = mocks.mock_cfg(CFG)
+        s = self.go(n=3, kinds=("search", "scrape"), cfg=cfg)
+        self.assertEqual([p["status"] for p in s["providers"]], ["skipped_no_vendor_confirmation"] * 2); self.assertEqual(self.calls, [])
+        self.assertFalse(list(self.spend.glob("contextdev-*"))); self.assertFalse((self.tmp / "runs").exists())
+    def test_ac6a_flag_true_confirmation_null_zero_calls(self):   # AC6a (b)
+        s = self.go(cfg=self.cfg_with(vendor_confirmation=None))
+        self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        s = self.go(cfg=self.cfg_with(live_run_allowed=False)); self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+    def test_ac6a_both_set_adapter_reachable(self):   # AC6a (c)
+        s = self.go(n=2); self.assertEqual((self.prov(s)["status"], len(self.calls)), ("ran", 2))
+    def test_ac6a_gate_does_not_stop_other_providers(self):
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        s = self.go(providers=self.prov_def() + [other], cfg=mocks.mock_cfg(CFG), pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"},
+                    adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]))
+        self.assertEqual((self.prov(s)["status"], self.prov(s, "mockp")["status"], self.calls), ("skipped_no_vendor_confirmation", "ran", []))
+    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), committed config, key set, any network call fails the test
+        import shutil
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        root = mktmp(self) / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        news = sorted(f.stem for f in (root / "bench/sets").glob("news_*.jsonl"))[-1]
+        snap = lambda: sorted((str(f.relative_to(root)), hashlib.sha256(f.read_bytes()).hexdigest()) for d in ("data", "bench/runs", "bench/spend") if (root / d).exists() for f in (root / d).rglob("*") if f.is_file())
+        before = snap(); printed = []
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "contextdev", "--only-sets", news]), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")), mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), \
+             mock.patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))):
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(snap(), before)   # no run-log lines, no counter, no latest.json change
+        sk = [json.loads(l) for l in printed if l.startswith("{")]
+        self.assertEqual([(p["provider"], p["status"]) for p in sk], [("contextdev", "skipped_no_vendor_confirmation")] * 2)
+        self.assertFalse(list((root / "bench/runs").rglob("contextdev")) and [d for d in (root / "bench/runs").rglob("contextdev") if d not in set((SITE / "bench/runs").rglob("contextdev"))])
+        self.assertFalse(list((root / "data/spend").glob("contextdev-*")))
+
+class ContextDevGuard(ContextDevBase):
+    def test_ac11_stop_at_exactly_900_from_config(self):   # AC11
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["stop_at_credits"], 900)
+    def test_ac11_edge_899_plus_scrape_runs(self):   # AC11
+        self.seed(899); s = self.go(n=1, kinds=("scrape",)); p = self.prov(s)
+        self.assertEqual((p["status"], len(self.calls)), ("ran", 1)); self.assertEqual(self.counter()["attempted"], 900)
+    def test_ac11_edge_899_plus_search_markdown_stops(self):   # AC11: search 10 results with markdown = 2 credits
+        self.seed(899)
+        with mock.patch.object(guard_mod, "contextdev_request", return_value={"max_results": 10, "markdown": True}):
+            p = self.prov(self.go(n=1))
+        self.assertEqual((p["status"], self.calls, p["credits_used"], p["credits_stop_at"]), ("stale_quota", [], 899, 900)); self.assertEqual(self.counter()["attempted"], 899)
+    def test_ac11_at_900_any_call_stops_before_adapter(self):   # AC11
+        self.seed(900)
+        for kind in ("search", "scrape"):
+            p = self.prov(self.go(n=1, kinds=(kind,))); self.assertEqual((p["status"], self.calls), ("stale_quota", []), kind)
+        self.assertEqual(self.counter()["attempted"], 900)
+    def test_ac11_guard_reads_attempts_not_billed(self):   # AC11 / R1
+        self.seed(900, billed=0); self.assertEqual(self.prov(self.go(n=1))["status"], "stale_quota"); self.assertEqual(self.calls, [])
+        self.seed(0, billed=900); p = self.prov(self.go(n=1)); self.assertEqual((p["status"], len(self.calls)), ("ran", 1))
+    def test_ac12_persistence_across_runs_same_window(self):   # AC12
+        self.go(n=3); self.assertEqual(self.counter()["attempted"], 3)
+        self.go(n=3, ledger="ledger2.json", ts="2026-10-28T10:00:00+00:00", run_date="2026-10-28"); self.assertEqual(self.counter()["attempted"], 6)
+    def test_ac13_anchor_window_start_function(self):   # AC13
+        A = lambda s, d: guard_mod.anchor_window_start(dt.datetime.fromisoformat(s), d)
+        self.assertEqual(A("2026-10-14T12:00:00+00:00", 15), dt.date(2026, 9, 15)); self.assertEqual(A("2026-10-15T00:00:00+00:00", 15), dt.date(2026, 10, 15))
+        self.assertEqual(A("2026-11-01T00:30:00+00:00", 15), dt.date(2026, 10, 15))   # the 1st does not reset
+        self.assertEqual(A("2026-11-30T12:00:00+00:00", 31), dt.date(2026, 11, 30)); self.assertEqual(A("2026-11-29T12:00:00+00:00", 31), dt.date(2026, 10, 31))
+        self.assertEqual(A("2026-12-01T00:00:00+00:00", 31), dt.date(2026, 11, 30)); self.assertEqual(A("2027-02-28T09:00:00+00:00", 31), dt.date(2027, 2, 28))
+        self.assertEqual(A("2027-01-05T09:00:00+00:00", 15), dt.date(2026, 12, 15))   # year boundary
+        self.assertEqual(A("2026-10-31T23:30:00-05:00", 1), dt.date(2026, 11, 1))   # UTC date of the timestamp
+        with self.assertRaises(guard_mod.AnchorNotConfigured): A("2026-10-14T12:00:00+00:00", None)
+    def test_ac13_run_on_14th_continues_old_window(self):   # AC13
+        self.seed(100, window="2026-09-15"); s = self.go(n=3, ts="2026-10-14T10:00:00+00:00")
+        self.assertEqual(self.counter("2026-09-15")["attempted"], 103); self.assertFalse((self.spend / "contextdev-2026-10-15.json").exists())
+    def test_ac13_run_on_15th_starts_new_window_at_zero(self):   # AC13
+        self.seed(850, window="2026-09-15"); before = (self.spend / "contextdev-2026-09-15.json").read_bytes()
+        s = self.go(n=3, ts="2026-10-15T00:30:00+00:00", run_date="2026-10-15"); self.assertEqual(self.prov(s)["status"], "ran")
+        self.assertEqual(self.counter("2026-10-15")["attempted"], 3); self.assertEqual((self.spend / "contextdev-2026-09-15.json").read_bytes(), before)
+    def test_ac13_run_on_the_1st_does_not_reset(self):   # AC13
+        self.seed(150); s = self.go(n=3, ts="2026-11-01T00:30:00+00:00", run_date="2026-11-01")
+        self.assertEqual(self.counter()["attempted"], 153); self.assertFalse((self.spend / "contextdev-2026-11-01.json").exists())
+    def test_ac13_anchor_31_clamps_in_runner(self):   # AC13
+        cfg = self.cfg_with(grant_anchor_day=31)
+        self.go(n=2, cfg=cfg, ts="2026-11-30T10:00:00+00:00", run_date="2026-11-30"); self.assertEqual(self.counter("2026-11-30")["attempted"], 2)
+        self.go(n=2, cfg=cfg, ts="2026-12-01T10:00:00+00:00", run_date="2026-12-01", ledger="l2.json"); self.assertEqual(self.counter("2026-11-30")["attempted"], 4)
+    def test_ac13_anchor_null_never_resets_and_logs(self):   # AC13
+        cfg = self.cfg_with(grant_anchor_day=None)
+        s1 = self.go(n=3, cfg=cfg, ts="2026-10-14T10:00:00+00:00"); s2 = self.go(n=3, cfg=cfg, ts="2026-12-15T10:00:00+00:00", run_date="2026-12-15", ledger="l2.json")
+        f = self.spend / "contextdev-unanchored.json"; self.assertEqual(json.loads(f.read_text())["attempted"], 6)
+        self.assertEqual(sorted(x.name for x in self.spend.glob("contextdev-*.json")), ["contextdev-unanchored.json"])
+        for s in (s1, s2): self.assertIn("grant anchor not configured", self.prov(s)["guard_note"])
+        self.seed(0); self.assertNotIn("guard_note", self.prov(self.go(n=1, ts="2026-10-20T10:00:00+00:00", ledger="l3.json")))   # anchor set: no note
+    def test_ac14_corrupt_unreadable_locked_missing_fail_closed(self):   # AC14
+        f = self.spend / f"contextdev-{self.W}.json"; import fcntl
+        def corrupt(): self.seed(0); f.write_text("{not json")
+        def bad_fields(): self.seed(0); f.write_text(json.dumps({"provider": "contextdev", "window": self.W, "attempted": -1, "billed": 0}))
+        def wrong_window(): self.seed(0); f.write_text(json.dumps({"provider": "contextdev", "window": "2026-09-15", "attempted": 0, "billed": 0}))
+        def missing_but_expected(): self.seed(0, window="2026-11-15")   # a later window exists but this one's file is gone
+        for name, setup in (("corrupt", corrupt), ("bad fields", bad_fields), ("wrong window", wrong_window), ("missing", missing_but_expected)):
+            setup(); self.calls.clear(); p = self.prov(self.go(n=2))
+            self.assertEqual((p["status"], self.calls), ("stale_budget", []), name); self.assertIn("credit counter unreadable; failing closed", p["reason"], name)
+            for x in self.spend.glob("contextdev-*.json"): x.unlink()
+        self.seed(0); cfg = self.cfg_with(lock_timeout_s=0.2); lk = open(self.spend / ".contextdev.lock", "a"); fcntl.flock(lk, fcntl.LOCK_EX)
+        try: p = self.prov(self.go(n=2, cfg=cfg))
+        finally: lk.close()
+        self.assertEqual((p["status"], self.calls), ("stale_budget", [])); self.assertIn("credit counter unreadable; failing closed", p["reason"])
+    def test_ac14_permission_error_and_missing_dir(self):   # AC14
+        self.seed(5); w = dt.date(2026, 10, 15)
+        with mock.patch("pathlib.Path.read_text", side_effect=PermissionError("denied")):
+            with self.assertRaises(guard_mod.GuardUnreadable): guard_mod.CreditGuard(self.spend, "contextdev", w, 900)
+        with self.assertRaises(guard_mod.GuardUnreadable): guard_mod.CreditGuard(self.tmp / "nope", "contextdev", w, 900)
+        if os.geteuid() != 0:
+            f = self.spend / f"contextdev-{self.W}.json"; f.chmod(0)
+            try: p = self.prov(self.go(n=1))
+            finally: f.chmod(0o600)
+            self.assertEqual((p["status"], self.calls), ("stale_budget", []))
+        with mock.patch.object(guard_mod.CreditGuard, "_write", side_effect=OSError("disk")):   # the attempt cannot be counted: stop, fail closed
+            p = self.prov(self.go(n=2, ledger="l9.json", ts="2026-12-20T10:00:00+00:00"))
+        self.assertEqual(p["status"], "stale_budget")
+    def test_ac15_clean_stop_writes_lines_and_others_run(self):   # AC15
+        self.seed(897); other = {"id": "mockp", "categories": ["search"], "key_env": "K"}
+        pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        s = self.go(n=5, providers=self.prov_def() + [other], pricing=pricing, adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]),
+                    env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"})
+        p = self.prov(s); self.assertEqual((p["status"], p["calls"], len(self.calls)), ("stale_quota", 3, 3)); self.assertEqual((p["credits_used"], p["credits_stop_at"]), (900, 900))
+        self.assertIn("900", p["reason"]); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+        log = self.lines(); self.assertEqual(len(log), 3); self.assertTrue(all(r["run_status"] == "stale_quota" for r in log))
+        self.assertTrue((self.tmp / "runs/2026-10-26/_run-offset0.json").exists())
+    def test_ac16_no_paid_path(self):   # AC16
+        self.assertIs(CFG["free_tier_guard"]["contextdev"]["paid_tier"], False)
+        with self.assertRaises(runner.CapViolation): self.go(cfg=self.cfg_with(paid_tier=True))
+        self.assertEqual(self.calls, [])
+        (self.tmp / "ledger.json").write_text(json.dumps({"month": "2026-10", "used": {"contextdev": 999}, "over_free_units": 0}))
+        with mock.patch.object(runner.guard, "contextdev_billed", return_value=5):
+            with self.assertRaises(runner.CapViolation): self.go(n=1)   # billed credits past quota_credits (1000)
+        for f in (BENCH / "awibench/runner.py", BENCH / "awibench/guard.py", SITE / "collectors/benchmark.py"):
+            self.assertNotRegex(f.read_text(), r"(?i)paid_key|CONTEXT_DEV_PAID|CONTEXT_DEV_API_KEY_PAID|upgrade_plan")
+    def test_ac16_ledger_quota_follows_guard_quota_credits(self):
+        p = self.prov(self.go(n=5, cfg=self.cfg_with(quota_credits=2))); self.assertEqual((p["status"], p["quota"]), ("stale_quota", 2))
+
+class ContextDevCredits(ContextDevBase):
+    def test_ac17c_credit_cost_table(self):   # AC17c (F4)
+        c = guard_mod.contextdev_credits
+        self.assertEqual(c("scrape", {}, None), 1); self.assertEqual(c("scrape", {"browser_actions": True}, None), 2)
+        self.assertEqual(c("search", {"max_results": 10}, None), 1); self.assertEqual(c("search", {"max_results": 11}, None), 2)
+        self.assertEqual(c("search", {"max_results": 10, "markdown": True}, None), 2); self.assertEqual(c("search", {"max_results": 10, "markdown": True, "highlights": True}, None), 3)
+        self.assertEqual(c("search", {"max_results": 10}, 7), 1); self.assertEqual(c("search", {"max_results": 10, "markdown": True}, 25), 6)   # billed on returned count
+        with self.assertRaises(ValueError): c("browser", {}, None)
+
+class ContextDevBilling(ContextDevBase):
+    def one(self, fn, kind="search", n=1):
+        s = self.go(n=n, kinds=(kind,), adapters={"contextdev": {kind: fn}}); return self.prov(s), self.lines(kind), self.counter()
+    def test_ac17_function_table(self):   # AC17 (function level)
+        b = guard_mod.contextdev_billed
+        for st, want in ((200, 3), (201, 3), (404, 3), (400, 0), (422, 0), (401, 0), (403, 0), (402, 0), (408, 0), (429, 0), (500, 0), (502, 0), (503, 0), (None, 0)): self.assertEqual(b(st, {}, 3), want, st)
+        self.assertEqual(b(402, {"error_code": "USAGE_EXCEEDED"}, 3), 0); self.assertEqual(b(401, {"error_code": "USAGE_EXCEEDED"}, 3), 0)
+    def test_ac17_200_bills_credits(self):   # AC17
+        def f(key, item): return {"http_status": 200, "billed_units": 1, "results": [{"url": f"https://a.example/{i}"} for i in range(10)]}
+        p, L, c = self.one(f); self.assertEqual((L[0]["billed_units"], c["billed"], c["attempted"]), (1, 1, 1))
+        p, L, c = self.one(lambda k, i: {"http_status": 200, "text": "x", "html": "x"}, kind="scrape"); self.assertEqual((L[0]["billed_units"], c["billed"]), (1, 2))
+    def test_ac17_404_billed_scored_fail(self):   # AC17
+        p, L, c = self.one(http_err(404)); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["billed"]), (1, "fail", 1))
+    def test_ac17_400_422_validation_unbilled(self):   # AC17
+        for code in (400, 422):
+            p, L, c = self.one(http_err(code)); self.assertEqual((L[-1]["billed_units"], L[-1]["status"]), (0, "fail"), code); self.assertEqual(p["status"].split("_")[0], "stale")
+        self.assertEqual(self.counter()["billed"], 0)
+    def test_ac17_401_403_unbilled_auth_error_stop(self):   # AC17
+        for code in (401, 403):
+            self.calls.clear(); s = self.go(n=4, adapters={"contextdev": {"search": http_err(code, "bad key")}}, ledger=f"l{code}.json"); p = self.prov(s); L = self.lines()
+            self.assertEqual((p["status"], p["calls"], L[-1]["billed_units"], L[-1]["status"]), ("stale_auth_error", 1, 0, "auth_error"), code)
+    def test_ac17_408_unbilled(self):   # AC17
+        p, L, c = self.one(http_err(408, "timeout")); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["attempted"], c["billed"]), (0, "fail", 1, 0))
+    def test_ac17_429_unbilled_rate_limited(self):   # AC17
+        p, L, c = self.one(http_err(429)); self.assertEqual((L[0]["billed_units"], c["billed"]), (0, 0)); self.assertTrue(runner.is_rate_limited(L[0]))
+    def test_ac17_5xx_unbilled(self):   # AC17
+        for code in (500, 502, 503):
+            p, L, c = self.one(http_err(code)); self.assertEqual((L[-1]["billed_units"], L[-1]["status"]), (0, "fail"), code); self.assertFalse(runner.is_rate_limited(L[-1]))
+            for x in self.spend.glob("contextdev-*.json"): x.unlink()
+            (self.tmp / "ledger.json").unlink(missing_ok=True)
+    def test_ac17_no_response_unbilled(self):   # AC17
+        import urllib.error
+        def f(key, item): raise urllib.error.URLError("connection refused")
+        p, L, c = self.one(f); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["attempted"], c["billed"]), (0, "unbilled_no_response", 1, 0))
+    def test_ac17a_429_retry_after_waits_and_retries_once(self):   # AC17a
+        first = [True]
+        def fn(key, item):
+            if first[0]: first[0] = False; self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; concurrency")
+            return self.ad_search(key, item)
+        made = []; real = guard_mod.CreditGuard
+        with mock.patch.object(runner.guard, "CreditGuard", side_effect=lambda *a, **k: made.append(1) or real(*a, **k)):
+            s = self.go(n=5, adapters={"contextdev": {"search": fn}})
+        self.assertEqual(self.sleeps, [1]); L = self.lines(); self.assertEqual(len(L), 6)   # item 0 twice, items 1-4 once
+        self.assertEqual([r["item_id"] for r in L[:2]], [self.rows[0]["id"]] * 2); self.assertEqual((L[0]["http_status"], L[0]["status"], L[1]["status"]), (None, "fail", "fail"))
+        self.assertTrue(runner.is_rate_limited(L[0])); self.assertEqual(self.calls.count(self.rows[0]["id"]), 2)
+        self.assertEqual(len(made), 6); self.assertEqual(self.counter()["attempted"], 6)   # each attempt its own guard entry
+        self.assertEqual(self.prov(s)["status"], "ran")
+    def test_ac17a_second_429_is_not_retried_again(self):   # AC17a
+        def fn(key, item): self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; busy")
+        self.go(n=1, adapters={"contextdev": {"search": fn}}); self.assertEqual((len(self.calls), self.sleeps), (2, [1]))
+    def test_ac17a_429_without_retry_after_is_not_retried(self):   # AC17a / AC18 support
+        self.go(n=1, adapters={"contextdev": {"search": http_err(429, "busy")}}); self.assertEqual(self.sleeps, []); self.assertEqual(self.counter()["attempted"], 1)
+    def test_ac17a_retry_blocked_by_guard_stops_clean(self):   # AC17a + AC11
+        self.seed(899)
+        def fn(key, item): self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; busy")
+        p = self.prov(self.go(n=3, adapters={"contextdev": {"search": fn}})); self.assertEqual((p["status"], len(self.calls), self.sleeps), ("stale_quota", 1, [1]))
+    def test_ac17b_quota_stop_402_and_401_usage_exceeded(self):   # AC17b
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        for code in (402, 401):
+            self.calls.clear(); fn = http_err(code, '{"error_code":"USAGE_EXCEEDED"}')
+            s = self.go(n=4, providers=self.prov_def() + [other], pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"}, ledger=f"l{code}.json",
+                        adapters={"contextdev": {"search": fn}} | mocks.MockAdapters().table("mockp", ["search"]), run_date=f"2026-10-2{code % 10}")
+            p = self.prov(s); self.assertEqual((p["status"], p["calls"]), ("stale_quota", 1), code); self.assertEqual(self.sleeps, [])   # no retry, not auth_error
+            self.assertIn("USAGE_EXCEEDED", p["reason"]); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+            L = read_jsonl(self.tmp / f"runs/2026-10-2{code % 10}/contextdev/search_evergreen.jsonl"); self.assertEqual((len(L), L[0]["billed_units"], L[0]["status"]), (1, 0, "quota_stop"))
+        self.assertEqual(self.counter()["billed"], 0)
+    def test_ac18_guard_counts_every_attempt_billed_counts_less(self):   # AC18
+        import urllib.error
+        def md(kind, item): return {"max_results": 10, "markdown": True} if (kind == "search" and item["id"] == self.rows[0]["id"]) else ({"max_results": 10} if kind == "search" else {})
+        def s200(key, item): return {"http_status": 200, "billed_units": 2, "results": [{"url": f"https://a.example/{i}"} for i in range(10)]}
+        def sc404(key, item): raise RuntimeError("HTTP 404: not found")
+        seqs = {"search": iter([s200, http_err(429, "busy")]), "scrape": iter([sc404, http_err(500)])}
+        def mk(kind):
+            def fn(key, item): return next(seqs[kind])(key, item)
+            return fn
+        with mock.patch.object(guard_mod, "contextdev_request", side_effect=md):
+            self.go(n=2, kinds=("search", "scrape"), adapters={"contextdev": {"search": mk("search"), "scrape": mk("scrape")}})
+        c = self.counter(); self.assertEqual((c["attempted"], c["billed"]), (5, 3))   # 2 + 1 + 1 + 1 attempted; 2 + 1 billed
+        self.assertEqual(json.loads((self.tmp / "ledger.json").read_text())["used"]["contextdev"], 3)
+    def test_ac19_same_sets_and_cost_columns_hand_calc(self):   # AC19
+        fx = {"model": "credits", "credits_per_call": {"search": 1, "scrape": 1}, "free_tier": {"units_per_month": 1000, "needs_card": False, "pool": "contextdev", "note": "fixture"},
+              "tiers": {"entry": {"name": "Fixture entry", "usd_per_credit": 0.002}, "volume": {"name": "Fixture volume", "usd_per_credit": 0.001}}}
+        pricing = self.pricing | {"contextdev": {"search": fx, "scrape": fx}}
+        s = self.go(n=5, kinds=("search", "scrape"), pricing=pricing)
+        self.assertEqual({(p["category"], p["status"]) for p in s["providers"] if p["provider"] == "contextdev"}, {("search", "ran"), ("scrape", "ran")})
+        for kind, set_name in (("search", "search_evergreen"), ("scrape", "scrape_urls")):
+            L = self.lines(kind); self.assertEqual(len(L), 5, set_name)   # contextdev takes the same frozen sets; news_* sets map to kind search too (runner.set_kind)
+            c = cost.cost_columns(fx, L); scored = [l for l in L if l["status"] in ("pass", "fail")]
+            usd_entry = sum(l["billed_units"] for l in scored) * 0.002
+            self.assertAlmostEqual(c["entry_tier_cost_per_1k"], 1000 * usd_entry / len(scored)); self.assertAlmostEqual(c["volume_tier_cost_per_1k"], 1000 * (usd_entry / 2) / len(scored))
+            self.assertAlmostEqual(c["entry_tier_cost_per_1k"], 2.0)   # hand calc: 5 credits x $0.002 / 5 calls x 1000
+        self.assertEqual(runner.set_kind("news_2026-44"), "search")
+        # free credits never lower cost: the same lines priced with a free_tier note changed give the same columns
+        fx2 = json.loads(json.dumps(fx)); fx2["free_tier"]["units_per_month"] = 10**9
+        self.assertEqual(cost.cost_columns(fx, self.lines())["entry_tier_cost_per_1k"], cost.cost_columns(fx2, self.lines())["entry_tier_cost_per_1k"])
+    def test_ac20_display_rounding_is_existing_half_up(self):   # AC20
+        src = (BENCH / "awibench/guard.py").read_text(); self.assertNotRegex(src, r"\bround\(|quantize|ROUND_|Decimal")   # no new rounding code in the contextdev paths
+        self.assertEqual(tables.cost.fmt(2.0), "$2.00"); self.assertEqual(tables.cost.fmt(None), "n/a")
+
+class ContextDevConcurrency(ContextDevBase):
+    def test_ac10a_config_max_concurrent_is_one(self):   # AC10 (a)
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["max_concurrent"], 1)
+    def test_ac10b_adapter_invoked_through_semaphore(self):   # AC10 (b)
+        import threading
+        class Spy:
+            def __init__(s): s.acq = s.rel = 0; s.s = threading.BoundedSemaphore(1)
+            def acquire(s, *a): s.acq += 1; return s.s.acquire(*a)
+            def release(s): s.rel += 1; s.s.release()
+        spy = Spy(); held = []
+        def fn(key, item): held.append(spy.acq - spy.rel); return {"http_status": 200, "billed_units": 1, "results": []}
+        made = []
+        with mock.patch.object(runner.guard, "make_semaphore", side_effect=lambda n: made.append(n) or spy): self.go(n=4, adapters={"contextdev": {"search": fn}})
+        self.assertEqual((made, spy.acq, spy.rel, held), ([1], 4, 4, [1, 1, 1, 1]))
+        spy = Spy()
+        def boom(key, item): raise RuntimeError("HTTP 500: x")
+        with mock.patch.object(runner.guard, "make_semaphore", return_value=spy): self.go(n=2, adapters={"contextdev": {"search": boom}}, run_date="2026-10-27")
+        self.assertEqual((spy.acq, spy.rel), (2, 2))   # a raising adapter still releases
+    def test_ac10c_semaphore_peak_in_flight_is_one(self):   # AC10 (c)
+        import concurrent.futures, threading, time
+        sem = guard_mod.make_semaphore(CFG["free_tier_guard"]["contextdev"]["max_concurrent"]); lock = threading.Lock(); cur = [0]; peak = [0]
+        def fn(key, item):
+            with lock: cur[0] += 1; peak[0] = max(peak[0], cur[0])
+            time.sleep(0.02)
+            with lock: cur[0] -= 1
+            return {"http_status": 200}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex: list(ex.map(lambda i: guard_mod.guarded_call(sem, fn, "k", {"id": i}), range(12)))
+        self.assertEqual(peak[0], 1)
+
+class ContextDevMeter(ContextDevBase):
+    @staticmethod
+    def _fake_urlopen(seen, resp):
+        class R:
+            status = 200
+            def __init__(s, b): s.b = b
+            def read(s): return json.dumps(s.b).encode()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        def fake(req, timeout=None):
+            seen.append(req)
+            if isinstance(resp, Exception): raise resp
+            return R(resp)
+        return fake
+    def test_ac26_guard_uses_max_of_meter_and_counter(self):   # AC26
+        p = self.prov(self.go(n=2, meters={"contextdev": lambda: 900})); self.assertEqual((p["status"], self.calls), ("stale_quota", []))
+        p = self.prov(self.go(n=1, meters={"contextdev": lambda: 899}, ledger="l2.json")); self.assertEqual((p["status"], len(self.calls)), ("ran", 1))
+        self.calls.clear(); self.seed(900); p = self.prov(self.go(n=1, meters={"contextdev": lambda: 0}, run_date="2026-10-27", ledger="l3.json")); self.assertEqual((p["status"], self.calls), ("stale_quota", []))
+    def test_ac26_unreadable_meter_fails_closed(self):   # AC26
+        def boom(): raise RuntimeError("HTTP 500")
+        for m in (boom, lambda: None, lambda: float("nan"), lambda: -1):
+            self.calls.clear(); p = self.prov(self.go(n=2, meters={"contextdev": m}))
+            self.assertEqual((p["status"], self.calls), ("stale_budget", [])); self.assertIn("usage meter unreadable; failing closed", p["reason"])
+    def test_ac26_gap_logged(self):   # AC26
+        self.seed(10); p = self.prov(self.go(n=2, meters={"contextdev": lambda: 25}))
+        self.assertEqual((p["meter_credits"], p["counter_credits"], p["meter_minus_counter"]), (25, 11, 14)); self.assertEqual(self.counter()["attempted"], 12)
+    def test_ac26_meter_client_is_get_only(self):   # AC26: no POST/PUT/PATCH/DELETE from the meter client
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error
+        seen = []
+        def run_with(resp):
+            with mock.patch("urllib.request.urlopen", side_effect=self._fake_urlopen(seen, resp)): return B.contextdev_meter("secret-key-123")
+        self.assertEqual(run_with({"credits_remaining": 600, "period": {"start": "2026-10-01", "credits_used": 400}, "next_refill": "2026-11-01"}), 400)
+        r = seen[0]; self.assertEqual((r.get_method(), r.data, r.full_url), ("GET", None, "https://api.context.dev/v1/org/usage"))
+        self.assertNotIn("secret-key-123", r.full_url); self.assertEqual(r.get_header("Authorization"), "Bearer secret-key-123")
+        for bad in ({"period": None}, {"credits_remaining": 5}, {"period": {"credits_used": "x"}}, {"period": {"credits_used": -1}},
+                    urllib.error.URLError("secret-key-123 down"), urllib.error.HTTPError("u", 403, "forbidden", {}, __import__("io").BytesIO(b"logs:read"))):
+            self.assertIsNone(run_with(bad))
+        self.assertTrue(seen); self.assertTrue(all(q.get_method() not in ("POST", "PUT", "PATCH", "DELETE") and q.get_method() == "GET" and q.data is None for q in seen))
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["meter"], "https://api.context.dev/v1/org/usage")
+    def test_ac26_main_wires_contextdev_meter(self):   # AC26
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = {}
+        class Stop(Exception): pass
+        def fake_run(**kw): seen.update(kw); raise Stop()
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "smoke", "--only-providers", "contextdev"]), \
+             mock.patch.object(B.runner, "run", fake_run), mock.patch.object(B, "contextdev_meter", return_value=42) as cm, \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")), mock.patch("builtins.print"):
+            with self.assertRaises(Stop): B.main()
+            self.assertEqual(seen["meters"]["contextdev"](), 42); self.assertEqual(seen["guard_dir"], SITE / "data" / "spend")
+        cm.assert_called_once_with("mock-dummy")
+
+class ContextDevAdapterAndSecrets(ContextDevBase):
+    def test_adapters_request_shape_and_retry_after(self):   # AC17a/AC17c support: adapter surface
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error, io
+        seen = []
+        resp = lambda req: {"results": [{"url": "https://a.example/", "title": "T", "description": "D", "publishedDate": "2026-10-25"}]} if req.full_url.endswith("search") else {"markdown": "hello", "html": "<p>hello</p>"}
+        def fake(req, timeout=None):
+            seen.append(req)
+            class R:
+                status = 200
+                def read(s): return json.dumps(resp(req)).encode()
+                def __enter__(s): return s
+                def __exit__(s, *a): return False
+            return R()
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            so = B._contextdev_search("k-123", {"query": "q"}); sc = B._contextdev_scrape("k-123", {"url": "https://x.example/"})
+        self.assertEqual(so["results"], [{"url": "https://a.example/", "title": "T", "snippet": "D", "published_at": "2026-10-25"}]); self.assertEqual((so["http_status"], so["billed_units"], sc["billed_units"]), (200, 1, 1))
+        self.assertEqual((sc["text"], sc["html"]), ("hello", "<p>hello</p>"))
+        self.assertEqual([r.full_url for r in seen], ["https://api.context.dev/v1/web/search", "https://api.context.dev/v1/web/scrape"])
+        for r in seen: self.assertEqual(r.get_header("Authorization"), "Bearer k-123"); self.assertNotIn("k-123", r.full_url)
+        def h429(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "1"}, io.BytesIO(b"concurrency"))
+        with mock.patch("urllib.request.urlopen", side_effect=h429):
+            with self.assertRaises(RuntimeError) as cm: B._contextdev_search("k-123", {"query": "q"})
+        self.assertIn("HTTP 429: Retry-After: 1;", str(cm.exception))
+    def test_ac9_secret_canary_absent_everywhere(self):   # AC9
+        import io, random, urllib.error, itertools, contextlib
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        canary = f"awi-canary-{random.SystemRandom().getrandbits(64):016x}"
+        def echo_http(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 500, "boom", {}, io.BytesIO(f"echoed headers: Authorization: Bearer {canary}".encode()))
+        def echo_429(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "1"}, io.BytesIO(f"echoed Authorization: Bearer {canary}".encode()))
+        def echo_url(req, timeout=None): raise urllib.error.URLError(f"connect failed; sent Authorization: Bearer {canary}")
+        def echo_generic(req, timeout=None): raise ValueError(f"bad request headers {dict(req.header_items())}")
+        cyc = itertools.cycle([echo_http, echo_429, echo_url, echo_generic]); out, err = io.StringIO(), io.StringIO()
+        def fake(req, timeout=None): return next(cyc)(req, timeout)
+        errs = []
+        with mock.patch.dict(os.environ, {"CONTEXT_DEV_API_KEY": canary}), mock.patch("urllib.request.urlopen", side_effect=fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            for f in (echo_http, echo_429, echo_url, echo_generic):
+                try: B._contextdev_search(canary, {"query": "q"}); self.fail("no error")
+                except RuntimeError as e: errs.append(str(e))
+                try: B._contextdev_scrape(canary, {"url": "https://x.example/"})
+                except RuntimeError as e: errs.append(str(e))
+            s = self.go(n=6, adapters={"contextdev": B.ADAPTERS["contextdev"]}, env={"CONTEXT_DEV_API_KEY": canary}, meters={"contextdev": lambda: B.contextdev_meter(canary)})
+            self.assertEqual(self.prov(s)["status"].split("_")[0], "stale")   # every call errored
+        blobs = [out.getvalue(), err.getvalue(), json.dumps(s), "\n".join(errs)] + [f.read_text(errors="replace") for f in self.tmp.rglob("*") if f.is_file()]
+        for b in blobs: self.assertNotIn(canary, b)
+        self.assertTrue(any("***" in e for e in errs)); self.assertTrue(list((self.tmp / "runs").rglob("*.jsonl")) or list(self.tmp.rglob("*.json")))
+        self.assertEqual(secrets_scan.scan(SITE), [])
+
+class ContextDevPublish(ContextDevBase):
+    P0 = {"model": "credits", "credits_per_call": {"search": 1, "scrape": 1}, "source_url": "https://www.context.dev/pricing", "checked_at": "2026-10-26",
+          "free_tier": {"units_per_month": 1000, "needs_card": False, "pool": "contextdev"}, "tiers": {"entry": {"name": "E", "usd_per_credit": 0.004}, "volume": {"name": "NOT CAPTURED"}}}
+    P1 = {"terms_url": "https://www.context.dev/term", "checked_at": "2026-10-26", "allowed": "yes", "verdict": "allowed", "full_read": True,
+          "benchmarking": {"status": "allowed", "quote": "q"}, "publishing_results": {"status": "allowed", "quote": "q"}, "anti_bot_scraping": {"status": "unclear", "quote": "q"}}
+    def _runs(self, tos=None, pricing=None):
+        self.go(n=5, tos=tos, pricing=pricing); return self.tmp / "runs"
+    def _built(self, runs, pricing, tos, cfg): return tables.build(runs, pricing, self.tmp / "sets", tos, cfg)
+    def _rows(self, doc): return [r for t in doc["tables"].values() for r in t if r["provider"] == "contextdev"]
+    def _gate_inputs(self): return self.pricing | {"contextdev": {"search": self.P0, "scrape": self.P0}}, self.tos | {"contextdev": self.P1}
+    def test_ac23_p0_only_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; p0, _ = self._gate_inputs()
+        self.assertEqual(self._rows(self._built(runs, p0, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", p0, self.tos)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())   # run logs written in every case
+    def test_ac23_p1_only_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; _, t1 = self._gate_inputs()
+        self.assertEqual(self._rows(self._built(runs, self.pricing, t1, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, t1)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
+    def test_ac23_neither_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}
+        self.assertEqual(self._rows(self._built(runs, self.pricing, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
+    def test_ac23_both_passes_the_gate(self):   # AC23 (still held in this build by AC24)
+        runs = self._runs(); p0, t1 = self._gate_inputs()
+        self.assertTrue(tables.publish_gate("contextdev", p0, t1)[0]); self.assertTrue(self._rows(self._built(runs, p0, t1, self.cfg | {"publish_hold": []})))
+        for bad in ({"full_read": False}, {"allowed": None}, {"verdict": "unverified"}, {"publishing_results": {"status": "forbidden", "quote": "q"}}, {"benchmarking": {"status": "forbidden", "quote": "q"}}):
+            self.assertFalse(tables.publish_gate("contextdev", p0, self.tos | {"contextdev": self.P1 | bad})[0], bad)
+        for bad in ({"source_url": "NOT CAPTURED"}, {"checked_at": ""}, {"tiers": {"entry": {"name": "E", "usd_per_credit": "NOT CAPTURED"}}}):
+            self.assertFalse(tables.publish_gate("contextdev", {"contextdev": {"search": self.P0 | bad}}, t1)[0], bad)
+    def test_ac23_committed_files_keep_gate_closed(self):   # AC23: real pricing.yaml + tos_matrix.yaml
+        ok, why = tables.publish_gate("contextdev", self.pricing, self.tos); self.assertFalse(ok); self.assertEqual(why, "P0 pricing not passed; P1 terms not passed")
+        self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
+    def test_ac24_publish_hold_holds_even_when_gate_passes(self):   # AC24
+        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        self.assertEqual(self._rows(self._built(runs, p0, t1, self.cfg)), [])   # gate passes, publish_hold still holds it
+        self.assertTrue(self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})))   # control: the logs do build a row
+        self.assertIn("contextdev", tables.held_providers(self.cfg, p0, t1))
+    def test_ac24_run_logs_cost_na_when_published_unheld(self):   # AC2/AC24 support: no price -> cost n/a even if a row were built
+        runs = self._runs(); L = read_jsonl(runs / "2026-10-26/contextdev/search_evergreen.jsonl"); self.assertEqual(len(L), 5)
+        doc = self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})
+        r = self._rows(doc)[0]; self.assertEqual((r["entry_tier_cost_per_1k"]["display"], r["volume_tier_cost_per_1k"]["display"]), ("n/a", "n/a"))
+    def test_ac5_forbidden_publishing_results_or_benchmarking_excludes(self):   # AC5
+        runs = self._runs()
+        for clause in ("publishing_results", "benchmarking"):
+            tos = self.tos | {"contextdev": self.tos["contextdev"] | {clause: {"status": "forbidden", "quote": "no comparisons"}}}
+            doc = self._built(runs, self.pricing, tos, self.cfg | {"publish_hold": [], "publish_gate": []})
+            self.assertEqual(self._rows(doc), []); ex = [e for e in doc["exclusions"] if e["provider"] == "contextdev"]
+            self.assertEqual((len(ex), ex[0]["quote"], ex[0]["reason"]), (1, "no comparisons", f"terms forbid {clause.replace('_', ' ')}"))
+        tos = self.tos | {"contextdev": self.tos["contextdev"] | {"publishing_results": {"status": "forbidden", "quote": "q"}}}
+        self.calls.clear(); p = self.prov(self.go(n=2, tos=tos, run_date="2026-10-27")); self.assertEqual((p["status"], self.calls), ("excluded_tos_benchmarking", []))
+        self.assertIn("terms forbid publishing results", p["reason"]); self.assertTrue(runner.benchmark_forbidden(tos["contextdev"])); self.assertFalse(runner.benchmark_forbidden(self.tos["contextdev"]))
+        for f in (SITE / "data/benchmarks").glob("*"):   # nothing contextdev in the committed published data
+            if f.is_file(): self.assertNotIn("contextdev", f.read_text(errors="replace").lower().replace("-", ""))
+    def test_ac24_strip_held_and_fresh_data(self):   # AC24
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        row = lambda pid: {"provider": pid, "attempted": {"v": 3}}
+        doc = {"tables": {"search": [row("contextdev"), row("exa")], "scrape": [], "browser": []}, "freshness": [{"provider": "contextdev"}], "not_run_yet": [{"provider": "contextdev"}],
+               "skips": [{"provider": "contextdev"}, {"scope": "set", "set": "s"}], "run_summary": {"providers": [{"provider": "contextdev"}, {"provider": "exa"}]}}
+        tables.strip_held(doc, {"contextdev"}); self.assertNotIn("contextdev", json.dumps(doc)); self.assertEqual(len(doc["skips"]), 1)
+        s = {"providers": [{"provider": "contextdev", "status": "ran", "data_calls": 3}]}
+        self.assertTrue(B.fresh_data(s)); self.assertFalse(B.fresh_data(s, {"contextdev"}))
+
+class ContextDevDocs(unittest.TestCase):
+    def test_ac28_docs_describe_the_provider_and_match_code(self):   # AC28
+        docs = {n: (SITE / n).read_text() for n in ("README.md", "bench/README.md", "SPEC-bench.md")}
+        for n, t in docs.items():
+            for needle in ("Context.dev", "skipped_no_vendor_confirmation", "live_run_allowed", "grant-anchor", "exclude_from_also_priced", "publish_hold", "USAGE_EXCEEDED", "max_concurrent"):
+                self.assertIn(needle, t, (n, needle))
+        b = docs["bench/README.md"]
+        for needle in ("900", "cap 1", "contextdev_credits", "contextdev_billed", "anchor_window_start", "Retry-After", "publish_gate", "ceil("):
+            self.assertIn(needle, b, needle)
+        g = CFG["free_tier_guard"]["contextdev"]
+        self.assertEqual((g["max_concurrent"], g["stop_at_credits"], g["retry_after_429_s"]), (1, 900, 1))
+        for t in docs.values(): self.assertNotRegex(t, r"also_priced_line|2-slot|max_concurrent\W+\(?2\)?|Monday fallback")   # stale rev-1/rev-2 wording
+
+
+class VendorConfirmationGate(ContextDevBase):
+    """AWI-PROVIDER-CONTEXTDEV-001 R10 (AC24a-24f). MOCK ONLY."""
+    REQ = {"vendor_confirmation_required": True}
+    FULL = {"date": "2026-11-01", "sender": "A Person, a@example.invalid", "quote": "you may publish", "evidence_path": "meta/x.md", "recorded_pr": "pr"}
+    def test_ac24a_truth_table(self):   # AC24a
+        vc = gates_mod.vendor_confirmed
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": None})); self.assertFalse(vc(self.REQ))
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "sender"}}))   # no sender
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"date": ""}}))
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k not in ("quote", "evidence_path")}}))   # neither quote nor evidence
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": "yes"}))
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL}))
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "quote"}}))   # evidence_path alone
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "evidence_path"}}))   # quote alone
+        self.assertTrue(vc({"vendor_confirmation_required": False})); self.assertTrue(vc({})); self.assertTrue(vc(None))
+        real = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 15)
+        for pid in old:
+            self.assertTrue(gates_mod.vendor_confirmed(real[pid]), pid); self.assertNotIn("vendor_confirmation_required", real[pid], pid)
+            if pid != "contextdev": self.assertTrue(gates_mod.publishable(pid, self.pricing, real), pid)
+    def test_ac24a_gate_holds_publishing(self):   # AC24a: a gated provider publishes nothing until the record is complete; full record passes this gate only
+        runs = self.tmp / "runs"; f = runs / "2026-10-26" / "gatedp" / "search_evergreen.jsonl"; f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"ts": "2026-10-26T11:00:00+00:00", "status": "pass", "item_id": "i1", "set_sha": "x", "set_rows": 1, "latency_ms": 5, "billed_units": 1, "mock": True}) + "\n")
+        base = {"terms_url": "https://x.example/t", "checked_at": "2026-10-25", "allowed": "yes"}
+        def rows(entry): return [r for t in tables.build(runs, {}, None, {"gatedp": entry}, {})["tables"].values() for r in t]
+        self.assertEqual(rows(base | self.REQ | {"vendor_confirmation": None}), [])
+        self.assertEqual(rows(base | self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "sender"}}), [])
+        self.assertEqual(len(rows(base | self.REQ | {"vendor_confirmation": self.FULL})), 1)
+        self.assertEqual(len(rows(base)), 1)   # not required: unaffected
+    def test_ac24b_committed_files_closed(self):   # AC24b: the real committed files
+        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        for pid in ("keenable", "contextdev"):
+            self.assertIs(tos[pid]["vendor_confirmation_required"], True); self.assertIsNone(tos[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(tos[pid]), pid)
+        k = tos["keenable"]
+        self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
+        self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
+        self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
+        self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+    def test_ac24c_keenable_never_renders(self):   # AC24c: fixture logs with keenable rows + a pricing fixture entry; data JSON and a flattened CSV carry no keenable
+        runs = self.tmp / "runs"
+        for ps, st in (("keenable", "pass"), ("mockp", "pass")):
+            for sname in ("search_evergreen", "news_2026-W43"):
+                f = runs / "2026-10-26" / ps / f"{sname}.jsonl"; f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(json.dumps({"ts": "2026-10-26T11:00:00+00:00", "status": st, "item_id": "i1", "set_sha": "x", "set_rows": 1, "latency_ms": 5, "billed_units": 1, "mock": True, "results": []}) + "\n")
+        pricing = {"keenable": {"search": mocks.pricing_fixture("credits")}, "mockp": {"search": mocks.pricing_fixture("credits")}}
+        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        cfg = {"month1_free_tier_providers": ["keenable", "mockp"], "publish_hold": [], "publish_gate": []}
+        summary = {"providers": [{"provider": "keenable", "category": "search", "status": "skipped_no_vendor_confirmation"}, {"provider": "mockp", "category": "search", "status": "ran"}]}
+        for t in (tos, tos | {"keenable": tos["keenable"] | {"benchmarking": {"status": "allowed", "quote": "q"}, "allowed": "yes"}}):   # forbidden or not: still hidden
+            doc = tables.build(runs, pricing, self.tmp / "sets", t, cfg); self.assertNotIn("keenable", json.dumps(doc).lower())   # build() alone, before strip_held
+            doc["not_run_yet"] = tables.not_run_yet(summary, cfg, doc); doc["run_summary"] = summary; doc["skips"] = [{"provider": "keenable", "status": "x"}]
+            tables.strip_held(doc, tables.held_providers(cfg, pricing, t))
+            js = json.dumps(doc); csv = "\n".join(",".join(str(r[k]) for k in ("provider", "set", "run_date")) for tb in doc["tables"].values() for r in tb)
+            for blob in (js, csv): self.assertNotIn("keenable", blob.lower())
+            self.assertEqual({r["provider"] for tb in doc["tables"].values() for r in tb}, {"mockp"})   # others unaffected
+            self.assertNotIn("keenable", [e["provider"] for e in doc["exclusions"]])
+        # runner: a synthetic keenable run summary never reaches the published run_summary
+        s = self.go(providers=[{"id": "keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}] + self.prov_def(), env={"KEENABLE_API_KEY": "dummy-not-a-key", "CONTEXT_DEV_API_KEY": "mock-key"})
+        doc = {"tables": {}, "run_summary": s}; tables.strip_held(doc, tables.held_providers(cfg, pricing, tos)); self.assertNotIn("keenable", json.dumps(doc).lower())
+    def _code_files(self, root):
+        out = []
+        for base in (root, root.parent / "agentwebindex-site", Path("/workspace/.cache/agentwebindex-site")):
+            if not base.is_dir(): continue
+            for f in base.rglob("*"):
+                if f.suffix in (".py", ".js", ".sh") and f.is_file() and not {"tests", "__pycache__", "node_modules", ".git", "dist"} & set(f.relative_to(base).parts): out.append(f)
+        return out
+    def test_ac24d_one_function(self):   # AC24d: this repo plus ../agentwebindex-site when present (skipped gracefully when absent)
+        files = self._code_files(SITE)
+        defs = [f for f in files if re.search(r"^\s*def vendor_confirmed\b", f.read_text(errors="replace"), re.M)]
+        self.assertEqual([f.name for f in defs], ["gates.py"])
+        self.assertEqual(len(re.findall(r"^\s*def vendor_confirmed\b", defs[0].read_text(), re.M)), 1)
+        for f in files:   # the key is read only inside vendor_confirmed (gates.py); every other module goes through the function
+            txt = f.read_text(errors="replace")
+            if f.name == "gates.py": self.assertEqual(len(re.findall(r"vendor_confirmation_required", txt)), 2, "docstring + the one check"); continue
+            self.assertNotRegex(txt, r"""["']vendor_confirmation_required["']""", str(f))
+        for mod in ("tables.py", "guard.py", "runner.py"): self.assertRegex((BENCH / "awibench" / mod).read_text(), r"gates|vendor_confirmed", mod)
+        self.assertRegex((SITE / "collectors/benchmark.py").read_text(), r"from awibench import .*\bgates\b")
+        self.assertIs(tables.vendor_confirmed, gates_mod.vendor_confirmed); self.assertIs(guard_mod.vendor_confirmed, gates_mod.vendor_confirmed)
+    def test_ac24e_confirmation_diff_checker(self):   # AC24e
+        cd = confirmation_diff
+        flip = ("diff --git a/bench/tos_matrix.yaml b/bench/tos_matrix.yaml\n--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1 @@\n"
+                '-   "vendor_confirmation": null,\n+   "vendor_confirmation": {\n')
+        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/README.md", "bench/tests/test_bench.py"], flip), [])   # data + docs + tests only: fine
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], flip)), 1)
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "collectors/benchmark.py"], flip)), 1)
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", ".github/workflows/x.yml"], flip)), 1)
+        cfgflip = flip.replace("tos_matrix", "config").replace("vendor_confirmation", "live_run_allowed")
+        self.assertEqual(len(cd.check(["bench/config.yaml", "bench/awibench/runner.py"], cfgflip)), 1)
+        rec = flip.replace('-   "vendor_confirmation": null,\n+   "vendor_confirmation": {\n', '-    "sender": "a",\n+    "sender": "b",\n')
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], rec)), 1)   # editing a field of the record counts
+        other = flip.replace('"vendor_confirmation"', '"vendor_confirmation_required"')
+        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], other), [])   # the _required flag is not a confirmation value
+        code_only = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n"
+        self.assertEqual(cd.check(["x.py"], code_only), [])
+        notdata = "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-vendor_confirmation: null\n+vendor_confirmation: x\n"
+        self.assertEqual(cd.check(["README.md", "x.py"], notdata), [])   # docs mentioning the key do not trigger it
+        # committed values stay null
+        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        for pid in ("keenable", "contextdev"): self.assertIsNone(tos[pid]["vendor_confirmation"])
+        self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        # CLI over a throwaway git repo (no network)
+        import subprocess
+        r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True); (r / "bench/tos_matrix.yaml").write_text('{\n "vendor_confirmation": null\n}\n')
+        (r / "bench/awibench/gates.py").write_text("a=1\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        (r / "bench/tos_matrix.yaml").write_text('{\n "vendor_confirmation": {"date": "d"}\n}\n'); git("commit", "-qam", "flip")
+        with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(confirmation_diff.main(["main"]), 0)
+            (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code"); self.assertEqual(confirmation_diff.main(["main"]), 1)
+    def test_ac24f_keenable_no_adapter_zero_calls(self):   # AC24f
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        self.assertNotIn("keenable", B.ADAPTERS)
+        prov = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}
+        self.assertNotIn("keenable", [p["id"] for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"]])
+        for fn in ("pricing.yaml", "config.yaml"): self.assertNotIn("keenable", (BENCH / fn).read_text().lower())
+        self.assertEqual(B.keyed_providers([prov], {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])
+        adapters = {"keenable": {"search": self.ad_search}}   # even a (synthetic) adapter must not be reached
+        pricing = self.pricing | {"keenable": {"search": mocks.pricing_fixture("credits")}}
+        for cfg in (mocks.mock_cfg(CFG), self.cfg):
+            s = self.go(providers=[prov], adapters=adapters, pricing=pricing, cfg=cfg, env={"KEENABLE_API_KEY": "dummy-not-a-key"})
+            self.assertEqual((self.prov(s, "keenable")["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        self.assertFalse(guard_mod.live_allowed({"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": "x"}}}, self.tos, "keenable"))
+        self.assertFalse((self.tmp / "runs").exists())
+
+
+class SnapshotPricesGate(unittest.TestCase):
+    def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
+        sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        ids = [p["id"] for p in S.snapshot_providers(provs, tos)]
+        self.assertNotIn("contextdev", ids)
+        self.assertEqual(len(ids), 15)

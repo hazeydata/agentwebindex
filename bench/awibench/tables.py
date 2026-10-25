@@ -6,9 +6,10 @@ python -m awibench.tables RUNS_DIR OUT_JSON [--pricing PRICING] [--sets SETS_DIR
 import argparse, datetime as dt, json, statistics, sys
 from collections import defaultdict
 from pathlib import Path
-from .util import BENCH, load_yaml, read_jsonl
+from .util import BENCH, load_yaml, read_jsonl, not_captured
 from . import cost, freshness, checks
-from .runner import set_kind, is_rate_limited, quota_degraded
+from .gates import vendor_confirmed, publishable
+from .runner import set_kind, is_rate_limited, quota_degraded, forbidden_clause
 
 def _cell(v, refs, **extra): return {"v": v, "src": refs, **extra} if v is not None else {"v": None, "src": [], **extra}
 
@@ -56,9 +57,43 @@ def collect(runs_dir):
     return out
 
 def exclusions(tos):
-    from .runner import benchmark_forbidden
-    return [{"provider": pid, "reason": "terms forbid benchmarking", "quote": t["benchmarking"].get("quote"), "terms_url": t.get("terms_url"),
-             "checked_at": t.get("checked_at"), "note": t.get("note")} for pid, t in sorted((tos or {}).items()) if benchmark_forbidden(t)]
+    return [{"provider": pid, "reason": f"terms forbid {c.replace('_', ' ')}", "quote": t[c].get("quote"), "terms_url": t.get("terms_url"),
+             "checked_at": t.get("checked_at"), "note": t.get("note")} for pid, t in sorted((tos or {}).items()) if vendor_confirmed(t) and (c := forbidden_clause(t))]   # R10: a gated, unconfirmed provider is not named anywhere in published output
+
+def publish_gate(pid, pricing, tos):
+    """AWI-PROVIDER-CONTEXTDEV-001 AC23. (ok, reason); both gates must pass.
+    P0: every category in pricing.yaml has a numeric entry price plus a source_url and checked_at that are not NOT CAPTURED.
+    P1: tos_matrix has full_read true, verdict 'allowed', allowed 'yes', and neither benchmarking nor publishing_results forbidden."""
+    pe = (pricing or {}).get(pid) or {}; cats = [c for c, v in pe.items() if isinstance(v, dict) and "tiers" in v]
+    def real(v): return isinstance(v, str) and v.strip() != "" and not not_captured(v)
+    p0 = bool(cats) and all(cost.billed_usd(pe[c], "entry", []) is not None and real(pe[c].get("source_url")) and real(pe[c].get("checked_at")) for c in cats)
+    t = (tos or {}).get(pid) or {}
+    p1 = t.get("full_read") is True and t.get("verdict") == "allowed" and t.get("allowed") == "yes" and forbidden_clause(t) is None
+    return p0 and p1, f"P0 pricing {'passed' if p0 else 'not passed'}; P1 terms {'passed' if p1 else 'not passed'}"
+
+def held_providers(cfg, pricing, tos):
+    """Providers kept out of every published table: config publish_hold (this build) plus any publish_gate provider whose P0/P1 + R10 gate is not passed, plus any tos_matrix provider whose vendor confirmation is required and missing."""
+    held = set((cfg or {}).get("publish_hold") or [])
+    held |= {pid for pid in ((cfg or {}).get("publish_gate") or []) if not publishable(pid, pricing, tos)}
+    return held | {pid for pid, t in (tos or {}).items() if not vendor_confirmed(t)}   # R10: every gated provider without a confirmation record
+
+def strip_held(doc, held):
+    """Remove held providers from every published section of a latest.json doc (run logs under bench/runs keep them)."""
+    if not held: return doc
+    for kind in doc["tables"]: doc["tables"][kind] = [r for r in doc["tables"][kind] if r["provider"] not in held]
+    for k in ("freshness", "not_run_yet", "skips", "freshness_notes"):
+        if k in doc: doc[k] = [r for r in doc[k] if r.get("provider") not in held]
+    if isinstance(doc.get("run_summary"), dict):
+        doc["run_summary"] = doc["run_summary"] | {"providers": [p for p in doc["run_summary"]["providers"] if p["provider"] not in held]}
+    doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
+    return doc
+
+def also_priced_providers(pricing, latest, providers):
+    """Names of providers in pricing.yaml with no published row in latest.json (the site's untested_providers rule), minus providers whose
+    providers.json entry has exclude_from_also_priced true (R3, AWI-PROVIDER-CONTEXTDEV-001; absent = false). Order follows pricing.yaml."""
+    published = {r["provider"] for t in ((latest or {}).get("tables") or {}).values() for r in t}
+    meta = {p["id"]: p for p in providers}
+    return [meta.get(pid, {}).get("name", pid) for pid in pricing if pid not in published and meta.get(pid, {}).get("exclude_from_also_priced") is not True]
 
 GRADED_REASONS = {"url_exact in top10", "url_exact not in top10", "domain in top5", "domain not in top5", "snippet match", "snippet not found in top5"}
 
@@ -78,7 +113,7 @@ def regrade(set_name, lines, sets_dir):
 def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
     logs = collect(runs_dir); doc = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                                      "source": "run logs only (SPEC-bench §4)", "tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}
-    doc["exclusions"] = exclusions(tos); excluded = {e["provider"] for e in doc["exclusions"]}
+    doc["exclusions"] = exclusions(tos); excluded = {e["provider"] for e in doc["exclusions"]} | held_providers(cfg, pricing, tos)   # excluded + held: no row
     for (pid, set_name), (rel, lines) in sorted(logs.items()):
         if pid in excluded: continue          # never shown in benchmark tables, even if a stray log exists
         kind = set_kind(set_name); lines, gv = regrade(set_name, lines, sets_dir)

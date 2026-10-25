@@ -13,7 +13,9 @@ import argparse, datetime as dt, difflib, hashlib, html, json, re, sys, urllib.r
 from html.parser import HTMLParser
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(ROOT / "bench"))
+from awibench import gates   # noqa: E402  R10 shared vendor-confirmation gate
+from awibench.util import load_yaml   # noqa: E402
 PRICES = ROOT / "data" / "prices"
 CACHE = ROOT / "data" / "cache" / "prices"   # gitignored; uploaded as an Actions artifact
 UA = "AgentWebIndexBot/1.0 (+price-history; one fetch per day)"
@@ -39,9 +41,14 @@ def fetch(url, timeout=30):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read(5_000_000).decode(r.headers.get_content_charset() or "utf-8","replace")
 
+def snapshot_providers(provs, tos):
+    """AWI-PROVIDER-CONTEXTDEV-001 R10: a provider still waiting for written vendor confirmation (gates.vendor_confirmed) is not
+    fetched and gets no published data/prices file (Context.dev today)."""
+    return [p for p in provs if gates.vendor_confirmed((tos or {}).get(p["id"]))]
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--only", nargs="*"); a=ap.parse_args()
-    provs=json.loads((ROOT/"collectors/providers.json").read_text())["providers"]
+    provs=snapshot_providers(json.loads((ROOT/"collectors/providers.json").read_text())["providers"], load_yaml(ROOT/"bench/tos_matrix.yaml")["providers"])
     (PRICES/"history").mkdir(parents=True, exist_ok=True); CACHE.mkdir(parents=True, exist_ok=True)
     now=dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     summary=[]
