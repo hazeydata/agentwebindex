@@ -2766,7 +2766,8 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertEqual(cd.check([T, C, cyc + "evidence/vendor-reply.eml", cyc + "summary.md", cyc + "decisions.md", "cycles/x/evidence/r.txt"], base, head), [])
         for extra in ("bench/tests/test_bench.py", "bench/pricing.yaml", "collectors/providers.json", "README.md", "bench/README.md",
                       "bench/awibench/runner.py", ".github/workflows/confirmation-diff.yml", "cycles/x/notes.md",
-                      cyc + "evidence/sub/reply.txt", "cycles/x/evidence/a/b.txt"):   # M23: evidence is ONE path segment
+                      cyc + "evidence/sub/reply.txt", "cycles/x/evidence/a/b.txt",
+                      "cycles/README.md", cyc + "README.md", cyc + "notes.md", "cycles/summary.md", "cycles/x/y/summary.md"):   # F12: only cycles/<slug>/{summary,decisions}.md   # M23: evidence is ONE path segment
             self.assertEqual(len(cd.check([T, C, extra], base, head)), 1, extra)
         self.assertEqual(cd.check([T], base, base), [])                                                           # no change: nothing to check
     def test_ac24e_kitty_probe_cases_all_fail(self):   # AC24e: every Kitty v2 probe, plus the v1 field cases, is rejected
@@ -2796,7 +2797,31 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertEqual(len(case(lambda b, h: tos(h)["contextdev"].pop("vendor_confirmation"), files=(T, "x.py"), flip=False)), 1)   # removal counts
         # not a flip: a non-confirmation field changed with code is an ordinary PR
         self.assertEqual(case(lambda b, h: tos(h)["contextdev"]["benchmarking"].update(quote="x"), files=(T, "x.py"), flip=False), [])
-        self.assertEqual(case(lambda b, h: tos(h)["contextdev"].update(vendor_confirmation_required=False), files=(T, "x.py"), flip=False), [])
+    def test_ac24h_gate_cannot_be_lowered(self):   # AC24h: any PR; no override exists
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; files = [T, "bench/awibench/x.py"]
+        def run(mut, flip=False):
+            base, head = self._cd_docs()
+            if flip: self._flip(head)
+            mut(head[T]["providers"]); return cd.check(files if not flip else [T, C], base, head)
+        lowered = {
+            "true -> false": lambda p: p["contextdev"].update(vendor_confirmation_required=False),
+            "true -> null": lambda p: p["keenable"].update(vendor_confirmation_required=None),
+            "true -> 'true' string": lambda p: p["keenable"].update(vendor_confirmation_required="true"),
+            "key deleted": lambda p: p["keenable"].pop("vendor_confirmation_required"),
+            "entry deleted": lambda p: p.pop("keenable"),
+            "entry renamed": lambda p: p.update(context_dev=p.pop("contextdev")),
+        }
+        for name, mut in lowered.items():
+            r = run(mut); self.assertTrue(any("AC24h" in x for x in r), (name, r))   # deleting an entry also removes its confirmation fields (flip rule fires too)
+            self.assertTrue(any("AC24h" in x for x in run(mut, flip=True)), name)           # also inside an otherwise valid flip PR
+        base, head = self._cd_docs(); head[T] = None
+        self.assertTrue(any("AC24h" in x for x in cd.check(files, base, head)))            # unparsable head: fail closed
+        # positive controls: unrelated changes pass
+        self.assertEqual(run(lambda p: p["contextdev"]["benchmarking"].update(quote="new reading")), [])
+        self.assertEqual(run(lambda p: p.update(newco={"allowed": "yes"})), [])               # adding an ungated provider
+        self.assertEqual(run(lambda p: p.pop("exa")), [])                                    # deleting an entry WITHOUT the flag is not AC24h
+        self.assertEqual(run(lambda p: p.update(newgate={"vendor_confirmation_required": True, "vendor_confirmation": None})), [])   # raising the gate is fine
+        self.assertFalse(hasattr(cd, "OVERRIDE") or "override" in (BENCH / "awibench/confirmation_diff.py").read_text().lower().replace("no override", ""))
     def test_ac24e_bootstrap_allowance_closed_defaults_only(self):   # AC24e: the PR that introduces a gated provider (entries start closed) may carry code
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
         base, head = self._cd_docs(); files = [T, C, "bench/awibench/runner.py"]
@@ -2807,7 +2832,7 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertEqual(len(cd.check(files, base, h2)), 1)
         h3 = __import__("copy").deepcopy(head); h3[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True
         self.assertEqual(len(cd.check(files, base, h3)), 1)                                                      # new field, but not the closed default
-        self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 1)                                    # unparsable head: fail closed
+        self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 2)                                    # unparsable head: fail closed (flip + AC24h)
         b4 = __import__("copy").deepcopy(base); b4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
         h4 = __import__("copy").deepcopy(head); h4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
         self.assertEqual(len(cd.check(files, b4, h4)), 1)                                                        # already confirmed elsewhere (unchanged): no allowance
@@ -2891,3 +2916,8 @@ class NoVendorMailPath(unittest.TestCase):
         for f in list(SITE.glob("bench/awibench/*.py")) + list(SITE.glob("collectors/*.py")) + list(SITE.glob(".github/workflows/*.yml")) + list(SITE.glob("*.sh")):
             hits += [f"{f.name}:{i}" for i, l in enumerate(f.read_text(errors="replace").splitlines(), 1) if pat.search(l)]
         self.assertEqual(hits, [])
+        # positive control: the same pattern catches each mail-send form it is meant to catch
+        for bad in ("import smtplib", "os.system('sendmail x')", "send_mail(to)", "smtplib.SMTP('h')", "href='mailto:x'", "to='hello@context.dev'",
+                    "gmail.users().messages().send()", "import sendgrid", "requests.post(mailgun)", "postmark.send()", "POST /messages/send"):
+            self.assertRegex(bad, pat, bad)
+        self.assertNotRegex("vendor_confirmation_required = True", pat)

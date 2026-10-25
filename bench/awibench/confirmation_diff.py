@@ -18,6 +18,10 @@ false) is not a confirmation change, but only while nothing is confirmed at the 
 free_tier_guard entry holds any non-null vendor_confirmation, complete or not, and no config entry has live_run_allowed true). This lets the
 PR that introduces a gated provider carry code. A removed field, a changed value, or a head with anything confirmed still counts.
 
+AC24h (any PR, flip or not): the gate itself may not be lowered. It fails when, between base and head, a tos_matrix provider that has
+`gates.REQUIRED_KEY` at the base loses it, has it changed from true to anything else, or the provider entry is deleted or renamed
+(absent at head under the same id). There is no override: lowering the gate needs a separate Fred or CEO ruling.
+
 check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
 CLI: python -m awibench.confirmation_diff [BASE]    (default origin/main; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems)
 """
@@ -26,7 +30,7 @@ from pathlib import Path
 
 TOS, CFG = "bench/tos_matrix.yaml", "bench/config.yaml"
 DATA_FILES = {TOS, CFG}
-FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/]+/(summary\.md|decisions\.md|evidence/[^/]+)$")
+FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/]+/(summary\.md|decisions\.md|evidence/[^/]+)$")   # cycles/<slug>/ only
 MISSING = object()
 
 def flip_allowed_path(f): return f in DATA_FILES or bool(FLIP_PATH.match(f))
@@ -59,7 +63,22 @@ def head_confirmed(head):
     entries = [e for e in list((tos.get("providers") or {}).values()) + list((cfg.get("free_tier_guard") or {}).values()) if isinstance(e, dict)]
     return any(e.get("vendor_confirmation") is not None or e.get("live_run_allowed") is True for e in entries)
 
+def gate_lowered(base, head):
+    """AC24h: problems for every provider whose required-confirmation flag is dropped, lowered, or whose entry is deleted/renamed."""
+    from .gates import REQUIRED_KEY
+    bp = ((base.get(TOS) or {}).get("providers") or {}) if isinstance(base.get(TOS), dict) else {}
+    hp = ((head.get(TOS) or {}).get("providers") or {}) if isinstance(head.get(TOS), dict) else {}
+    out = []
+    for pid, e in sorted(bp.items()):
+        if not isinstance(e, dict) or REQUIRED_KEY not in e: continue
+        h = hp.get(pid)
+        if not isinstance(h, dict): out.append(f"{pid}: gated tos_matrix entry deleted or renamed")
+        elif REQUIRED_KEY not in h: out.append(f"{pid}: {REQUIRED_KEY} deleted")
+        elif e[REQUIRED_KEY] is True and h[REQUIRED_KEY] is not True: out.append(f"{pid}: {REQUIRED_KEY} lowered from true")
+    return [f"AC24h: the vendor-confirmation gate may not be lowered ({'; '.join(out)}); that needs a separate Fred or CEO ruling"] if out else []
+
 def check(changed_files, base, head):
+    lowered = gate_lowered(base, head)
     confirmed = head_confirmed(head)
     flips, other = set(), []
     for f in sorted(DATA_FILES):
@@ -68,11 +87,11 @@ def check(changed_files, base, head):
             if pid is None: other.append((f, path, pid)); continue
             if not confirmed and old is MISSING and new in (None, False): continue   # bootstrap: new field at the closed default
             flips.add(pid); other.append((f, path, pid))
-    if not flips: return []
+    if not flips: return lowered
     bad = sorted(f for f in changed_files if not flip_allowed_path(f))
     if len(flips) > 1: bad.append(f"more than one provider flipped ({', '.join(sorted(flips))})")
     bad += [f"{f}: {'.'.join(p)}" for f, p, pid in other if pid is None]
-    return [f"confirmation flip is not flip-only (R13): {'; '.join(bad)}. Record the vendor reply alone (that provider's confirmation fields, the evidence file, summary.md/decisions.md); everything else goes in its own PR"] if bad else []
+    return ([f"confirmation flip is not flip-only (R13): {'; '.join(bad)}. Record the vendor reply alone (that provider's confirmation fields, the evidence file, summary.md/decisions.md); everything else goes in its own PR"] if bad else []) + lowered
 
 def parse(text):
     """Parse a committed yaml file (JSON-compatible flow YAML; PyYAML if installed). None when absent or unparsable."""
