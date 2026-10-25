@@ -2755,7 +2755,7 @@ class VendorConfirmationGate(ContextDevBase):
     REC = {"date": "2026-10-30", "sender": "A, a@context.dev", "quote": "You may benchmark and publish.", "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "u"}
     def _flip(self, head, cfg_too=True):
         head["bench/tos_matrix.yaml"]["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
-        if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": {"date": "2026-10-30"}}
+        if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
         return head
     def test_ac24e_flip_only_allowlist(self):   # AC24e (R13): structural, field-level
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
@@ -2783,7 +2783,7 @@ class VendorConfirmationGate(ContextDevBase):
             "flip + sender in an unrelated tos record": lambda b, h: tos(h)["exa"].update(sender="b"),
             "flip + other tos field (checked_at)": lambda b, h: tos(h)["contextdev"].update(checked_at="2026-10-30"),
             "flip + other config field (stop_at_credits)": lambda b, h: g(h).update(stop_at_credits=990),
-            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "d", "sender": "s", "quote": "q"}),
+            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "d", "sender": "s", "quote": "q", "recorded_pr": "u"}),
             "flip + keenable benchmarking.quote": lambda b, h: tos(h)["keenable"]["benchmarking"].update(quote="x"),
         }
         for name, mut in probes.items(): self.assertEqual(len(case(mut)), 1, name)
@@ -2842,13 +2842,13 @@ class VendorConfirmationGate(ContextDevBase):
         del base[T]["providers"]["contextdev"]; del base[C]["free_tier_guard"]["contextdev"]                         # base: provider absent
         self.assertEqual(cd.check(files, base, head), [])                                                        # new nulls/false, nothing confirmed: allowed
         self.assertEqual(len(cd.check(files, base, self._flip(__import__("copy").deepcopy(head)))), 1)            # new provider arriving confirmed: no allowance
-        h2 = __import__("copy").deepcopy(head); h2[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}   # something else confirmed at head
+        h2 = __import__("copy").deepcopy(head); h2[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)   # something else confirmed at head
         self.assertEqual(len(cd.check(files, base, h2)), 1)
         h3 = __import__("copy").deepcopy(head); h3[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True
         self.assertEqual(len(cd.check(files, base, h3)), 1)                                                      # new field, but not the closed default
         self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 2)                                    # unparsable head: fail closed (flip + AC24h)
-        b4 = __import__("copy").deepcopy(base); b4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
-        h4 = __import__("copy").deepcopy(head); h4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
+        b4 = __import__("copy").deepcopy(base); b4[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)
+        h4 = __import__("copy").deepcopy(head); h4[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)
         self.assertEqual(len(cd.check(files, b4, h4)), 1)                                                        # already confirmed elsewhere (unchanged): no allowance
         b5, h5 = self._cd_docs(); b5[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True              # existing value changed to false
         self.assertEqual(len(cd.check(files, b5, h5)), 1)                                                        # only NEW fields get the allowance
@@ -2949,19 +2949,32 @@ class VendorConfirmationGate(ContextDevBase):
             b, h = self._cd_docs(); b[T]["providers"]["contextdev"]["benchmarking"]["quote"] = old; h[T]["providers"]["contextdev"]["benchmarking"]["quote"] = new
             self.assertTrue(cd.changed_paths(b[T], h[T]), (old, new))
             self._flip(h); self.assertTrue(any("flip-only" in x for x in cd.check([T, "bench/config.yaml"], b, h)), (old, new))
-    def test_r17_sqc_schema_types_every_pr(self):   # R17 SQ-C: types on every PR, data-only included
+    def test_r17_sqc_schema_types_every_pr(self):   # R17 SQ-C + R18: types and record shape on every PR, tested through check()
+        import datetime
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
-        b, h = self._cd_docs(); self.assertEqual(cd.schema_errors(h), []); self.assertEqual(cd.check(["README.md"], b, h), [])   # positive control: valid types
-        b, h = self._cd_docs(); h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = 0
-        r = cd.check([C], b, h); self.assertTrue(any("SQ-C" in x and "live_run_allowed" in x for x in r), r)                 # data-only false -> 0
-        b, h = self._cd_docs(); h[T]["providers"]["contextdev"]["vendor_confirmation"] = "yes"
-        r = cd.check([T], b, h); self.assertTrue(any("SQ-C" in x and "vendor_confirmation must be null or a mapping" in x for x in r), r)
-        b, h = self._cd_docs(); h[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"] = ["x"]
-        self.assertTrue(cd.schema_errors(h))
+        def sqc(edit, files=("README.md",)):                                                                              # a non-flip PR (K7-11): check() must still report SQ-C
+            b, h = self._cd_docs(); edit(h); r = cd.check(list(files), b, h); return [x for x in r if "SQ-C" in x], r
+        hits, r = sqc(lambda h: None); self.assertEqual(r, [])                                                             # positive control: valid types, nothing confirmed
+        hits, r = sqc(lambda h: self._flip(h), files=(T, C)); self.assertEqual(r, [])                                      # positive control: full valid record (flip-only PR)
+        for k in ("quote", "evidence_path"):                                                                               # quote and/or evidence_path
+            rec = dict(self.REC); rec.pop(k); hits, r = sqc(lambda h: self._flip(h) and h[T]["providers"]["contextdev"].update(vendor_confirmation=rec), files=(T, C))
+            self.assertEqual(r, [], k)
+        hits, r = sqc(lambda h: h[C]["free_tier_guard"]["contextdev"].update(live_run_allowed=0), files=(C,))
+        self.assertTrue(any("live_run_allowed must be bool" in x for x in hits), r)                                       # data-only false -> 0
         for bad in ("true", 1, None):
-            b, h = self._cd_docs(); h[T]["providers"]["keenable"]["vendor_confirmation_required"] = bad
-            self.assertTrue(any("vendor_confirmation_required must be bool" in x for x in cd.schema_errors(h)), bad)
-        b, h = self._cd_docs(); self._flip(h); self.assertEqual(cd.schema_errors(h), [])                                   # a valid record (mapping) is fine
+            hits, r = sqc(lambda h: h[T]["providers"]["keenable"].update(vendor_confirmation_required=bad))
+            self.assertTrue(any("vendor_confirmation_required must be bool" in x for x in hits), (bad, r))
+        partial = [{k: v for k, v in self.REC.items() if k != drop} for drop in ("date", "sender", "recorded_pr")]
+        partial += [{k: v for k, v in self.REC.items() if k not in ("quote", "evidence_path")}, {"evidence_path": "https://example.invalid/reply"},
+                    dict(self.REC, date=""), dict(self.REC, sender=None), dict(self.REC, date=datetime.date(2026, 10, 30))]
+        bads = ["yes", "https://example.invalid/reply", "", 0, False, True, {}, [], ["x"], {"a"}, frozenset({"date"}), 1.0] + partial  # K7-02 set, K7-04 falsy, link, partial
+        for where in ("tos", "cfg"):
+            for v in bads:
+                def edit(h, v=v):
+                    (h[T]["providers"]["keenable"] if where == "tos" else h[C]["free_tier_guard"]["contextdev"])["vendor_confirmation"] = v
+                hits, r = sqc(edit); self.assertTrue(any("vendor_confirmation" in x for x in hits), (where, v, r))
+                hits, r = sqc(edit, files=(T, C)); self.assertTrue(hits, (where, v, r))
+        self.assertIsNone(cd.record_shape_error(None)); self.assertIsNone(cd.record_shape_error(dict(self.REC)))
         live = {f: cd.parse((SITE / f).read_text()) for f in cd.DATA_FILES}; self.assertEqual(cd.schema_errors(live), [])   # the committed data passes
     def test_r16_sq2_protected_files(self):   # SQ2: the base checker fails any diff touching gates.py, confirmation_diff.py or the workflows
         cd = confirmation_diff; base, head = self._cd_docs()

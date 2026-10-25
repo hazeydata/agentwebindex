@@ -50,7 +50,7 @@
    "grant_anchor_day": null,
    "grant_anchor_note": "F1: refill is on the org's grant-anchor day (unknown; dashboard only). Guard resets only on this configured day; null = never reset (fail closed).",
    "live_run_allowed": false,
-   "live_run_ruling": "R9 (Fred, 2026-10-25 00:52 ET): no live calls until written vendor confirmation is recorded; set true only with a link to that record.",
+   "live_run_ruling": "R9 (Fred, 2026-10-25 00:52 ET): no live calls until written vendor confirmation is recorded; set true only together with a vendor_confirmation record here (date, sender, quote and/or evidence_path, recorded_pr; the shape in SPEC-bench / spec rev 4), never a bare link.",
    "vendor_confirmation": null,
    "meter": "https://api.context.dev/v1/org/usage",
    "meter_note": "AC26: GET only, 0 credits, period.credits_used; docs https://docs.context.dev/api-reference/usage/retrieve. The guard compares max(meter, counter) to stop_at_credits before each attempt; an unreadable meter fails closed (stale_budget).",
