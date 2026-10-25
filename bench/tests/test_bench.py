@@ -2812,7 +2812,8 @@ class VendorConfirmationGate(ContextDevBase):
             "entry renamed": lambda p: p.update(context_dev=p.pop("contextdev")),
         }
         for name, mut in lowered.items():
-            r = run(mut); self.assertTrue(any("AC24h" in x for x in r), (name, r))   # deleting an entry also removes its confirmation fields (flip rule fires too)
+            r = run(mut); self.assertTrue(any("AC24h" in x for x in r), (name, r))
+            if name.startswith("true ->"): self.assertTrue(any("lowered from true" in x for x in r), (name, r))   # named as a lowering, not only as a change   # deleting an entry also removes its confirmation fields (flip rule fires too)
             self.assertTrue(any("AC24h" in x for x in run(mut, flip=True)), name)           # also inside an otherwise valid flip PR
         base, head = self._cd_docs(); head[T] = None
         self.assertTrue(any("AC24h" in x for x in cd.check(files, base, head)))            # unparsable head: fail closed
@@ -2917,6 +2918,17 @@ class VendorConfirmationGate(ContextDevBase):
             self.assertTrue(any(x.startswith("SQ2") for x in cd.check([f], base, head, base_has=list(cd.PROTECTED))), f)
             self.assertEqual(cd.check([f], base, head, base_has=[]), [], f)                                               # bootstrap: absent at base -> added, exempt
         self.assertEqual(cd.check(["bench/awibench/runner.py", "README.md"], base, head), [])                                 # positive control
+        r = self.tmp / "sq2"; (r / "bench/awibench").mkdir(parents=True)                                                      # CLI: base_has comes from git at the merge-base
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text(""); (r / "bench/tos_matrix.yaml").write_text("{}\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        with (r / "bench/awibench/gates.py").open("a") as fh: fh.write("# harmless-looking edit\n")
+        git("commit", "-qam", "edit gates.py only")
+        with mock.patch.object(cd, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(cd.main(["main"]), 1)
+            git("checkout", "-q", "main"); git("checkout", "-qb", "ok"); (r / "README.md").write_text("x\n"); git("add", "-A"); git("commit", "-qm", "docs")
+            self.assertEqual(cd.main(["main"]), 0)                                                                        # positive control over git
         self.assertEqual(set(cd.PROTECTED), {"bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
                                               ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml"})
     def test_r16_sq3_strict_type_and_value(self):   # SQ3: false->0/'false'/null and true->1/'true' are changes
