@@ -1,81 +1,100 @@
-"""AWI-PROVIDER-CONTEXTDEV-001 AC24e: a PR that records (or changes) a vendor confirmation must be a separate, data-and-docs-only PR.
+"""AWI-PROVIDER-CONTEXTDEV-001 AC24e (R13): a PR that records (or changes) a vendor confirmation must be FLIP-ONLY.
 
-check(changed_files, diff_text) -> list of problems; empty = fine. When the diff changes any `vendor_confirmation` value (or the
-`live_run_allowed` flag that goes with it, or a field inside a tos_matrix record), the PR must be FLIP-ONLY (R13). Flip allowlist:
-- bench/tos_matrix.yaml: only `vendor_confirmation` lines and its record fields (date, sender, quote, evidence_path, recorded_pr), plus bare braces
-- bench/config.yaml: only `live_run_allowed` and `vendor_confirmation` lines (and the record fields / braces inside it)
-- the vendor-reply evidence file and cycle docs: `[agentwebindex-meta/]cycles/<cycle>/evidence/<file>`, `.../summary.md`, `.../decisions.md`
-Anything else (code, tests, pricing.yaml, providers.json, README or any other doc, other fields in the two yaml files) is rejected.
-A price taken from the vendor reply lands in a separate PR.
+STRUCTURAL check: bench/tos_matrix.yaml and bench/config.yaml are parsed at the base and at the head, flattened to field paths, and
+compared field by field (no line regexes).
 
-Bootstrap allowance (narrow): an ADDED line that sets one of these keys to the closed default (`vendor_confirmation: null`,
-`live_run_allowed: false`, or a record field `null`) is not a confirmation change, but only while nothing is confirmed after the diff
-(`confirmed=False`: no tos_matrix or config free_tier_guard entry holds any non-null vendor_confirmation, complete or not, and no
-config entry has live_run_allowed true). This
-lets the PR that introduces a gated provider (its entries start closed) carry code. Any removed line, any non-null/non-false value, or any
-diff that leaves something confirmed still counts.
+A confirmation change is any changed field path at or under
+- tos_matrix.yaml  providers.<pid>.vendor_confirmation           (every record field: date, sender, quote, evidence_path, recorded_pr, ...)
+- config.yaml      free_tier_guard.<pid>.vendor_confirmation / .live_run_allowed
+When there is one, the PR must be flip-only:
+- every changed field in the two yaml files is a confirmation field of ONE provider (the flipped provider); any other changed key, in any
+  record or block (e.g. providers.contextdev.benchmarking.quote, a nested config date, another provider's fields), is rejected
+- every other changed file is the vendor-reply evidence file or a cycle doc: `[agentwebindex-meta/]cycles/<cycle>/evidence/<file>` (one path
+  segment, no subdirectories), `.../summary.md`, `.../decisions.md`. Code, tests, pricing.yaml, providers.json, README and every other
+  path is rejected. A price taken from the vendor reply lands in a separate PR.
 
-CLI: python -m awibench.confirmation_diff [BASE]    (default BASE origin/main; diffs BASE...HEAD; exit 1 on problems)
+Bootstrap allowance (narrow): a confirmation field that is NEW at the head (absent at the base) and holds the closed default (null or
+false) is not a confirmation change, but only while nothing is confirmed at the head (head_confirmed False: no tos_matrix or config
+free_tier_guard entry holds any non-null vendor_confirmation, complete or not, and no config entry has live_run_allowed true). This lets the
+PR that introduces a gated provider carry code. A removed field, a changed value, or a head with anything confirmed still counts.
+
+check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
+CLI: python -m awibench.confirmation_diff [BASE]    (default origin/main; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems)
 """
-import re, subprocess, sys
+import json, re, subprocess, sys
 from pathlib import Path
 
-DATA_FILES = {"bench/tos_matrix.yaml", "bench/config.yaml"}
-KEY = re.compile(r'^[+-]\s*"?(vendor_confirmation|live_run_allowed)"?\s*:')
-RECORD_KEY = re.compile(r'^[+-]\s*"?(date|sender|evidence_path|recorded_pr)"?\s*:')
-FLIP_FIELD = re.compile(r'^[+-]\s*"?(date|sender|quote|evidence_path|recorded_pr)"?\s*:')   # allowlist only (detection unchanged)
-
+TOS, CFG = "bench/tos_matrix.yaml", "bench/config.yaml"
+DATA_FILES = {TOS, CFG}
 FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/]+/(summary\.md|decisions\.md|evidence/[^/]+)$")
-BRACES = re.compile(r'^[+-]\s*[{}\[\]]?\s*[}\]]?\s*,?\s*$')
+MISSING = object()
 
 def flip_allowed_path(f): return f in DATA_FILES or bool(FLIP_PATH.match(f))
 
-def bad_data_lines(diff_text):
-    """Changed lines in the two data files that are not a confirmation key, a record field or a bare brace."""
-    cur, bad = None, []
-    for line in diff_text.splitlines():
-        if line.startswith("+++ "): cur = line[4:].removeprefix("b/"); continue
-        if line.startswith("--- ") or not line[:1] in "+-" or cur not in DATA_FILES: continue
-        if KEY.match(line) or FLIP_FIELD.match(line) or BRACES.match(line): continue
-        bad.append(f"{cur}: {line[:80]}")
-    return bad
+def flatten(doc, prefix=()):
+    """{path tuple: leaf}. Dicts are walked (an empty dict is a leaf); lists and scalars are leaves."""
+    if isinstance(doc, dict) and doc:
+        out = {}
+        for k, v in doc.items(): out |= flatten(v, prefix + (str(k),))
+        return out
+    return {prefix: doc}
 
-CLOSED_DEFAULT = re.compile(r'^\+[^:]*:\s*(null|false)\s*,?\s*$')
+def changed_paths(base_doc, head_doc):
+    """[(path, base leaf or MISSING, head leaf or MISSING)] for every field that differs."""
+    b, h = flatten(base_doc or {}), flatten(head_doc or {})
+    return [(p, b.get(p, MISSING), h.get(p, MISSING)) for p in sorted(set(b) | set(h)) if b.get(p, MISSING) != h.get(p, MISSING)]
 
-def changed_confirmation(diff_text, confirmed=True):
-    """True if any +/- line changes a vendor_confirmation key (config.yaml / tos_matrix.yaml) or a field of a tos_matrix record.
-    confirmed=False enables the bootstrap allowance: added lines setting the closed default (null / false) are ignored."""
-    cur = None
-    for line in diff_text.splitlines():
-        if line.startswith("+++ "): cur = line[4:].removeprefix("b/"); continue
-        if line.startswith("--- ") or not line[:1] in "+-": continue
-        if cur in DATA_FILES and (KEY.match(line) or (cur == "bench/tos_matrix.yaml" and RECORD_KEY.match(line))):
-            if not confirmed and CLOSED_DEFAULT.match(line): continue
-            return True
-    return False
+def confirmation_pid(f, path):
+    """The provider id if `path` in file f is a confirmation field, else None."""
+    if f == TOS and len(path) >= 3 and path[0] == "providers" and path[2] == "vendor_confirmation": return path[1]
+    if f == CFG and len(path) >= 3 and path[0] == "free_tier_guard" and path[2] in ("vendor_confirmation", "live_run_allowed"): return path[1]
+    return None
 
-def check(changed_files, diff_text, confirmed=True):
-    if not changed_confirmation(diff_text, confirmed): return []
-    extra = sorted(f for f in changed_files if not flip_allowed_path(f)) + bad_data_lines(diff_text)
-    return [f"confirmation flip is not flip-only (R13): {'; '.join(extra)}. Record the vendor reply alone (confirmation fields, evidence file, summary.md/decisions.md); everything else goes in its own PR"] if extra else []
-
-def head_confirmed(root):
-    """True if anything is (even partly) confirmed in the checked-out tree: any tos_matrix or config free_tier_guard entry with a non-null
+def head_confirmed(head):
+    """True if anything is (even partly) confirmed at the head: any tos_matrix or config free_tier_guard entry with a non-null
     vendor_confirmation (stricter than gates.vendor_confirmed: an incomplete record also counts), or live_run_allowed true.
-    Unreadable files count as confirmed (no allowance; fail closed)."""
-    from .util import load_yaml
-    try:
-        tos = (load_yaml(root / "bench/tos_matrix.yaml") or {}).get("providers") or {}
-        cfg = load_yaml(root / "bench/config.yaml") or {}
-    except Exception: return True
-    entries = [e for e in list(tos.values()) + list((cfg.get("free_tier_guard") or {}).values()) if isinstance(e, dict)]
+    A missing or unparsable file (None) counts as confirmed (no allowance; fail closed)."""
+    tos, cfg = head.get(TOS), head.get(CFG)
+    if not isinstance(tos, dict) or not isinstance(cfg, dict): return True
+    entries = [e for e in list((tos.get("providers") or {}).values()) + list((cfg.get("free_tier_guard") or {}).values()) if isinstance(e, dict)]
     return any(e.get("vendor_confirmation") is not None or e.get("live_run_allowed") is True for e in entries)
+
+def check(changed_files, base, head):
+    confirmed = head_confirmed(head)
+    flips, other = set(), []
+    for f in sorted(DATA_FILES):
+        for path, old, new in changed_paths(base.get(f), head.get(f)):
+            pid = confirmation_pid(f, path)
+            if pid is None: other.append((f, path, pid)); continue
+            if not confirmed and old is MISSING and new in (None, False): continue   # bootstrap: new field at the closed default
+            flips.add(pid); other.append((f, path, pid))
+    if not flips: return []
+    bad = sorted(f for f in changed_files if not flip_allowed_path(f))
+    if len(flips) > 1: bad.append(f"more than one provider flipped ({', '.join(sorted(flips))})")
+    bad += [f"{f}: {'.'.join(p)}" for f, p, pid in other if pid is None or pid not in flips or len(flips) > 1]
+    return [f"confirmation flip is not flip-only (R13): {'; '.join(bad)}. Record the vendor reply alone (that provider's confirmation fields, the evidence file, summary.md/decisions.md); everything else goes in its own PR"] if bad else []
+
+def parse(text):
+    """Parse a committed yaml file (JSON-compatible flow YAML; PyYAML if installed). None when absent or unparsable."""
+    if text is None: return None
+    try:
+        import yaml  # type: ignore
+        return yaml.safe_load(text)
+    except ImportError: pass
+    except Exception: return None
+    try: return json.loads("\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#")))
+    except ValueError: return None
 
 def main(argv=None):
     base = (argv if argv is not None else sys.argv[1:] or ["origin/main"])[0]
     root = Path(__file__).resolve().parents[2]
     git = lambda *a: subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True, check=True).stdout
-    probs = check(git("diff", "--name-only", f"{base}...HEAD").split(), git("diff", "-U0", f"{base}...HEAD"), head_confirmed(root))
+    mb = git("merge-base", base, "HEAD").strip()
+    def show(rev, f):
+        r = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{f}"], capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else None
+    probs = check(git("diff", "--name-only", f"{mb}..HEAD").split(),
+                  {f: parse(show(mb, f)) or {} for f in DATA_FILES}, {f: parse(show("HEAD", f)) for f in DATA_FILES})
     for p in probs: print("FAIL:", p)
     return 1 if probs else 0
 

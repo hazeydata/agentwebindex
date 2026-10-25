@@ -2741,74 +2741,96 @@ class VendorConfirmationGate(ContextDevBase):
         for mod in ("tables.py", "guard.py", "runner.py"): self.assertRegex((BENCH / "awibench" / mod).read_text(), r"gates|vendor_confirmed", mod)
         self.assertRegex((SITE / "collectors/benchmark.py").read_text(), r"from awibench import .*\bgates\b")
         self.assertIs(tables.vendor_confirmed, gates_mod.vendor_confirmed); self.assertIs(guard_mod.vendor_confirmed, gates_mod.vendor_confirmed)
-    def test_ac24e_confirmation_diff_checker(self):   # AC24e
-        cd = confirmation_diff
-        flip = ("diff --git a/bench/tos_matrix.yaml b/bench/tos_matrix.yaml\n--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1 @@\n"
-                '-   "vendor_confirmation": null,\n+   "vendor_confirmation": {\n')
-        # R13: the flip PR is flip-only
-        ev = "agentwebindex-meta/cycles/2026-10-25-provider-contextdev/evidence/vendor-reply-contextdev.eml"
-        self.assertEqual(cd.check(["bench/tos_matrix.yaml"], flip), [])                                                   # flip only: passes
-        self.assertEqual(cd.check(["bench/tos_matrix.yaml", ev, "cycles/2026-10-25-provider-contextdev/summary.md",
-                                   "cycles/2026-10-25-provider-contextdev/decisions.md", "cycles/x/evidence/reply.txt"], flip), [])   # + evidence + cycle docs
-        full = flip + ('+    "date": "2026-11-01",\n+    "sender": "A, a@context.dev",\n+    "quote": "ok",\n+    "evidence_path": "x",\n+    "recorded_pr": "u"\n+   },\n'
-                       "--- a/bench/config.yaml\n+++ b/bench/config.yaml\n@@ -1,2 +1,2 @@\n-   \"live_run_allowed\": false,\n+   \"live_run_allowed\": true,\n"
-                       '-   "vendor_confirmation": null,\n+   "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q"},\n')
-        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/config.yaml"], full), [])                              # full record + config flip
-        for extra in ("bench/tests/test_bench.py", "bench/pricing.yaml", "README.md", "bench/README.md", "collectors/providers.json", "cycles/x/notes.md"):
-            self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", extra], flip)), 1, extra)                             # flip + anything else: fails
-        other_field = flip + '-   "terms_last_updated": "2026-10-01",\n+   "terms_last_updated": "2026-11-01",\n'
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml"], other_field)), 1)                                       # flip + other tos_matrix field: fails
-        cfg_other = full + '-   "stop_at_credits": 900,\n+   "stop_at_credits": 950,\n'
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/config.yaml"], cfg_other)), 1)                    # flip + other config field: fails
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], flip)), 1)
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "collectors/benchmark.py"], flip)), 1)
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", ".github/workflows/x.yml"], flip)), 1)
-        cfgflip = flip.replace("tos_matrix", "config").replace("vendor_confirmation", "live_run_allowed")
-        self.assertEqual(len(cd.check(["bench/config.yaml", "bench/awibench/runner.py"], cfgflip)), 1)
-        rec = flip.replace('-   "vendor_confirmation": null,\n+   "vendor_confirmation": {\n', '-    "sender": "a",\n+    "sender": "b",\n')
-        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], rec)), 1)   # editing a field of the record counts
-        other = flip.replace('"vendor_confirmation"', '"vendor_confirmation_required"')
-        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], other), [])   # the _required flag is not a confirmation value
-        code_only = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n"
-        self.assertEqual(cd.check(["x.py"], code_only), [])
-        notdata = "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-vendor_confirmation: null\n+vendor_confirmation: x\n"
-        self.assertEqual(cd.check(["README.md", "x.py"], notdata), [])   # docs mentioning the key do not trigger it
-        # committed values stay null
-        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
-        for pid in ("keenable", "contextdev"): self.assertIsNone(tos[pid]["vendor_confirmation"])
-        self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
-        # CLI over a throwaway git repo (no network)
-        import subprocess
-        r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True); (r / "bench/tos_matrix.yaml").write_text('{\n "vendor_confirmation": null\n}\n')
-        (r / "bench/awibench/gates.py").write_text("a=1\n")
+    def _cd_docs(self):   # AC24e fixtures: base = committed shape (nothing confirmed)
+        import copy
+        tos = {"providers": {"exa": {"allowed": "yes", "checked_at": "2026-10-01"},
+                             "contextdev": {"terms_url": "https://www.context.dev/term", "checked_at": "2026-10-25", "vendor_confirmation_required": True,
+                                            "benchmarking": {"status": "unclear", "quote": "No clause found in full read."}, "vendor_confirmation": None},
+                             "keenable": {"allowed": "no", "vendor_confirmation_required": True, "vendor_confirmation": None,
+                                          "benchmarking": {"status": "forbidden", "quote": "q"}}}}
+        cfg = {"free_tier_guard": {"contextdev": {"stop_at_credits": 900, "live_run_allowed": False, "vendor_confirmation": None,
+                                                  "anchor": {"date": "2026-10-01"}}}}
+        base = {"bench/tos_matrix.yaml": tos, "bench/config.yaml": cfg}
+        return base, copy.deepcopy(base)
+    REC = {"date": "2026-10-30", "sender": "A, a@context.dev", "quote": "You may benchmark and publish.", "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "u"}
+    def _flip(self, head, cfg_too=True):
+        head["bench/tos_matrix.yaml"]["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
+        if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": {"date": "2026-10-30"}}
+        return head
+    def test_ac24e_flip_only_allowlist(self):   # AC24e (R13): structural, field-level
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        base, head = self._cd_docs(); self._flip(head)
+        cyc = "agentwebindex-meta/cycles/2026-10-25-provider-contextdev/"
+        self.assertEqual(cd.check([T, C], base, head), [])                                                        # flip only (tos + config)
+        b2, h2 = self._cd_docs(); self.assertEqual(cd.check([T], b2, self._flip(h2, cfg_too=False)), [])           # tos record only
+        self.assertEqual(cd.check([T, C, cyc + "evidence/vendor-reply.eml", cyc + "summary.md", cyc + "decisions.md", "cycles/x/evidence/r.txt"], base, head), [])
+        for extra in ("bench/tests/test_bench.py", "bench/pricing.yaml", "collectors/providers.json", "README.md", "bench/README.md",
+                      "bench/awibench/runner.py", ".github/workflows/confirmation-diff.yml", "cycles/x/notes.md",
+                      cyc + "evidence/sub/reply.txt", "cycles/x/evidence/a/b.txt"):   # M23: evidence is ONE path segment
+            self.assertEqual(len(cd.check([T, C, extra], base, head)), 1, extra)
+        self.assertEqual(cd.check([T], base, base), [])                                                           # no change: nothing to check
+    def test_ac24e_kitty_probe_cases_all_fail(self):   # AC24e: every Kitty v2 probe, plus the v1 field cases, is rejected
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        def case(mut, files=(T, C), flip=True):
+            base, head = self._cd_docs()
+            if flip: self._flip(head)
+            mut(base, head); return cd.check(list(files), base, head)
+        tos = lambda d: d["bench/tos_matrix.yaml"]["providers"]; g = lambda d: d["bench/config.yaml"]["free_tier_guard"]["contextdev"]
+        probes = {
+            "flip + contextdev benchmarking.quote": lambda b, h: tos(h)["contextdev"]["benchmarking"].update(quote="Benchmarking expressly permitted"),
+            "flip + nested config date": lambda b, h: g(h)["anchor"].update(date="2026-11-01"),
+            "flip + sender in an unrelated tos record": lambda b, h: tos(h)["exa"].update(sender="b"),
+            "flip + other tos field (checked_at)": lambda b, h: tos(h)["contextdev"].update(checked_at="2026-10-30"),
+            "flip + other config field (stop_at_credits)": lambda b, h: g(h).update(stop_at_credits=990),
+            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "d", "sender": "s", "quote": "q"}),
+            "flip + keenable benchmarking.quote": lambda b, h: tos(h)["keenable"]["benchmarking"].update(quote="x"),
+        }
+        for name, mut in probes.items(): self.assertEqual(len(case(mut)), 1, name)
+        # record already confirmed at base; a quote-only / date-only / sender-only edit + code is a flip and fails
+        for fld in ("quote", "date", "sender"):
+            def edit(b, h, fld=fld):
+                tos(b)["contextdev"]["vendor_confirmation"] = dict(self.REC); tos(h)["contextdev"]["vendor_confirmation"] = dict(self.REC, **{fld: "changed"})
+            self.assertEqual(len(case(edit, files=(T, "bench/awibench/x.py"), flip=False)), 1, fld)
+            self.assertEqual(case(edit, files=(T,), flip=False), [], fld)                                       # the same edit alone is flip-only
+        self.assertEqual(len(case(lambda b, h: g(h).update(live_run_allowed=True), files=(C, "bench/awibench/x.py"), flip=False)), 1)   # config flip + code
+        self.assertEqual(len(case(lambda b, h: tos(h)["contextdev"].pop("vendor_confirmation"), files=(T, "x.py"), flip=False)), 1)   # removal counts
+        # not a flip: a non-confirmation field changed with code is an ordinary PR
+        self.assertEqual(case(lambda b, h: tos(h)["contextdev"]["benchmarking"].update(quote="x"), files=(T, "x.py"), flip=False), [])
+        self.assertEqual(case(lambda b, h: tos(h)["contextdev"].update(vendor_confirmation_required=False), files=(T, "x.py"), flip=False), [])
+    def test_ac24e_bootstrap_allowance_closed_defaults_only(self):   # AC24e: the PR that introduces a gated provider (entries start closed) may carry code
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        base, head = self._cd_docs(); files = [T, C, "bench/awibench/runner.py"]
+        del base[T]["providers"]["contextdev"]; del base[C]["free_tier_guard"]["contextdev"]                         # base: provider absent
+        self.assertEqual(cd.check(files, base, head), [])                                                        # new nulls/false, nothing confirmed: allowed
+        self.assertEqual(len(cd.check(files, base, self._flip(__import__("copy").deepcopy(head)))), 1)            # new provider arriving confirmed: no allowance
+        h2 = __import__("copy").deepcopy(head); h2[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}   # something else confirmed at head
+        self.assertEqual(len(cd.check(files, base, h2)), 1)
+        h3 = __import__("copy").deepcopy(head); h3[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True
+        self.assertEqual(len(cd.check(files, base, h3)), 1)                                                      # new field, but not the closed default
+        self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 1)                                    # unparsable head: fail closed
+        # head_confirmed
+        self.assertFalse(cd.head_confirmed(head)); self.assertTrue(cd.head_confirmed(h2)); self.assertTrue(cd.head_confirmed(h3))
+        self.assertTrue(cd.head_confirmed({T: None, C: {}}))
+        # committed repo files: nothing confirmed, values null
+        committed = {T: load_yaml(BENCH / "tos_matrix.yaml"), C: load_yaml(BENCH / "config.yaml")}
+        self.assertFalse(cd.head_confirmed(committed))
+        for pid in ("keenable", "contextdev"): self.assertIsNone(committed[T]["providers"][pid]["vendor_confirmation"])
+        self.assertIsNone(committed[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+    def test_ac24e_cli_over_git_repo(self):   # AC24e: CLI parses base (merge-base) and HEAD yaml from git, no network
+        r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True)
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None, "benchmarking": {"quote": "q"}}}}
+        cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": False, "vendor_confirmation": None}}}
+        w = lambda f, d: (r / f).write_text(json.dumps(d, indent=1) + "\n")
+        w("bench/tos_matrix.yaml", tos); w("bench/config.yaml", cfg); (r / "bench/awibench/gates.py").write_text("a=1\n")
         git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
         git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
-        (r / "bench/tos_matrix.yaml").write_text('{\n "vendor_confirmation": {"date": "d"}\n}\n'); git("commit", "-qam", "flip")
+        tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); w("bench/tos_matrix.yaml", tos); git("commit", "-qam", "flip")
         with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
             self.assertEqual(confirmation_diff.main(["main"]), 0)
-            (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code"); self.assertEqual(confirmation_diff.main(["main"]), 1)
-    def test_ac24e_bootstrap_allowance_closed_defaults_only(self):   # AC24e: the PR that introduces a gated provider (entries start closed) may carry code
-        cd = confirmation_diff
-        boot = ("--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1,2 @@\n+   \"vendor_confirmation\": null,\n+   \"sender\": null,\n"
-                "--- a/bench/config.yaml\n+++ b/bench/config.yaml\n@@ -1 +1 @@\n+   \"live_run_allowed\": false,\n")
-        code = ["bench/tos_matrix.yaml", "bench/config.yaml", "bench/awibench/runner.py"]
-        self.assertEqual(cd.check(code, boot, confirmed=False), [])            # nulls/false while nothing is confirmed: allowed
-        self.assertEqual(len(cd.check(code, boot, confirmed=True)), 1)          # something confirmed after the diff: no allowance
-        self.assertEqual(len(cd.check(code, boot)), 1)                          # default is strict
-        for real in ('+   "vendor_confirmation": {"date": "2026-11-01"},\n', '+   "live_run_allowed": true,\n', '-   "vendor_confirmation": null,\n',
-                     '+   "sender": "hello@context.dev",\n', '-   "live_run_allowed": false,\n'):
-            d = "--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1 @@\n" + real
-            self.assertEqual(len(cd.check(code, d, confirmed=False)), 1, real)   # real diffs still fail
-        # head_confirmed reads the tree: committed repo = nothing confirmed; a confirmed flagged entry or live_run_allowed true = confirmed
-        self.assertFalse(cd.head_confirmed(SITE))
-        r = self.tmp / "hc"; (r / "bench").mkdir(parents=True)
-        tos = {"providers": {"x": {"vendor_confirmation_required": True, "vendor_confirmation": None}, "y": {"terms": "ok"}}}
-        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos)); (r / "bench/config.yaml").write_text(json.dumps({"free_tier_guard": {"x": {"live_run_allowed": False}}}))
-        self.assertFalse(cd.head_confirmed(r))                                   # nulls and false only
-        (r / "bench/config.yaml").write_text(json.dumps({"free_tier_guard": {"x": {"live_run_allowed": True}}})); self.assertTrue(cd.head_confirmed(r))
-        (r / "bench/config.yaml").write_text("{}"); tos["providers"]["x"]["vendor_confirmation"] = {"date": "d"}   # even an incomplete record counts
-        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos)); self.assertTrue(cd.head_confirmed(r))
-        (r / "bench/tos_matrix.yaml").unlink(); self.assertTrue(cd.head_confirmed(r))   # unreadable: fail closed (no allowance)
+            tos["providers"]["contextdev"]["benchmarking"]["quote"] = "edited"; w("bench/tos_matrix.yaml", tos); git("commit", "-qam", "quote")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # off-allowlist field
+            git("reset", "-q", "--hard", "HEAD~1"); (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # flip + code
     def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
         self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
         wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional
