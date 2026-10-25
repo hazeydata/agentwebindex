@@ -273,7 +273,7 @@
    },
    "vendor_confirmation_required": true,
    "vendor_confirmation": null,
-   "note": "R10: unpublished until Keenable replies in writing. Quote from /workspace/agentwebindex/sponsor-leads-draft.md (lead record), to be re-verified against the live terms before any confirmation is recorded. Gate entry only: no adapter, pricing or providers.json entry, no live calls."
+   "note": "R10: unpublished until Keenable replies in writing. Quote from sponsor-leads-draft.md (off-repo lead record) (lead record), to be re-verified against the live terms before any confirmation is recorded. Gate entry only: no adapter, pricing or providers.json entry, no live calls."
   }
  }
 }

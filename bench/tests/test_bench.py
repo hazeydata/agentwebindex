@@ -2724,7 +2724,7 @@ class VendorConfirmationGate(ContextDevBase):
         doc = {"tables": {}, "run_summary": s}; tables.strip_held(doc, tables.held_providers(cfg, pricing, tos)); self.assertNotIn("keenable", json.dumps(doc).lower())
     def _code_files(self, root):
         out = []
-        for base in (root, root.parent / "agentwebindex-site", Path("/workspace/.cache/agentwebindex-site")):
+        for base in (root, root.parent / "agentwebindex-site"):
             if not base.is_dir(): continue
             for f in base.rglob("*"):
                 if f.suffix in (".py", ".js", ".sh") and f.is_file() and not {"tests", "__pycache__", "node_modules", ".git", "dist"} & set(f.relative_to(base).parts): out.append(f)

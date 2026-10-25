@@ -641,7 +641,7 @@
       "name": "NOT CAPTURED"
      }
     },
-    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, /workspace/agentwebindex-evidence/contextdev/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Search category."
+    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Search category."
    },
    "scrape": {
     "pricing_url": "https://www.context.dev/pricing",
@@ -679,7 +679,7 @@
       "name": "NOT CAPTURED"
      }
     },
-    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, /workspace/agentwebindex-evidence/contextdev/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Scrape category; same pool 'contextdev'."
+    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Scrape category; same pool 'contextdev'."
    }
   }
  }
