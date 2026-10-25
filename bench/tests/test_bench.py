@@ -2834,3 +2834,19 @@ class SnapshotPricesGate(unittest.TestCase):
         ids = [p["id"] for p in S.snapshot_providers(provs, tos)]
         self.assertNotIn("contextdev", ids)
         self.assertEqual(len(ids), 15)
+    def test_ac24g_snapshot_skip_follows_vendor_confirmed(self):   # AC24g (R12): skip iff gates.vendor_confirmed is false; main() uses it
+        sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
+        provs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        tos = {"a": {"vendor_confirmation_required": True, "vendor_confirmation": None},
+               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q"}}}
+        self.assertEqual([p["id"] for p in S.snapshot_providers(provs, tos)], ["b", "c"])   # unflagged c unaffected
+        self.assertIn("provs=snapshot_providers(", (SITE / "collectors/snapshot_prices.py").read_text())
+        self.assertIn("snapshot_prices", (BENCH / "README.md").read_text())   # documented (docs match code)
+
+class NoVendorMailPath(unittest.TestCase):
+    def test_ac27a_no_mail_send_path(self):   # AC27a (R12): no code path sends the vendor email
+        pat = re.compile(r"smtplib|sendmail|send_mail|SMTP\(|mailto:|hello@context\.dev|gmail|sendgrid|mailgun|postmark|/messages/send", re.I)
+        hits = []
+        for f in list(SITE.glob("bench/awibench/*.py")) + list(SITE.glob("collectors/*.py")) + list(SITE.glob(".github/workflows/*.yml")) + list(SITE.glob("*.sh")):
+            hits += [f"{f.name}:{i}" for i, l in enumerate(f.read_text(errors="replace").splitlines(), 1) if pat.search(l)]
+        self.assertEqual(hits, [])
