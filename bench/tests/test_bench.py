@@ -2819,6 +2819,19 @@ class VendorConfirmationGate(ContextDevBase):
         # positive controls: unrelated changes pass
         self.assertEqual(run(lambda p: p["contextdev"]["benchmarking"].update(quote="new reading")), [])
         self.assertEqual(run(lambda p: p.update(newco={"allowed": "yes"})), [])               # adding an ungated provider
+        # Kitty v4 G10: the rule covers every base entry that HAS the flag, whatever its value (docs: "an entry that has vendor_confirmation_required at the base").
+        # Deleting a false/null flag, or the entry holding it, therefore fails; false -> true (raising) and false -> null stay allowed.
+        def flagged(v):
+            def m(p): p["exa"]["vendor_confirmation_required"] = v
+            return m
+        for v in (False, None):
+            b0, h0 = self._cd_docs(); flagged(v)(b0[T]["providers"]); flagged(v)(h0[T]["providers"])
+            h1 = __import__("copy").deepcopy(h0); h1[T]["providers"]["exa"].pop("vendor_confirmation_required")
+            self.assertTrue(any("AC24h" in x and "deleted" in x for x in cd.check(files, b0, h1)), v)
+            h2 = __import__("copy").deepcopy(h0); h2[T]["providers"].pop("exa")
+            self.assertTrue(any("AC24h" in x for x in cd.check(files, b0, h2)), v)
+            h3 = __import__("copy").deepcopy(h0); h3[T]["providers"]["exa"]["vendor_confirmation_required"] = True
+            self.assertEqual(cd.check(files, b0, h3), [], v)
         self.assertEqual(run(lambda p: p.pop("exa")), [])                                    # deleting an entry WITHOUT the flag is not AC24h
         self.assertEqual(run(lambda p: p.update(newgate={"vendor_confirmation_required": True, "vendor_confirmation": None})), [])   # raising the gate is fine
         self.assertFalse(hasattr(cd, "OVERRIDE") or "override" in (BENCH / "awibench/confirmation_diff.py").read_text().lower().replace("no override", ""))
@@ -2861,6 +2874,49 @@ class VendorConfirmationGate(ContextDevBase):
             self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # off-allowlist field
             git("reset", "-q", "--hard", "HEAD~1"); (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code")
             self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # flip + code
+            git("reset", "-q", "--hard", "HEAD~1"); sneaky = r / "cycles/s/evidence/a cycles/s/summary.md"           # Kitty v4: a space must not split one nested path into two allowed ones
+            sneaky.parent.mkdir(parents=True); sneaky.write_text("x\n"); git("add", "-A"); git("commit", "-qm", "space")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)
+            git("reset", "-q", "--hard", "HEAD~1"); ok = r / "cycles/s/evidence/vendor reply.txt"                    # a one-segment evidence name with a space stays allowed
+            ok.parent.mkdir(parents=True, exist_ok=True); ok.write_text("x\n"); git("add", "-A"); git("commit", "-qm", "ok")
+            self.assertEqual(confirmation_diff.main(["main"]), 0)
+        for f in ["cycles/s/summary.md\n", "cycles/s/evidence/a\n", "bench/tos_matrix.yaml\n", "cycles/s/decisions.md\nx"]:
+            self.assertFalse(confirmation_diff.flip_allowed_path(f), repr(f))                                     # trailing newline is not slack
+        self.assertTrue(confirmation_diff.flip_allowed_path("cycles/s/evidence/vendor reply.txt"))
+    def test_ac24e_run_tests_propagates_failure(self):   # Kitty v4 F-B: a failing confirmation_diff must make run_tests.sh exit non-zero
+        src = (SITE / "run_tests.sh").read_text(); block = src[src.index("# >>> AC24e"):src.index("# <<< AC24e")]
+        stub = self.tmp / "stub"; stub.mkdir()
+        for rc in (1, 0):
+            (stub / "python3").write_text(f"#!/bin/sh\nexit {rc}\n"); (stub / "python3").chmod(0o755)
+            p = subprocess.run(["bash", "-c", "set -eo pipefail\n" + block + "echo REACHED_END\n"], cwd=SITE, capture_output=True, text=True,
+                               env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": "HEAD"})
+            if rc: self.assertNotEqual(p.returncode, 0, p.stdout); self.assertNotIn("REACHED_END", p.stdout); self.assertIn("FAILED: confirmation_diff", p.stdout)
+            else: self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("confirmation_diff OK", p.stdout)
+    def test_ac24h_base_judged_ci_r15(self):   # R15: the BASE checker judges the PR; a PR that rewrites the checker, the flag name and the key still fails
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        self.assertRegex(wf, r"(?m)^on:\n  pull_request_target:"); self.assertIn("ref: \"${{ github.event.pull_request.base.sha }}\"", wf)
+        self.assertIn("persist-credentials: false", wf); self.assertNotIn("pull_request.head.sha", wf); self.assertNotIn("head.ref", wf)   # PR head is data, never checked out
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        r = self.tmp / "bj"; (r / "bench/awibench").mkdir(parents=True)
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text("")
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}, "exa": {"allowed": "yes"}}}
+        w = lambda d: (r / "bench/tos_matrix.yaml").write_text(json.dumps(d, indent=1) + "\n")
+        (r / "bench/config.yaml").write_text("{}\n"); w(tos)
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base")
+        judge = lambda head: subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": head})
+        git("checkout", "-qb", "ok"); tos["providers"]["exa"]["allowed"] = "no"; w(tos); git("commit", "-qam", "unrelated")
+        p = judge("ok"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("flag name from base gates.py: vendor_confirmation_required", p.stdout)   # positive control
+        git("checkout", "-q", "main"); git("checkout", "-qb", "attack")                                           # combined attack, all in one PR:
+        g = r / "bench/awibench/gates.py"; g.write_text(g.read_text().replace("vendor_confirmation_required", "vendor_confirmation_requirement"))   # 1. rename REQUIRED_FLAG
+        c = r / "bench/awibench/confirmation_diff.py"; c.write_text(c.read_text().replace("    return 1 if probs else 0", "    return 0"))     # 2. edit the checker
+        tos["providers"]["exa"]["allowed"] = "yes"; cd_e = tos["providers"]["contextdev"]; del cd_e["vendor_confirmation_required"]
+        cd_e["vendor_confirmation_requirement"] = False; w(tos); git("commit", "-qam", "attack")                    # 3. rename the key, set to false
+        own = subprocess.run([sys.executable, "-m", "awibench.confirmation_diff", "main"], cwd=r / "bench", capture_output=True, text=True)
+        self.assertEqual(own.returncode, 0, own.stdout)                                                            # the PR's own checker would pass it...
+        p = judge("attack"); self.assertNotEqual(p.returncode, 0, p.stdout); self.assertIn("AC24h", p.stdout)        # ...the base-judged path fails it
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "attack")                       # judging never checked anything out
     def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
         self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
         wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional

@@ -19,21 +19,23 @@ free_tier_guard entry holds any non-null vendor_confirmation, complete or not, a
 PR that introduces a gated provider carry code. A removed field, a changed value, or a head with anything confirmed still counts.
 
 AC24h (any PR, flip or not): the gate itself may not be lowered. It fails when, between base and head, a tos_matrix provider that has
-`gates.REQUIRED_FLAG` at the base loses it, has it changed from true to anything else, or the provider entry is deleted or renamed
+`gates.REQUIRED_FLAG` at the base loses it, has it changed from true to anything else (deleting or renaming the key fails whatever its base value: true, false or null), or the provider entry is deleted or renamed
 (absent at head under the same id). There is no override: lowering the gate needs a separate Fred or CEO ruling.
 
 check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
-CLI: python -m awibench.confirmation_diff [BASE]    (default origin/main; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems)
+CLI: python -m awibench.confirmation_diff [BASE [HEAD]]    (defaults origin/main and HEAD; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems).
+AWI_REPO_ROOT sets the repo root, so CI can run the BASE copies of this file and gates.py from a temp dir against the PR head
+(R15, .github/workflows/confirmation-diff-base.yml): a PR's own checker never judges that PR.
 """
-import json, re, subprocess, sys
+import json, os, re, subprocess, sys
 from pathlib import Path
 
 TOS, CFG = "bench/tos_matrix.yaml", "bench/config.yaml"
 DATA_FILES = {TOS, CFG}
-FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/]+/(summary\.md|decisions\.md|evidence/[^/]+)$")   # cycles/<slug>/ only
+FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/\x00-\x1f]+/(summary\.md|decisions\.md|evidence/[^/\x00-\x1f]+)")   # cycles/<slug>/ only; always fullmatch (no trailing-newline slack)
 MISSING = object()
 
-def flip_allowed_path(f): return f in DATA_FILES or bool(FLIP_PATH.match(f))
+def flip_allowed_path(f): return f in DATA_FILES or bool(FLIP_PATH.fullmatch(f))
 
 def flatten(doc, prefix=()):
     """{path tuple: leaf}. Dicts are walked (an empty dict is a leaf); lists and scalars are leaves."""
@@ -105,15 +107,16 @@ def parse(text):
     except ValueError: return None
 
 def main(argv=None):
-    base = (argv if argv is not None else sys.argv[1:] or ["origin/main"])[0]
-    root = Path(__file__).resolve().parents[2]
+    args = list(argv if argv is not None else sys.argv[1:]) or ["origin/main"]
+    base, rev = args[0], (args[1] if len(args) > 1 else "HEAD")
+    root = Path(os.environ["AWI_REPO_ROOT"]) if os.environ.get("AWI_REPO_ROOT") else Path(__file__).resolve().parents[2]
     git = lambda *a: subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True, check=True).stdout
-    mb = git("merge-base", base, "HEAD").strip()
+    mb = git("merge-base", base, rev).strip()
     def show(rev, f):
         r = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{f}"], capture_output=True, text=True)
         return r.stdout if r.returncode == 0 else None
-    probs = check(git("diff", "--name-only", f"{mb}..HEAD").split(),
-                  {f: parse(show(mb, f)) or {} for f in DATA_FILES}, {f: parse(show("HEAD", f)) for f in DATA_FILES})
+    probs = check([f for f in git("diff", "--name-only", "-z", f"{mb}..{rev}").split("\0") if f],   # NUL-split: paths may hold spaces
+                  {f: parse(show(mb, f)) or {} for f in DATA_FILES}, {f: parse(show(rev, f)) for f in DATA_FILES})
     for p in probs: print("FAIL:", p)
     return 1 if probs else 0
 
