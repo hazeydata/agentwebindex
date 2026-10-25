@@ -1,4 +1,4 @@
-"""context.dev free-tier credit guard (AWI-PROVIDER-CONTEXTDEV-001 rev 3; Side Hustle CEO R1-R9, fact desk F1-F7, 2026-10-25).
+"""context.dev free-tier credit guard (AWI-PROVIDER-CONTEXTDEV-001 spec rev 4; Side Hustle CEO R1-R9, fact desk F1-F7, 2026-10-25).
 
 - live_allowed: R9 gate. No call unless config free_tier_guard.<pid>.live_run_allowed is true AND vendor_confirmation is set AND gates.vendor_confirmed(tos_matrix entry) (R10).
 - anchor_window_start: the free tier refills on the org's grant-anchor day (F1), not on the 1st. The counter file is keyed by the
@@ -76,7 +76,9 @@ class CreditGuard:
         with open(tmp, "w") as f: f.write(json.dumps(self.d, indent=1, sort_keys=True)); f.flush(); os.fsync(f.fileno())
         os.replace(tmp, self.path)
     def used(self): return self.d["attempted"]
-    def allows(self, next_units): return self.used() + next_units <= self.stop_at
+    def allows(self, next_units, meter=None):
+        """The one stop check: max(vendor meter, attempts counter) + the next call's estimated credits must stay <= stop_at (the run stops at exactly stop_at)."""
+        return max(meter or 0, self.used()) + next_units <= self.stop_at
     def record(self, attempted, billed):
         self.d = self.d | {"attempted": self.d["attempted"] + attempted, "billed": self.d["billed"] + billed}
         try: self._write()

@@ -8,6 +8,10 @@ trap 'rm -rf "$TMPDIR"' EXIT
 nice -n 19 python3 -m pytest -q -p no:cacheprovider --basetemp="$TMPDIR/pytest" tests/test_bench.py 2>&1 | tail -n 30
 nice -n 19 python3 tests/dry_run.py | grep -E "news meta|validator|untraced|^MOCK"
 nice -n 19 python3 -m awibench.secrets_scan
+# AC24e: a vendor_confirmation change must ride in a data/docs-only PR (base: AWI_CONFIRMATION_BASE, default origin/main; missing base fails)
+base="${AWI_CONFIRMATION_BASE:-origin/main}"
+git rev-parse -q --verify "$base^{commit}" >/dev/null || { echo "FAILED: confirmation_diff base $base not found (git fetch origin main)"; exit 1; }
+python3 -m awibench.confirmation_diff "$base" && echo "confirmation_diff OK vs $base"
 if [ -f ../src/app.js ] && [ -f ../tests/app_smoke.js ]; then nice -n 19 node ../tests/app_smoke.js; fi
 left=$(find "$TMPDIR" -mindepth 1 -maxdepth 1 -name 'awi-*' | wc -l)
 if [ "$left" -ne 0 ]; then echo "FAILED: test run left $left awi-* temp dirs behind"; exit 1; fi

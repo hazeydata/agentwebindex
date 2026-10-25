@@ -2095,7 +2095,7 @@ class TavilyPhase0(unittest.TestCase):
 MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "mock"}
 
 class ContextDevBase(unittest.TestCase):
-    """AWI-PROVIDER-CONTEXTDEV-001 rev 3 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
+    """AWI-PROVIDER-CONTEXTDEV-001 spec rev 4 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
     self.cfg is the committed config with the R9 live gate opened and grant_anchor_day 15, so the guard logic is reachable; the committed gate is tested separately."""
     TS = "2026-10-26T10:00:00+00:00"   # anchor 15 -> window 2026-10-15
     W = "2026-10-15"
@@ -2148,7 +2148,7 @@ class ContextDevConfig(ContextDevBase):
     def test_ac3_p0_still_not_passed(self):   # AC3: the committed state keeps P0 unpassed (recorded as still broken in summary.md, meta repo)
         for kind in ("search", "scrape"): self.assertIsNone(cost.billed_usd(self.pricing["contextdev"][kind], "entry", []))
         self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0]); self.assertIn("P0 pricing not passed", tables.publish_gate("contextdev", self.pricing, self.tos)[1])
-    def test_ac4_tos_entry_matches_rev3_shape(self):   # AC4
+    def test_ac4_tos_entry_matches_rev4_shape(self):   # AC4
         t = self.tos["contextdev"]
         self.assertEqual((t["terms_url"], t["sections"], t["verdict"], t["allowed"], t["full_read"], t["terms_last_updated"]), ("https://www.context.dev/term", 27, "unverified", None, True, "2026-10-01"))
         for c in ("benchmarking", "publishing_results", "automated_access", "attribution", "anti_bot_scraping"): self.assertTrue(t[c]["quote"].strip(), c)
@@ -2182,7 +2182,7 @@ class ContextDevConfig(ContextDevBase):
             s = self.go(providers=self.prov_def() + [other], adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]), pricing=pricing, env=env)
             self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_key", [])); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
             self.assertFalse(list(self.spend.glob("contextdev-*.json")))
-    def test_config_block_matches_rev3_shape(self):   # AC10/AC11/AC13/AC6a/AC26 config values, committed file
+    def test_config_block_matches_rev4_shape(self):   # AC10/AC11/AC13/AC6a/AC26 config values, committed file
         g = CFG["free_tier_guard"]["contextdev"]
         self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
                                             "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")},
@@ -2773,6 +2773,43 @@ class VendorConfirmationGate(ContextDevBase):
         with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
             self.assertEqual(confirmation_diff.main(["main"]), 0)
             (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code"); self.assertEqual(confirmation_diff.main(["main"]), 1)
+    def test_ac24e_bootstrap_allowance_closed_defaults_only(self):   # AC24e: the PR that introduces a gated provider (entries start closed) may carry code
+        cd = confirmation_diff
+        boot = ("--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1,2 @@\n+   \"vendor_confirmation\": null,\n+   \"sender\": null,\n"
+                "--- a/bench/config.yaml\n+++ b/bench/config.yaml\n@@ -1 +1 @@\n+   \"live_run_allowed\": false,\n")
+        code = ["bench/tos_matrix.yaml", "bench/config.yaml", "bench/awibench/runner.py"]
+        self.assertEqual(cd.check(code, boot, confirmed=False), [])            # nulls/false while nothing is confirmed: allowed
+        self.assertEqual(len(cd.check(code, boot, confirmed=True)), 1)          # something confirmed after the diff: no allowance
+        self.assertEqual(len(cd.check(code, boot)), 1)                          # default is strict
+        for real in ('+   "vendor_confirmation": {"date": "2026-11-01"},\n', '+   "live_run_allowed": true,\n', '-   "vendor_confirmation": null,\n',
+                     '+   "sender": "hello@context.dev",\n', '-   "live_run_allowed": false,\n'):
+            d = "--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1 @@\n" + real
+            self.assertEqual(len(cd.check(code, d, confirmed=False)), 1, real)   # real diffs still fail
+        # head_confirmed reads the tree: committed repo = nothing confirmed; a confirmed flagged entry or live_run_allowed true = confirmed
+        self.assertFalse(cd.head_confirmed(SITE))
+        r = self.tmp / "hc"; (r / "bench").mkdir(parents=True)
+        tos = {"providers": {"x": {"vendor_confirmation_required": True, "vendor_confirmation": None}, "y": {"terms": "ok"}}}
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos)); (r / "bench/config.yaml").write_text(json.dumps({"free_tier_guard": {"x": {"live_run_allowed": False}}}))
+        self.assertFalse(cd.head_confirmed(r))                                   # nulls and false only
+        (r / "bench/config.yaml").write_text(json.dumps({"free_tier_guard": {"x": {"live_run_allowed": True}}})); self.assertTrue(cd.head_confirmed(r))
+        (r / "bench/config.yaml").write_text("{}"); tos["providers"]["x"]["vendor_confirmation"] = {"date": "d"}   # even an incomplete record counts
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos)); self.assertTrue(cd.head_confirmed(r))
+        (r / "bench/tos_matrix.yaml").unlink(); self.assertTrue(cd.head_confirmed(r))   # unreadable: fail closed (no allowance)
+    def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
+        self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
+        wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional
+        self.assertRegex(wf, r"(?m)^on:\n  pull_request:"); self.assertIn("fetch-depth: 0", wf)
+        self.assertRegex(wf, r'python -m awibench\.confirmation_diff "origin/\$\{\{ github\.base_ref \}\}"')
+    def test_ac11_creditguard_allows_is_the_stop_check(self):   # AC11 (kills mutant K1: allows <= -> <)
+        d = self.tmp / "cg"; d.mkdir(); g = guard_mod.CreditGuard(d, "contextdev", None, 900)
+        try:
+            g.record(899, 0)
+            self.assertTrue(g.allows(1)); self.assertFalse(g.allows(2))              # 899 + 1 = 900 runs, 901 stops
+            self.assertTrue(g.allows(0, meter=900)); self.assertFalse(g.allows(1, meter=900))   # meter above the counter wins
+            self.assertFalse(g.allows(1, meter=None) and g.allows(1, meter=950))
+        finally: g.release()
+        src = (BENCH / "awibench/runner.py").read_text()
+        self.assertIn("cg.allows(est, mv)", src); self.assertNotIn('eff + est > fg["stop_at_credits"]', src)   # runner has no second copy of the check
     def test_ac24f_keenable_no_adapter_zero_calls(self):   # AC24f
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         self.assertNotIn("keenable", B.ADAPTERS)

@@ -298,7 +298,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                                 if mv is None:
                                     cg.release(); status = stale("budget", status, "usage meter unreadable; failing closed (rule 6)"); halt = True; break
                             eff = max(mv or 0, cg.used()); last_read = (mv, cg.used()); gmeta |= {"credits_used": eff, "credits_stop_at": fg["stop_at_credits"]}
-                            if eff + est > fg["stop_at_credits"]:
+                            if not cg.allows(est, mv):   # guard.CreditGuard.allows is the single stop check
                                 cg.release()
                                 status = stale("quota", status, f"credit guard: max(meter {mv}, attempts counter {last_read[1]}) = {eff} + next call {est} would pass the stop at {fg['stop_at_credits']} credits (quota {fg['quota_credits']})"); halt = True; break
                         t0 = clock()

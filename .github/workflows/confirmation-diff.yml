@@ -1,0 +1,16 @@
+name: confirmation-diff
+# AWI-PROVIDER-CONTEXTDEV-001 AC24e: fails a PR that changes a vendor_confirmation / live_run_allowed value together with code.
+on:
+  pull_request: {}
+permissions: {contents: read}
+jobs:
+  confirmation-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: python -m awibench.confirmation_diff (PR head vs base)
+        working-directory: bench
+        run: python -m awibench.confirmation_diff "origin/${{ github.base_ref }}"
