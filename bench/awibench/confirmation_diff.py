@@ -19,7 +19,7 @@ free_tier_guard entry holds any non-null vendor_confirmation, complete or not, a
 PR that introduces a gated provider carry code. A removed field, a changed value, or a head with anything confirmed still counts.
 
 AC24h (any PR, flip or not): the gate itself may not be lowered. It fails when, between base and head, a tos_matrix provider that has
-`gates.REQUIRED_KEY` at the base loses it, has it changed from true to anything else, or the provider entry is deleted or renamed
+`gates.REQUIRED_FLAG` at the base loses it, has it changed from true to anything else, or the provider entry is deleted or renamed
 (absent at head under the same id). There is no override: lowering the gate needs a separate Fred or CEO ruling.
 
 check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
@@ -65,16 +65,16 @@ def head_confirmed(head):
 
 def gate_lowered(base, head):
     """AC24h: problems for every provider whose required-confirmation flag is dropped, lowered, or whose entry is deleted/renamed."""
-    from .gates import REQUIRED_KEY
+    from .gates import REQUIRED_FLAG
     bp = ((base.get(TOS) or {}).get("providers") or {}) if isinstance(base.get(TOS), dict) else {}
     hp = ((head.get(TOS) or {}).get("providers") or {}) if isinstance(head.get(TOS), dict) else {}
     out = []
     for pid, e in sorted(bp.items()):
-        if not isinstance(e, dict) or REQUIRED_KEY not in e: continue
+        if not isinstance(e, dict) or REQUIRED_FLAG not in e: continue
         h = hp.get(pid)
         if not isinstance(h, dict): out.append(f"{pid}: gated tos_matrix entry deleted or renamed")
-        elif REQUIRED_KEY not in h: out.append(f"{pid}: {REQUIRED_KEY} deleted")
-        elif e[REQUIRED_KEY] is True and h[REQUIRED_KEY] is not True: out.append(f"{pid}: {REQUIRED_KEY} lowered from true")
+        elif REQUIRED_FLAG not in h: out.append(f"{pid}: {REQUIRED_FLAG} deleted")
+        elif e[REQUIRED_FLAG] is True and h[REQUIRED_FLAG] is not True: out.append(f"{pid}: {REQUIRED_FLAG} lowered from true")
     return [f"AC24h: the vendor-confirmation gate may not be lowered ({'; '.join(out)}); that needs a separate Fred or CEO ruling"] if out else []
 
 def check(changed_files, base, head):
