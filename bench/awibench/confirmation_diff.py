@@ -22,11 +22,15 @@ AC24h (any PR, flip or not): the gate itself may not be lowered. It fails when, 
 `gates.REQUIRED_FLAG` at the base loses it, has it changed from true to anything else (deleting or renaming the key fails whatever its base value: true, false or null), or the provider entry is deleted or renamed
 (absent at head under the same id). There is no override: lowering the gate needs a separate Fred or CEO ruling.
 R16: SQ2 rejects any change to PROTECTED files that exist at the base; SQ3 compares strictly on type and value.
+R17 SQ-C (every PR, flip or not): schema types at the head. vendor_confirmation_required and live_run_allowed must be bool;
+vendor_confirmation must be null or a mapping.
 
 check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
 CLI: python -m awibench.confirmation_diff [BASE [HEAD]]    (defaults origin/main and HEAD; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems).
 AWI_REPO_ROOT sets the repo root, so CI can run the BASE copies of this file and gates.py from a temp dir against the PR head
-(R15, .github/workflows/confirmation-diff-base.yml): a PR's own checker never judges that PR.
+(R15, .github/workflows/confirmation-diff-base.yml). That base-judged job is authoritative; the advisory runs
+(confirmation-diff.yml and run_tests.sh) use the PR's own copy of this file. All three use the same base (origin/<base branch>, the
+base sha in the base-judged job) and diff from merge-base(BASE, HEAD), so commits that moved the base branch ahead are not counted.
 """
 import json, os, re, subprocess, sys
 from pathlib import Path
@@ -91,14 +95,31 @@ PROTECTED = ("bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
 
 def protected_touched(changed_files, base_has):
     """SQ2 (R16): the checker, gates.py and the confirmation workflows may not change once they exist at the base.
-    base_has = the PROTECTED files present at the base (None = all of them: fail closed). Adding one that the base lacks is the
-    bootstrap PR (#27), which has no base checker to judge it. After that, any change needs a separate Fred or CEO ruling."""
+    base_has = the PROTECTED files present at the base (None = all of them: fail closed). A file the base lacks is not "changed"
+    here; when the base lacks the checker itself, the base-judged job fails closed (SQ1, R17 SQ-A: no exemption, #27 included;
+    #27 is judged by Kitty's fixtures, the mutants and Weatherman's SHIP at its exact head). After #27, any change needs a separate
+    Fred or CEO ruling."""
     have = set(PROTECTED) if base_has is None else set(base_has)
     hit = sorted(f for f in changed_files if f in have)
     return [f"SQ2: protected confirmation files changed ({', '.join(hit)}); that needs a separate Fred or CEO ruling"] if hit else []
 
+def schema_errors(head):
+    """R17 SQ-C: type check at the head on every PR."""
+    from .gates import REQUIRED_FLAG
+    bad = []
+    for f, top, keys in ((TOS, "providers", {REQUIRED_FLAG: "bool"}), (CFG, "free_tier_guard", {"live_run_allowed": "bool"})):
+        block = (head.get(f) or {}).get(top) if isinstance(head.get(f), dict) else None
+        if not isinstance(block, dict): continue
+        for pid, e in block.items():
+            if not isinstance(e, dict): continue
+            for k in keys:
+                if k in e and type(e[k]) is not bool: bad.append(f"{f}: {top}.{pid}.{k} must be bool, got {type(e[k]).__name__}")
+            if "vendor_confirmation" in e and not (e["vendor_confirmation"] is None or isinstance(e["vendor_confirmation"], dict)):
+                bad.append(f"{f}: {top}.{pid}.vendor_confirmation must be null or a mapping, got {type(e['vendor_confirmation']).__name__}")
+    return [f"SQ-C (R17) schema: {b}" for b in bad]
+
 def check(changed_files, base, head, base_has=None):
-    lowered = gate_lowered(base, head) + protected_touched(changed_files, base_has)
+    lowered = gate_lowered(base, head) + protected_touched(changed_files, base_has) + schema_errors(head)
     confirmed = head_confirmed(head)
     flips, other = set(), []
     for f in sorted(DATA_FILES):

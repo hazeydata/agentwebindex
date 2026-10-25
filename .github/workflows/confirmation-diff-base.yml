@@ -29,13 +29,8 @@ jobs:
           set -euo pipefail
           base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"
           if ! git cat-file -e "$base:bench/awibench/confirmation_diff.py" 2>/dev/null; then
-            # SQ1 (R16): fail closed. The only exemption is the bootstrap PR, detected structurally: the checker is absent at the
-            # base and ADDED by this PR (never by PR number).
-            mb="$(git merge-base "$base" "$head")"
-            if git diff --name-status --no-renames "$mb" "$head" -- bench/awibench/confirmation_diff.py | grep -q '^A'; then
-              echo "BOOTSTRAP: this PR adds confirmation_diff.py to a base without one; no base checker exists to judge it"; exit 0
-            fi
-            echo "FAILED: the base has no confirmation_diff.py and this PR does not add it (SQ1: fail closed)"; exit 1
+            # SQ1 (R16/R17 SQ-A): fail closed, no exemption, not even for the PR that adds the checker (#27 is judged by Kitty and Weatherman).
+            echo "FAILED: the base has no confirmation_diff.py (SQ1: fail closed, no exemption)"; exit 1
           fi
           judge="$(mktemp -d)"; trap 'rm -rf "$judge"' EXIT
           mkdir -p "$judge/awibench"; : > "$judge/awibench/__init__.py"

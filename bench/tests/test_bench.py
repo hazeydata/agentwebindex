@@ -2897,26 +2897,76 @@ class VendorConfirmationGate(ContextDevBase):
                                env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": "HEAD"})
             if rc: self.assertNotEqual(p.returncode, 0, p.stdout); self.assertNotIn("REACHED_END", p.stdout); self.assertIn("FAILED: confirmation_diff", p.stdout)
             else: self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("confirmation_diff OK", p.stdout)
-    def test_r16_sq1_bootstrap_fails_closed(self):   # SQ1: base without a checker fails unless THIS PR adds confirmation_diff.py
+    def test_r16_sq1_bootstrap_fails_closed(self):   # SQ1 + R17 SQ-A: base without a checker FAILS, no exemption (fake/empty/sys.exit(0) checkers too)
         wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
         block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
         r = self.tmp / "sq1"; (r / "bench").mkdir(parents=True); (r / "bench/tos_matrix.yaml").write_text("{}\n"); (r / "bench/config.yaml").write_text("{}\n")
         git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
         git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base: no checker")
         judge = lambda head: subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": head})
-        git("checkout", "-qb", "other"); (r / "README.md").write_text("x\n"); (r / "bench/awibench").mkdir(); (r / "bench/awibench/confirmation_diff2.py").write_text("x=1\n")
-        git("add", "-A"); git("commit", "-qm", "unrelated"); git("checkout", "-q", "main")
-        p = judge("other"); self.assertEqual(p.returncode, 1, p.stdout); self.assertIn("SQ1: fail closed", p.stdout)        # no checker, not the bootstrap PR: FAIL
-        git("checkout", "-qb", "boot"); (r / "bench/awibench").mkdir(exist_ok=True); shutil.copy(BENCH / "awibench/confirmation_diff.py", r / "bench/awibench/confirmation_diff.py")
-        git("add", "-A"); git("commit", "-qm", "adds the checker"); git("checkout", "-q", "main")
-        p = judge("boot"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("BOOTSTRAP", p.stdout)       # positive control: the PR that adds it
-        self.assertNotRegex(block, r"PR_NUMBER|pull_request\.number|#27\b(?!.*BOOTSTRAP)")                                   # structural, not by PR number
+        real = (BENCH / "awibench/confirmation_diff.py").read_text()
+        for name, body in (("other", None), ("real", real), ("fake", "print('OK')\n"), ("empty", ""), ("exit0", "import sys\nsys.exit(0)\n")):
+            git("checkout", "-q", "main"); git("checkout", "-qb", name); (r / "README.md").write_text(name + "\n")
+            if body is not None: (r / "bench/awibench").mkdir(exist_ok=True); (r / "bench/awibench/confirmation_diff.py").write_text(body)
+            git("add", "-A"); git("commit", "-qm", name); git("checkout", "-q", "main")
+            p = judge(name); self.assertEqual(p.returncode, 1, name + p.stdout); self.assertIn("SQ1: fail closed, no exemption", p.stdout, name)
+            self.assertNotIn("BOOTSTRAP", p.stdout)
+        self.assertNotIn("BOOTSTRAP", block); self.assertNotRegex(block, r"PR_NUMBER|pull_request\.number|grep -q")
+        r2 = self.tmp / "sq1b"; (r2 / "bench/awibench").mkdir(parents=True)                                                       # positive control: base WITH a checker judges normally
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r2 / "bench/awibench" / f)
+        (r2 / "bench/tos_matrix.yaml").write_text("{}\n"); (r2 / "bench/config.yaml").write_text("{}\n")
+        git2 = lambda *a: subprocess.run(["git", "-C", str(r2), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git2("init", "-q", "-b", "main"); git2("add", "-A"); git2("commit", "-qm", "base"); git2("checkout", "-qb", "doc"); (r2 / "README.md").write_text("x\n")
+        git2("add", "-A"); git2("commit", "-qm", "doc"); git2("checkout", "-q", "main")
+        p = subprocess.run(["bash", "-c", block], cwd=r2, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": "doc"})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("judging doc with the base checker", p.stdout)
+    def test_q04_diff_from_merge_base_not_base_tip(self):   # Kitty v6 Q04: a base branch that moved ahead must not count against the PR
+        cd = confirmation_diff; r = self.tmp / "mb"; (r / "bench/awibench").mkdir(parents=True)
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text("")
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}}}
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n"); git("commit", "-qam", "flip only")
+        git("checkout", "-q", "main"); (r / "README.md").write_text("main moved\n"); (r / "bench/runner.py").write_text("x=1\n")
+        with (r / "bench/awibench/gates.py").open("a") as fh: fh.write("# main moved\n")
+        git("add", "-A"); git("commit", "-qm", "main moves ahead (code + protected file)"); git("checkout", "-q", "pr")
+        with mock.patch.object(cd, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(cd.main(["main"]), 0)                                                                # judged from merge-base: flip-only
+            git("checkout", "-q", "main"); git("checkout", "-qb", "bad"); (r / "bench/runner.py").write_text("x=2\n")
+            tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n")
+            git("commit", "-qam", "flip + code"); self.assertEqual(cd.main(["main"]), 1)                                   # control
+    def test_s09_type_check_sets_and_dates(self):   # Kitty v6 S09/T01: yaml !!set and dates must not equal their repr strings
+        import datetime
+        cd = confirmation_diff
+        for a, b in (({"a"}, "{'a'}"), (datetime.date(2026, 10, 30), "datetime.date(2026, 10, 30)"), (datetime.date(2026, 10, 30), "2026-10-30")):
+            self.assertFalse(cd.same(a, b), (a, b)); self.assertFalse(cd.same(b, a)); self.assertTrue(cd.same(a, a))
+        T = "bench/tos_matrix.yaml"
+        for old, new in (("{'a'}", {"a"}), ("datetime.date(2026, 10, 30)", datetime.date(2026, 10, 30))):
+            b, h = self._cd_docs(); b[T]["providers"]["contextdev"]["benchmarking"]["quote"] = old; h[T]["providers"]["contextdev"]["benchmarking"]["quote"] = new
+            self.assertTrue(cd.changed_paths(b[T], h[T]), (old, new))
+            self._flip(h); self.assertTrue(any("flip-only" in x for x in cd.check([T, "bench/config.yaml"], b, h)), (old, new))
+    def test_r17_sqc_schema_types_every_pr(self):   # R17 SQ-C: types on every PR, data-only included
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        b, h = self._cd_docs(); self.assertEqual(cd.schema_errors(h), []); self.assertEqual(cd.check(["README.md"], b, h), [])   # positive control: valid types
+        b, h = self._cd_docs(); h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = 0
+        r = cd.check([C], b, h); self.assertTrue(any("SQ-C" in x and "live_run_allowed" in x for x in r), r)                 # data-only false -> 0
+        b, h = self._cd_docs(); h[T]["providers"]["contextdev"]["vendor_confirmation"] = "yes"
+        r = cd.check([T], b, h); self.assertTrue(any("SQ-C" in x and "vendor_confirmation must be null or a mapping" in x for x in r), r)
+        b, h = self._cd_docs(); h[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"] = ["x"]
+        self.assertTrue(cd.schema_errors(h))
+        for bad in ("true", 1, None):
+            b, h = self._cd_docs(); h[T]["providers"]["keenable"]["vendor_confirmation_required"] = bad
+            self.assertTrue(any("vendor_confirmation_required must be bool" in x for x in cd.schema_errors(h)), bad)
+        b, h = self._cd_docs(); self._flip(h); self.assertEqual(cd.schema_errors(h), [])                                   # a valid record (mapping) is fine
+        live = {f: cd.parse((SITE / f).read_text()) for f in cd.DATA_FILES}; self.assertEqual(cd.schema_errors(live), [])   # the committed data passes
     def test_r16_sq2_protected_files(self):   # SQ2: the base checker fails any diff touching gates.py, confirmation_diff.py or the workflows
         cd = confirmation_diff; base, head = self._cd_docs()
         for f in cd.PROTECTED:
             r = cd.check([f], base, head); self.assertTrue(any(x.startswith("SQ2") and f in x for x in r), f)
             self.assertTrue(any(x.startswith("SQ2") for x in cd.check([f], base, head, base_has=list(cd.PROTECTED))), f)
-            self.assertEqual(cd.check([f], base, head, base_has=[]), [], f)                                               # bootstrap: absent at base -> added, exempt
+            self.assertEqual(cd.check([f], base, head, base_has=[]), [], f)                                               # absent at base: SQ2 n/a (with no base checker, SQ1 fails closed)
         self.assertEqual(cd.check(["bench/awibench/runner.py", "README.md"], base, head), [])                                 # positive control
         r = self.tmp / "sq2"; (r / "bench/awibench").mkdir(parents=True)                                                      # CLI: base_has comes from git at the merge-base
         for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
