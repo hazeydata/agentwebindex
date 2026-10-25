@@ -1,9 +1,12 @@
 """AWI-PROVIDER-CONTEXTDEV-001 AC24e: a PR that records (or changes) a vendor confirmation must be a separate, data-and-docs-only PR.
 
-check(changed_files, diff_text) -> list of problems; empty = fine. Fails when the diff changes any `vendor_confirmation` value (or the
-`live_run_allowed` flag that goes with it, or a field inside a tos_matrix record) AND also changes code.
-Code = any changed file that is not a doc (*.md, *.txt, docs/), not one of the two data files that hold the record, and not under bench/tests/
-(the flip PR must update the tests that assert the committed null).
+check(changed_files, diff_text) -> list of problems; empty = fine. When the diff changes any `vendor_confirmation` value (or the
+`live_run_allowed` flag that goes with it, or a field inside a tos_matrix record), the PR must be FLIP-ONLY (R13). Flip allowlist:
+- bench/tos_matrix.yaml: only `vendor_confirmation` lines and its record fields (date, sender, quote, evidence_path, recorded_pr), plus bare braces
+- bench/config.yaml: only `live_run_allowed` and `vendor_confirmation` lines (and the record fields / braces inside it)
+- the vendor-reply evidence file and cycle docs: `[agentwebindex-meta/]cycles/<cycle>/evidence/<file>`, `.../summary.md`, `.../decisions.md`
+Anything else (code, tests, pricing.yaml, providers.json, README or any other doc, other fields in the two yaml files) is rejected.
+A price taken from the vendor reply lands in a separate PR.
 
 Bootstrap allowance (narrow): an ADDED line that sets one of these keys to the closed default (`vendor_confirmation: null`,
 `live_run_allowed: false`, or a record field `null`) is not a confirmation change, but only while nothing is confirmed after the diff
@@ -20,10 +23,22 @@ from pathlib import Path
 DATA_FILES = {"bench/tos_matrix.yaml", "bench/config.yaml"}
 KEY = re.compile(r'^[+-]\s*"?(vendor_confirmation|live_run_allowed)"?\s*:')
 RECORD_KEY = re.compile(r'^[+-]\s*"?(date|sender|evidence_path|recorded_pr)"?\s*:')
+FLIP_FIELD = re.compile(r'^[+-]\s*"?(date|sender|quote|evidence_path|recorded_pr)"?\s*:')   # allowlist only (detection unchanged)
 
-def is_doc(f): return f.endswith((".md", ".txt")) or f.startswith("docs/")
+FLIP_PATH = re.compile(r"^(agentwebindex-meta/)?cycles/[^/]+/(summary\.md|decisions\.md|evidence/[^/]+)$")
+BRACES = re.compile(r'^[+-]\s*[{}\[\]]?\s*[}\]]?\s*,?\s*$')
 
-def is_code(f): return not is_doc(f) and f not in DATA_FILES and not f.startswith("bench/tests/")
+def flip_allowed_path(f): return f in DATA_FILES or bool(FLIP_PATH.match(f))
+
+def bad_data_lines(diff_text):
+    """Changed lines in the two data files that are not a confirmation key, a record field or a bare brace."""
+    cur, bad = None, []
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "): cur = line[4:].removeprefix("b/"); continue
+        if line.startswith("--- ") or not line[:1] in "+-" or cur not in DATA_FILES: continue
+        if KEY.match(line) or FLIP_FIELD.match(line) or BRACES.match(line): continue
+        bad.append(f"{cur}: {line[:80]}")
+    return bad
 
 CLOSED_DEFAULT = re.compile(r'^\+[^:]*:\s*(null|false)\s*,?\s*$')
 
@@ -41,8 +56,8 @@ def changed_confirmation(diff_text, confirmed=True):
 
 def check(changed_files, diff_text, confirmed=True):
     if not changed_confirmation(diff_text, confirmed): return []
-    code = sorted(f for f in changed_files if is_code(f))
-    return [f"vendor_confirmation changed together with code changes ({', '.join(code)}): record the vendor reply in a separate data/docs-only PR"] if code else []
+    extra = sorted(f for f in changed_files if not flip_allowed_path(f)) + bad_data_lines(diff_text)
+    return [f"confirmation flip is not flip-only (R13): {'; '.join(extra)}. Record the vendor reply alone (confirmation fields, evidence file, summary.md/decisions.md); everything else goes in its own PR"] if extra else []
 
 def head_confirmed(root):
     """True if anything is (even partly) confirmed in the checked-out tree: any tos_matrix or config free_tier_guard entry with a non-null

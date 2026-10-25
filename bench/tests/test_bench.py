@@ -2745,7 +2745,21 @@ class VendorConfirmationGate(ContextDevBase):
         cd = confirmation_diff
         flip = ("diff --git a/bench/tos_matrix.yaml b/bench/tos_matrix.yaml\n--- a/bench/tos_matrix.yaml\n+++ b/bench/tos_matrix.yaml\n@@ -1 +1 @@\n"
                 '-   "vendor_confirmation": null,\n+   "vendor_confirmation": {\n')
-        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/README.md", "bench/tests/test_bench.py"], flip), [])   # data + docs + tests only: fine
+        # R13: the flip PR is flip-only
+        ev = "agentwebindex-meta/cycles/2026-10-25-provider-contextdev/evidence/vendor-reply-contextdev.eml"
+        self.assertEqual(cd.check(["bench/tos_matrix.yaml"], flip), [])                                                   # flip only: passes
+        self.assertEqual(cd.check(["bench/tos_matrix.yaml", ev, "cycles/2026-10-25-provider-contextdev/summary.md",
+                                   "cycles/2026-10-25-provider-contextdev/decisions.md", "cycles/x/evidence/reply.txt"], flip), [])   # + evidence + cycle docs
+        full = flip + ('+    "date": "2026-11-01",\n+    "sender": "A, a@context.dev",\n+    "quote": "ok",\n+    "evidence_path": "x",\n+    "recorded_pr": "u"\n+   },\n'
+                       "--- a/bench/config.yaml\n+++ b/bench/config.yaml\n@@ -1,2 +1,2 @@\n-   \"live_run_allowed\": false,\n+   \"live_run_allowed\": true,\n"
+                       '-   "vendor_confirmation": null,\n+   "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q"},\n')
+        self.assertEqual(cd.check(["bench/tos_matrix.yaml", "bench/config.yaml"], full), [])                              # full record + config flip
+        for extra in ("bench/tests/test_bench.py", "bench/pricing.yaml", "README.md", "bench/README.md", "collectors/providers.json", "cycles/x/notes.md"):
+            self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", extra], flip)), 1, extra)                             # flip + anything else: fails
+        other_field = flip + '-   "terms_last_updated": "2026-10-01",\n+   "terms_last_updated": "2026-11-01",\n'
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml"], other_field)), 1)                                       # flip + other tos_matrix field: fails
+        cfg_other = full + '-   "stop_at_credits": 900,\n+   "stop_at_credits": 950,\n'
+        self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/config.yaml"], cfg_other)), 1)                    # flip + other config field: fails
         self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "bench/awibench/gates.py"], flip)), 1)
         self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", "collectors/benchmark.py"], flip)), 1)
         self.assertEqual(len(cd.check(["bench/tos_matrix.yaml", ".github/workflows/x.yml"], flip)), 1)
