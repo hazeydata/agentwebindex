@@ -2808,6 +2808,11 @@ class VendorConfirmationGate(ContextDevBase):
         h3 = __import__("copy").deepcopy(head); h3[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True
         self.assertEqual(len(cd.check(files, base, h3)), 1)                                                      # new field, but not the closed default
         self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 1)                                    # unparsable head: fail closed
+        b4 = __import__("copy").deepcopy(base); b4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
+        h4 = __import__("copy").deepcopy(head); h4[T]["providers"]["exa"]["vendor_confirmation"] = {"date": "d"}
+        self.assertEqual(len(cd.check(files, b4, h4)), 1)                                                        # already confirmed elsewhere (unchanged): no allowance
+        b5, h5 = self._cd_docs(); b5[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True              # existing value changed to false
+        self.assertEqual(len(cd.check(files, b5, h5)), 1)                                                        # only NEW fields get the allowance
         # head_confirmed
         self.assertFalse(cd.head_confirmed(head)); self.assertTrue(cd.head_confirmed(h2)); self.assertTrue(cd.head_confirmed(h3))
         self.assertTrue(cd.head_confirmed({T: None, C: {}}))

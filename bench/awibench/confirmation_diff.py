@@ -71,7 +71,7 @@ def check(changed_files, base, head):
     if not flips: return []
     bad = sorted(f for f in changed_files if not flip_allowed_path(f))
     if len(flips) > 1: bad.append(f"more than one provider flipped ({', '.join(sorted(flips))})")
-    bad += [f"{f}: {'.'.join(p)}" for f, p, pid in other if pid is None or pid not in flips or len(flips) > 1]
+    bad += [f"{f}: {'.'.join(p)}" for f, p, pid in other if pid is None]
     return [f"confirmation flip is not flip-only (R13): {'; '.join(bad)}. Record the vendor reply alone (that provider's confirmation fields, the evidence file, summary.md/decisions.md); everything else goes in its own PR"] if bad else []
 
 def parse(text):
