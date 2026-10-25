@@ -2092,7 +2092,7 @@ class TavilyPhase0(unittest.TestCase):
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
 
 
-MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "mock"}
+MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
 
 class ContextDevBase(unittest.TestCase):
     """AWI-PROVIDER-CONTEXTDEV-001 spec rev 4 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
@@ -2666,7 +2666,7 @@ class ContextDevDocs(unittest.TestCase):
 class VendorConfirmationGate(ContextDevBase):
     """AWI-PROVIDER-CONTEXTDEV-001 R10 (AC24a-24f). MOCK ONLY."""
     REQ = {"vendor_confirmation_required": True}
-    FULL = {"date": "2026-11-01", "sender": "A Person, a@example.invalid", "quote": "you may publish", "evidence_path": "meta/x.md", "recorded_pr": "pr"}
+    FULL = {"date": "2026-11-01", "sender": "A Person, a@example.invalid", "quote": "you may publish", "evidence_path": "meta/x.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
     def test_ac24a_truth_table(self):   # AC24a
         vc = gates_mod.vendor_confirmed
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": None})); self.assertFalse(vc(self.REQ))
@@ -2675,8 +2675,8 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k not in ("quote", "evidence_path")}}))   # neither quote nor evidence
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": "yes"}))
         self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL}))
-        self.assertTrue(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "quote"}}))   # evidence_path alone
-        self.assertTrue(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "evidence_path"}}))   # quote alone
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL | {"quote": None}}))   # evidence_path alone (quote null)
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL | {"evidence_path": None}}))   # quote alone (evidence_path null)
         self.assertTrue(vc({"vendor_confirmation_required": False})); self.assertTrue(vc({})); self.assertTrue(vc(None))
         real = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
         old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 15)
@@ -2752,7 +2752,7 @@ class VendorConfirmationGate(ContextDevBase):
                                                   "anchor": {"date": "2026-10-01"}}}}
         base = {"bench/tos_matrix.yaml": tos, "bench/config.yaml": cfg}
         return base, copy.deepcopy(base)
-    REC = {"date": "2026-10-30", "sender": "A, a@context.dev", "quote": "You may benchmark and publish.", "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "u"}
+    REC = {"date": "2026-10-30", "sender": "A, a@context.dev", "quote": "You may benchmark and publish.", "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
     def _flip(self, head, cfg_too=True):
         head["bench/tos_matrix.yaml"]["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
         if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
@@ -2783,14 +2783,14 @@ class VendorConfirmationGate(ContextDevBase):
             "flip + sender in an unrelated tos record": lambda b, h: tos(h)["exa"].update(sender="b"),
             "flip + other tos field (checked_at)": lambda b, h: tos(h)["contextdev"].update(checked_at="2026-10-30"),
             "flip + other config field (stop_at_credits)": lambda b, h: g(h).update(stop_at_credits=990),
-            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "d", "sender": "s", "quote": "q", "recorded_pr": "u"}),
+            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "2026-10-30", "sender": "s", "quote": "q", "evidence_path": None, "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}),
             "flip + keenable benchmarking.quote": lambda b, h: tos(h)["keenable"]["benchmarking"].update(quote="x"),
         }
         for name, mut in probes.items(): self.assertEqual(len(case(mut)), 1, name)
         # record already confirmed at base; a quote-only / date-only / sender-only edit + code is a flip and fails
         for fld in ("quote", "date", "sender"):
             def edit(b, h, fld=fld):
-                tos(b)["contextdev"]["vendor_confirmation"] = dict(self.REC); tos(h)["contextdev"]["vendor_confirmation"] = dict(self.REC, **{fld: "changed"})
+                tos(b)["contextdev"]["vendor_confirmation"] = dict(self.REC); tos(h)["contextdev"]["vendor_confirmation"] = dict(self.REC, **{fld: "2026-10-31" if fld == "date" else "changed"})
             self.assertEqual(len(case(edit, files=(T, "bench/awibench/x.py"), flip=False)), 1, fld)
             self.assertEqual(case(edit, files=(T,), flip=False), [], fld)                                       # the same edit alone is flip-only
         self.assertEqual(len(case(lambda b, h: g(h).update(live_run_allowed=True), files=(C, "bench/awibench/x.py"), flip=False)), 1)   # config flip + code
@@ -2949,6 +2949,46 @@ class VendorConfirmationGate(ContextDevBase):
             b, h = self._cd_docs(); b[T]["providers"]["contextdev"]["benchmarking"]["quote"] = old; h[T]["providers"]["contextdev"]["benchmarking"]["quote"] = new
             self.assertTrue(cd.changed_paths(b[T], h[T]), (old, new))
             self._flip(h); self.assertTrue(any("flip-only" in x for x in cd.check([T, "bench/config.yaml"], b, h)), (old, new))
+    def test_r19_one_record_validator(self):   # R19: one validator in gates.py; vendor_confirmed() and the CI schema check both use it
+        import datetime
+        from awibench import gates
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; R = dict(self.REC)
+        def all_paths(rec):                                                                                               # validator, vendor_confirmed, check() (non-flip and flip)
+            b, h = self._cd_docs(); h[T]["providers"]["keenable"]["vendor_confirmation"] = rec
+            b2, h2 = self._cd_docs(); h2[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"] = rec
+            b3, h3 = self._cd_docs(); self._flip(h3); h3[T]["providers"]["contextdev"]["vendor_confirmation"] = rec
+            return (gates.record_error(rec), gates.vendor_confirmed({"vendor_confirmation_required": True, "vendor_confirmation": rec}),
+                    [x for x in cd.check(["README.md"], b, h) if "SQ-C" in x], [x for x in cd.check([C], b2, h2) if "SQ-C" in x],
+                    [x for x in cd.check([T, C], b3, h3) if "SQ-C" in x])
+        good = [R, dict(R, quote=None), dict(R, evidence_path=None), dict(R, quote=""), dict(R, date="2024-02-29"),
+                dict(R, recorded_pr="https://github.com/hazeydata/agentwebindex-meta/pull/1")]
+        for rec in good:                                                                                                  # positive controls
+            err, ok, *sqc = all_paths(rec); self.assertIsNone(err, rec); self.assertTrue(ok, rec); self.assertEqual(sqc, [[], [], []], rec)
+        bad = {
+            "extra key": dict(R, note="x"), "missing recorded_pr": {k: v for k, v in R.items() if k != "recorded_pr"},
+            "missing quote key": {k: v for k, v in R.items() if k != "quote"}, "non-str key": dict(R, **{}) | {1: "x"},
+            "unquoted yaml date": dict(R, date=datetime.date(2026, 10, 30)), "invalid date": dict(R, date="2026-02-30"),
+            "bad date format": dict(R, date="2026-10-3"), "date with time": dict(R, date="2026-10-30T00:00"), "date int": dict(R, date=20261030),
+            "empty sender": dict(R, sender=" "), "sender int": dict(R, sender=7), "sender set (K8-02n)": dict(R, sender={"a"}),
+            "http url": dict(R, recorded_pr="http://github.com/x/pull/1"), "int PR (Z02)": dict(R, recorded_pr=27), "bare https": dict(R, recorded_pr="https://"),
+            "PR not url": dict(R, recorded_pr="#27"), "PR with space": dict(R, recorded_pr="https://x y"),
+            "both null": dict(R, quote=None, evidence_path=None), "both empty": dict(R, quote="", evidence_path=" "),
+            "quote list": dict(R, quote=["q"]), "quote int, path ok": dict(R, quote=1), "evidence_path set (K8-02n)": dict(R, evidence_path={"p"}),
+            "quote false": dict(R, quote=False), "link string": "https://example.invalid/reply", "empty mapping": {}, "list": [R],
+        }
+        for name, rec in bad.items():
+            err, ok, *sqc = all_paths(rec)
+            self.assertTrue(err, name); self.assertFalse(ok, name)
+            for hits in sqc: self.assertTrue(hits, (name, sqc))
+        self.assertIn("real calendar date", gates.record_error(bad["invalid date"]))
+        self.assertIn("https://", gates.record_error(bad["int PR (Z02)"])); self.assertIn("extra", gates.record_error(bad["extra key"]))
+        self.assertIn("quoted", gates.record_error(bad["unquoted yaml date"]))
+        with mock.patch.object(gates, "record_error", return_value="sentinel") as m:                                      # one implementation: both callers go through it
+            self.assertFalse(gates.vendor_confirmed({"vendor_confirmation_required": True, "vendor_confirmation": R}))
+            self.assertEqual(cd.record_shape_error(R), "sentinel"); self.assertEqual(m.call_count, 2)
+        src = (BENCH / "awibench/confirmation_diff.py").read_text()
+        self.assertNotRegex(src, r"recorded_pr\"|\"sender\"|RECORD_|https://\"")                                         # no second copy of the rules
+        self.assertEqual(gates.RECORD_KEYS, ("date", "sender", "quote", "evidence_path", "recorded_pr"))
     def test_r17_sqc_schema_types_every_pr(self):   # R17 SQ-C + R18: types and record shape on every PR, tested through check()
         import datetime
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
@@ -2957,7 +2997,7 @@ class VendorConfirmationGate(ContextDevBase):
         hits, r = sqc(lambda h: None); self.assertEqual(r, [])                                                             # positive control: valid types, nothing confirmed
         hits, r = sqc(lambda h: self._flip(h), files=(T, C)); self.assertEqual(r, [])                                      # positive control: full valid record (flip-only PR)
         for k in ("quote", "evidence_path"):                                                                               # quote and/or evidence_path
-            rec = dict(self.REC); rec.pop(k); hits, r = sqc(lambda h: self._flip(h) and h[T]["providers"]["contextdev"].update(vendor_confirmation=rec), files=(T, C))
+            rec = dict(self.REC, **{k: None}); hits, r = sqc(lambda h: self._flip(h) and h[T]["providers"]["contextdev"].update(vendor_confirmation=rec), files=(T, C))
             self.assertEqual(r, [], k)
         hits, r = sqc(lambda h: h[C]["free_tier_guard"]["contextdev"].update(live_run_allowed=0), files=(C,))
         self.assertTrue(any("live_run_allowed must be bool" in x for x in hits), r)                                       # data-only false -> 0
@@ -3103,7 +3143,7 @@ class SnapshotPricesGate(unittest.TestCase):
         sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
         provs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
         tos = {"a": {"vendor_confirmation_required": True, "vendor_confirmation": None},
-               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q"}}}
+               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q", "evidence_path": None, "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}}}
         self.assertEqual([p["id"] for p in S.snapshot_providers(provs, tos)], ["b", "c"])   # unflagged c unaffected
         self.assertIn("provs=snapshot_providers(", (SITE / "collectors/snapshot_prices.py").read_text())
         self.assertIn("snapshot_prices", (BENCH / "README.md").read_text())   # documented (docs match code)

@@ -23,7 +23,7 @@ AC24h (any PR, flip or not): the gate itself may not be lowered. It fails when, 
 (absent at head under the same id). There is no override: lowering the gate needs a separate Fred or CEO ruling.
 R16: SQ2 rejects any change to PROTECTED files that exist at the base; SQ3 compares strictly on type and value.
 R17 SQ-C (every PR, flip or not): schema types at the head. vendor_confirmation_required and live_run_allowed must be bool;
-vendor_confirmation must be null or a full record (R18: date, sender, recorded_pr, and quote and/or evidence_path, all non-empty strings).
+vendor_confirmation must be null or a record that passes gates.record_error (R19; spec line 95).
 
 check(changed_files, base, head) -> list of problems (empty = fine); base/head = {"bench/tos_matrix.yaml": doc, "bench/config.yaml": doc}.
 CLI: python -m awibench.confirmation_diff [BASE [HEAD]]    (defaults origin/main and HEAD; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems).
@@ -103,17 +103,10 @@ def protected_touched(changed_files, base_has):
     hit = sorted(f for f in changed_files if f in have)
     return [f"SQ2: protected confirmation files changed ({', '.join(hit)}); that needs a separate Fred or CEO ruling"] if hit else []
 
-RECORD_REQUIRED = ("date", "sender", "recorded_pr")   # plus at least one of RECORD_ONE_OF (spec rev 4 record shape)
-RECORD_ONE_OF = ("quote", "evidence_path")
-
 def record_shape_error(v):
-    """R18: None is fine (nothing confirmed). Otherwise a mapping with non-empty string date, sender and recorded_pr, and a non-empty
-    string quote and/or evidence_path. A link string, a falsy value ('', 0, false, {}, []), a set or a partial record fails."""
-    if v is None: return None
-    if type(v) is not dict: return f"must be null or a record mapping, got {type(v).__name__}"
-    ok = lambda k: type(v.get(k)) is str and v[k].strip() != ""
-    missing = [k for k in RECORD_REQUIRED if not ok(k)] + ([] if any(ok(k) for k in RECORD_ONE_OF) else ["quote or evidence_path"])
-    return f"record is missing {', '.join(missing)}" if missing else None
+    """R18/R19: None (nothing confirmed) is fine; anything else must pass gates.record_error, the one record validator."""
+    from .gates import record_error
+    return None if v is None else record_error(v)
 
 def schema_errors(head):
     """R17 SQ-C: type check at the head on every PR."""
