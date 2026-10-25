@@ -2,7 +2,7 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-10-24T09:25:04+00:00",
+ "fetched_at": "2026-10-25T09:25:03+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "3c0005b53995327e22048708c5b257f98d9e3266e9714bea1f5d22e164e1fbf0",
@@ -34,7 +34,7 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-23T09:29:31+00:00",
+  "previous_fetched_at": "2026-10-24T09:25:04+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

@@ -2,7 +2,7 @@
  "provider": "tavily",
  "name": "Tavily",
  "url": "https://www.tavily.com/pricing",
- "fetched_at": "2026-10-24T09:25:04+00:00",
+ "fetched_at": "2026-10-25T09:25:03+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "3105ec54ecb884ffccae725ad9fabae6cc03fb44da2726a75a9a3625e2a1cf78",
@@ -13,18 +13,10 @@
   "$30"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-23T09:29:31+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-10-24T09:25:04+00:00",
+  "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -116,2 +116,2 @@",
-   "-By submitting my email address, I agree to receive marketing communications. For more information, please see the",
-   "-Privacy Policy",
-   "+By submitting my email address, I agree to receive marketing communications from Tavily. For more information, please see the",
-   "+Privacy Notice"
-  ]
+  "text_diff": []
  }
 }
