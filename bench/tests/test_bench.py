@@ -2930,6 +2930,8 @@ class VendorConfirmationGate(ContextDevBase):
         git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
         tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n"); git("commit", "-qam", "flip only")
         git("checkout", "-q", "main"); (r / "README.md").write_text("main moved\n"); (r / "bench/runner.py").write_text("x=1\n")
+        moved = {"providers": {**json.loads(json.dumps(tos))["providers"], "exa": {"allowed": "yes"}}}; moved["providers"]["contextdev"]["vendor_confirmation"] = None
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(moved) + "\n")                                           # main also moved the yaml (Q04s: docs read at the merge-base)
         with (r / "bench/awibench/gates.py").open("a") as fh: fh.write("# main moved\n")
         git("add", "-A"); git("commit", "-qm", "main moves ahead (code + protected file)"); git("checkout", "-q", "pr")
         with mock.patch.object(cd, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
