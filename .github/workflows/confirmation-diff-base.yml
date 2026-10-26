@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"
           if ! git cat-file -e "$base:bench/awibench/confirmation_diff.py" 2>/dev/null; then
-            # SQ1 (R16/R17 SQ-A): fail closed, no exemption, not even for the PR that adds the checker (#27 is judged by Kitty and Weatherman).
+            # SQ1 (R16/R17 SQ-A): fail closed, no exemption, not even for the PR that adds the checker (R20: #27 is a gate-code PR; Kitty's fixtures and mutants plus Weatherman's SHIP are its review, but it merges only on a CEO or Fred ruling, with chief merging and citing it in decisions.md).
             echo "FAILED: the base has no confirmation_diff.py (SQ1: fail closed, no exemption)"; exit 1
           fi
           judge="$(mktemp -d)"; trap 'rm -rf "$judge"' EXIT

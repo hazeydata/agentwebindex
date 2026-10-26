@@ -2299,6 +2299,19 @@ class ContextDevLiveGate(ContextDevBase):
         for lra in (False, "true", 1, None):                                                                                 # live_run_allowed must be bool True
             cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": lra, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
             self.assertFalse(la(cfg, tos(**{F: True})), lra)
+    def test_r22_bad_config_record_zero_live_calls(self):   # R21 (1) / R22: "yes", {} or a partial config record -> live_allowed False and the provider/http client is never invoked
+        for bad in ("yes", {}, {"date": "2026-11-01", "sender": "x@context.dev"}, {k: v for k, v in MOCK_CONFIRMATION.items() if k != "recorded_pr"}):
+            cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=bad)
+            self.assertFalse(guard_mod.live_allowed(cfg, self.tos), bad)
+            search, scrape = mock.Mock(side_effect=self.ad_search), mock.Mock(side_effect=self.ad_scrape)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, kinds=("search", "scrape"), cfg=cfg, adapters={"contextdev": {"search": search, "scrape": scrape}})
+            self.assertEqual([p["status"] for p in s["providers"]], ["skipped_no_vendor_confirmation"] * 2, bad)
+            search.assert_not_called(); scrape.assert_not_called(); net.assert_not_called(); self.assertEqual(self.calls, [], bad)
+            self.assertFalse(list(self.spend.glob("contextdev-*")), bad)
+        cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=dict(MOCK_CONFIRMATION)); search = mock.Mock(side_effect=self.ad_search)   # positive control
+        self.assertTrue(guard_mod.live_allowed(cfg, self.tos))
+        self.go(n=2, cfg=cfg, adapters={"contextdev": {"search": search}}); self.assertEqual(search.call_count, 2)
     def test_ac6a_default_config_zero_calls(self):   # AC6a (a): committed gate, key set
         cfg = mocks.mock_cfg(CFG)
         s = self.go(n=3, kinds=("search", "scrape"), cfg=cfg)
