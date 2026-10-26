@@ -802,7 +802,7 @@ class Rulings3(unittest.TestCase):
         runs = SITE / "bench" / "runs"; snap = sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file())
         env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
-             mock.patch("builtins.print") as pr:
+             mock.patch("builtins.print") as pr, mock.patch.object(B.guard, "live_allowed", return_value=False):   # AC24: keyless providers are gated only by live_allowed; closed here, so no key = no calls in either gate state
             self.assertEqual(B.main(), 0)
         self.assertEqual(out.read_bytes(), before)
         self.assertEqual(sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file()), snap)
@@ -816,7 +816,7 @@ class Rulings3(unittest.TestCase):
         def deny(req, **kw): calls.append(req.full_url); raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error":"invalid api key"}'))
         env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"EXA_API_KEY": "invalid-dummy"}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
-             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr:
+             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr, mock.patch.object(B.guard, "live_allowed", return_value=False):   # AC24: keyless gate closed (state-independent)
             self.assertEqual(B.main(), 0)
         self.assertEqual(snap(), before)   # latest.json, bench/runs and data/spend byte-identical
         self.assertEqual(len(calls), 1)    # stopped at the first auth error
@@ -3629,10 +3629,13 @@ class K3KeylessEligibility(Base):   # AWI-PROVIDER-KEENABLE-001 AC24: keyless = 
         self.assertEqual(st, "ran"); self.assertEqual(len(self.calls), 3); net.assert_not_called()
     def test_ac24_gates_closed_zero_calls(self):
         self.pricing = self.run_pr()
-        closed = (self.cfg_with(live_run_allowed=False), mocks.mock_cfg(CFG), self.cfg_with(vendor_confirmation=None))
+        no_block = copy.deepcopy(self.cfg); del no_block["free_tier_guard"]["keenable"]
+        closed = (self.cfg_with(live_run_allowed=False), self.cfg_with(vendor_confirmation=None), no_block)   # explicit closed fixtures (state-independent, R25)
         for cfg in closed:
             self.assertEqual(B.keyed_providers(self.PROVS, {}, cfg, self.tos), [])
             self.calls.clear(); s = self.go(n=3, cfg=cfg)
             self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
         self.assertEqual(B.keyed_providers(self.PROVS, {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])   # no cfg/tos -> fail closed
-        self.assertEqual(B.keyed_providers(self.PROVS, {}, CFG, TOS), [])   # committed state: closed
+        null_tos = copy.deepcopy(self.tos); null_tos["keenable"]["vendor_confirmation"] = None
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, null_tos), [])   # tos record null -> closed
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, CFG, TOS), ["keenable"] if guard.live_allowed(CFG, TOS, "keenable") else [])   # committed state, whichever it is
