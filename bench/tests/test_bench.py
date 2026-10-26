@@ -3979,4 +3979,30 @@ class K3KeylessEligibility(Base):   # AWI-PROVIDER-KEENABLE-001 AC24: keyless = 
         req_off = copy.deepcopy(self.tos); req_off["keenable"]["vendor_confirmation_required"] = False
         self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, req_off), [])   # tos entry not requiring confirmation -> closed (R26)
         self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, {}), [])   # no tos entry -> closed
+        tos_yes = copy.deepcopy(self.tos); tos_yes["keenable"]["vendor_confirmation_required"] = "yes"   # t3: a truthy non-True flag stays closed
+        for t in (tos_yes, {**tos_yes, "keenable": {**tos_yes["keenable"], "vendor_confirmation": None}}):   # with and without a record (g4)
+            self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, t), [])
+            self.calls.clear(); s = self.go(n=3, tos=t); self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
         self.assertEqual(B.keyed_providers(self.PROVS, {}, CFG, TOS), ["keenable"] if guard.live_allowed(CFG, TOS, "keenable") else [])   # committed state, whichever it is
+
+
+class K3T3Mutants(Base):   # Kitty t3 survivors t5, t8, t17, i6, i19
+    def test_t5_payment_required_text_stops(self):
+        self.assertIsNotNone(guard.paid_stop("keenable", 200, {"error": "Payment Required: free allowance exhausted"}))
+        self.assertIsNone(guard.paid_stop("keenable", 200, {"error": "other"}))
+    def test_t8_tables_drop_stopped_and_rate_limited_logs(self):
+        for st in ("rate_limited", "stopped_paid_usage", "stale_budget"):
+            d = self.tmp_path / st / "runs/2026-10-26/keenable"; d.mkdir(parents=True)
+            (d / "search_evergreen.jsonl").write_text(json.dumps({"id": "a", "status": "pass", "run_status": st, "set_rows": 1}) + "\n")
+            self.assertEqual(tables.collect(d.parent.parent), {}, st)
+    def test_t17_hour_window_converts_to_utc(self):
+        ts = dt.datetime(2026, 10, 26, 6, 30, tzinfo=dt.timezone(dt.timedelta(hours=-4)))
+        self.assertEqual(guard.hour_window(ts), "2026-10-26T10")
+    def test_i6_config_has_no_duplicate_keys(self):
+        def hook(pairs):
+            keys = [k for k, _ in pairs]; self.assertEqual(len(keys), len(set(keys)), keys); return dict(pairs)
+        text = "\n".join(l for l in (SITE / "bench/config.yaml").read_text().splitlines() if not l.lstrip().startswith("#"))
+        g = json.loads(text, object_pairs_hook=hook)["free_tier_guard"]["keenable"]; self.assertEqual(g["max_concurrent"], 1)
+    def test_i19_stop_statuses_are_stale(self):
+        for st in guard.STOP_STATUSES: self.assertTrue(B.is_stale({"status": st}), st)
+        self.assertTrue(B.is_stale({"status": "rate_limited"})); self.assertFalse(B.is_stale({"status": "ran"}))
