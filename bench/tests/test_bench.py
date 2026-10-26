@@ -2306,7 +2306,7 @@ class ContextDevLiveGate(ContextDevBase):
         for vc in ("yes", {}, {"date": "2026-11-01", "sender": "s"}):                                                       # zero live calls through the runner
             s = self.go(cfg=self.cfg_with(vendor_confirmation=vc))
             self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []), vc)
-    def test_r22_live_allowed_all_conditions(self):   # R22 (supersedes R21 (1)): every condition must hold, else fail closed (mock)
+    def test_r22_live_allowed_all_conditions(self):   # R22 extends R21 (1); follows R9: every condition must hold, else fail closed (mock)
         base = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"]
         ok_cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
         tos = lambda **kw: {"contextdev": {k: v for k, v in (base | kw).items() if v is not ...}}
