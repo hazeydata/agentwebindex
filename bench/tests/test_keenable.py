@@ -10,7 +10,8 @@ import mocks
 FX = Path(__file__).parent / "fixtures" / "keenable"
 CFG = load_yaml(BENCH / "config.yaml"); TOS_DOC = load_yaml(BENCH / "tos_matrix.yaml"); TOS = TOS_DOC["providers"]
 PRICING_DOC = load_yaml(BENCH / "pricing.yaml")
-REC = {"date": "2026-10-25", "sender": "@styskin", "quote": "mock quote", "evidence_path": "mock/evidence.json", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/0"}
+REC = {"date": "2026-10-25", "sender": "@mock_vendor_handle (Mock Person, mock title, Mock Vendor)", "quote": "mock quote", "evidence_path": "mock/evidence.json", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/0"}   # synthetic, no real handle
+CCFG, CTOS = mocks.keenable_closed(CFG, TOS)   # R25: explicit closed fixtures for gate behavior (committed state is checked by keenable_committed_check)
 PROV = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": None}
 SENTINELS = ("keensent-url-1.example", "keensent-url-2.example", "KEENSENT-SNIPPET", "KEENSENT-T")
 sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
@@ -39,18 +40,21 @@ class Base(unittest.TestCase):
 
 class K1Committed(Base):
     def test_ac1_tos_closed(self):
-        k = TOS["keenable"]; self.assertIs(k[gates.REQUIRED_FLAG], True); self.assertIsNone(k["vendor_confirmation"]); self.assertFalse(gates.vendor_confirmed(k))
+        k = CTOS["keenable"]; self.assertIs(k[gates.REQUIRED_FLAG], True); self.assertIsNone(k["vendor_confirmation"]); self.assertFalse(gates.vendor_confirmed(k))
+        mocks.keenable_committed_check(self, CFG, TOS)
     def test_ac2_config_mirrors_contextdev(self):
-        g, c = CFG["free_tier_guard"]["keenable"], CFG["free_tier_guard"]["contextdev"]
-        self.assertIs(g["live_run_allowed"], False); self.assertIsNone(g["vendor_confirmation"]); self.assertEqual(g["max_concurrent"], c["max_concurrent"])
+        g, c = CCFG["free_tier_guard"]["keenable"], CFG["free_tier_guard"]["contextdev"]
+        self.assertIs(g["live_run_allowed"], False); self.assertIsNone(g["vendor_confirmation"]); mocks.keenable_committed_check(self, CFG, TOS)
+        self.assertEqual({k: v for k, v in CFG["free_tier_guard"]["keenable"].items() if k not in ("live_run_allowed", "vendor_confirmation")},
+                         {k: v for k, v in g.items() if k not in ("live_run_allowed", "vendor_confirmation")})   # every other committed field is pinned below; self.assertEqual(g["max_concurrent"], c["max_concurrent"])
         self.assertEqual(g["max_concurrent"], 1); self.assertIs(g["paid_usage_allowed"], False); self.assertIs(g["paid_tier"], False); self.assertIs(g["publish_raw_results"], False)
         self.assertEqual((g["quota_credits"], g["stop_at_credits"], g["window"]), (900, 899, "utc_hour"))
         self.assertEqual(g["rate_limit"], {"max_per_second": 9, "max_per_hour": 899}); self.assertLess(g["rate_limit"]["max_per_hour"], 900)
         self.assertEqual(g["endpoint"], "https://api.keenable.ai/v1/search/public"); self.assertIn("keenable", CFG["month1_free_tier_providers"])
     def test_ac3_live_allowed_generalized(self):
         la = guard.live_allowed; ok = {"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": dict(REC), "paid_usage_allowed": False}}}
-        self.assertFalse(la(CFG, TOS, "keenable")); self.assertFalse(la(ok, TOS | {}, "keenable") and False)
-        self.assertTrue(la(ok, self.tos, "keenable")); self.assertTrue(la(ok, TOS, "keenable"))   # null tos record: only the config record counts (R22)
+        self.assertFalse(la(CCFG, CTOS, "keenable")); self.assertFalse(la(ok, {}, "keenable")); self.assertFalse(la(CCFG, self.tos, "keenable"))
+        self.assertTrue(la(ok, self.tos, "keenable")); self.assertTrue(la(ok, CTOS, "keenable"))   # null tos record: only the config record counts (R22)
         for k, v in (("live_run_allowed", "true"), ("live_run_allowed", 1), ("live_run_allowed", False), ("vendor_confirmation", "yes"), ("vendor_confirmation", {}),
                      ("vendor_confirmation", None), ("paid_usage_allowed", True), ("paid_usage_allowed", "false"), ("paid_usage_allowed", 0), ("paid_usage_allowed", None)):
             c = copy.deepcopy(ok); c["free_tier_guard"]["keenable"][k] = v; self.assertFalse(la(c, self.tos, "keenable"), (k, v))
@@ -58,18 +62,20 @@ class K1Committed(Base):
         for t in ({}, None, {"keenable": None}, {"keenable": self.tos["keenable"] | {gates.REQUIRED_FLAG: False}}, {"keenable": {k: v for k, v in self.tos["keenable"].items() if k != gates.REQUIRED_FLAG}},
                   {"keenable": self.tos["keenable"] | {"vendor_confirmation": "yes"}}):
             self.assertFalse(la(ok, t, "keenable"), t)
-        self.assertFalse(la(CFG, TOS)); self.assertFalse(la(CFG, TOS, "contextdev"))   # contextdev default id unchanged
+        self.assertFalse(la(CFG, TOS)); self.assertFalse(la(CFG, TOS, "contextdev"))
+        self.assertIs(la(CFG, TOS, "keenable"), mocks.keenable_committed_check(self, CFG, TOS))   # committed: open only with a valid record   # contextdev default id unchanged
     def test_ac5_committed_config_zero_calls(self):
         fn = mock.Mock(side_effect=self.ok)
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")) as net:
-            s = self.go(fn=fn, cfg=mocks.mock_cfg(CFG), tos=TOS)
+            s = self.go(fn=fn, cfg=mocks.mock_cfg(CCFG), tos=CTOS)
         self.assertEqual(self.prov(s)["status"], "skipped_no_vendor_confirmation"); fn.assert_not_called(); net.assert_not_called()
         self.assertFalse((self.tmp / "runs").exists()); self.assertFalse(list(self.spend.glob("keenable-*")))
-        s = self.go(fn=fn, cfg=mocks.mock_cfg(CFG), tos=self.tos)   # tos record set, committed config gate still closed
+        s = self.go(fn=fn, cfg=mocks.mock_cfg(CCFG), tos=self.tos)   # tos record set, config gate still closed
         self.assertEqual(self.prov(s)["status"], "skipped_no_vendor_confirmation"); fn.assert_not_called()
         self.assertEqual(B.keyed_providers([p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"], {}), [])   # never picked for a live run in K1
     def test_ac7_publish_gate_real_files(self):
-        held = tables.held_providers(CFG, PRICING_DOC["providers"], TOS); self.assertIn("keenable", held)
+        held = tables.held_providers(CCFG, PRICING_DOC["providers"], CTOS); self.assertIn("keenable", held)
+        if not mocks.keenable_committed_check(self, CFG, TOS): self.assertIn("keenable", tables.held_providers(CFG, PRICING_DOC["providers"], TOS))
         self.assertNotIn("keenable", PRICING_DOC["providers"])   # AC21: price record kept outside providers -> never a Prices row or cost column
         latest = json.loads((SITE / "data/benchmarks/latest.json").read_text()); self.assertNotIn("keenable", json.dumps(latest).lower())
         for f in (SITE / "data").rglob("*"):

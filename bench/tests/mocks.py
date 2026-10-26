@@ -82,3 +82,30 @@ class MockAdapters:
             else: out["file_bytes"] = f"file-{item['id'].split('-')[1].lstrip('0')}".encode()
         return out
     def table(self, pid, cats): return {pid: {c: getattr(self, c) for c in cats}}
+
+# R25 (Keenable R4 (1)): gate-behavior tests use explicit closed/open fixtures, never the committed state, so a K2 flip of
+# bench/config.yaml + bench/tos_matrix.yaml cannot turn a closed-state assertion off. Committed-state tests use keenable_committed_check.
+def keenable_closed(cfg=None, tos_providers=None):
+    """Deep copies of (cfg, tos providers) with keenable forced to the K1 closed defaults (live_run_allowed false, both records null)."""
+    c = json.loads(json.dumps(cfg)) if cfg is not None else None; t = json.loads(json.dumps(tos_providers)) if tos_providers is not None else None
+    if c is not None: c["free_tier_guard"]["keenable"].update(live_run_allowed=False, vendor_confirmation=None)
+    if t is not None: t["keenable"]["vendor_confirmation"] = None
+    return c, t
+
+def keenable_committed_open(cfg):
+    return cfg["free_tier_guard"]["keenable"]["live_run_allowed"] is True
+
+def keenable_committed_check(tc, cfg, tos_providers):
+    """Consistency check on the committed files. Open (live_run_allowed true): the config record passes gates.record_error, the tos
+    entry stays required and its record passes record_error and equals the config record, paid usage stays false. Closed: the K1
+    closed assertions (bool false, both records null, not vendor-confirmed). Returns True when open."""
+    from awibench import gates
+    g, k = cfg["free_tier_guard"]["keenable"], tos_providers["keenable"]
+    tc.assertIs(k[gates.REQUIRED_FLAG], True); tc.assertIs(g["paid_usage_allowed"], False)
+    if keenable_committed_open(cfg):
+        tc.assertIsNone(gates.record_error(g["vendor_confirmation"])); tc.assertIsNone(gates.record_error(k["vendor_confirmation"]))
+        tc.assertEqual(g["vendor_confirmation"], k["vendor_confirmation"]); tc.assertTrue(gates.vendor_confirmed(k))
+        return True
+    tc.assertIs(g["live_run_allowed"], False); tc.assertIsNone(g["vendor_confirmation"]); tc.assertIsNone(k["vendor_confirmation"])
+    tc.assertFalse(gates.vendor_confirmed(k))
+    return False
