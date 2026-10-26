@@ -432,7 +432,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 21)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001)
+        self.assertEqual(n, 22)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + apify browser web-fetch (AWI-RUN-2026-10-26)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -703,13 +703,36 @@ class Collectors2(unittest.TestCase):
         self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["60"], ["raw-http"], 120, "rag-raw-http-t60"))
     def test_apify_named_config_sets_request_timeout_and_is_logged(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
-        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t120")
+        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t240")   # AWI-RUN-2026-10-26 longer-timeout retest
         self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t120"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 120})
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t240"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 240})
         seen = []; old = B._get_json; B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
         try: out = B._apify_search("k", {"query": "q"})
         finally: B._get_json = old
         qs = up.parse_qs(up.urlparse(seen[0][0]).query)
-        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["120"], ["raw-http"], 180, "rag-raw-http-t120"))
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["240"], ["raw-http"], 300, "rag-raw-http-t240"))
+
+    def test_apify_web_fetch_adapter_posts_text_and_bills_events(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = []; ok = {"url": "https://a.example/x", "fetch": {"loadedUrl": "https://a.example/x?r=1", "httpStatusCode": 200}, "metadata": {}, "text": "Big Headline here"}
+        old = B._post_json; B._post_json = lambda url, headers, body, timeout: (seen.append((url, headers, body, timeout)), (200, ok))[1]
+        try: out = B._apify_web_fetch("k", {"start_url": "https://a.example/x", "timeout_s": 30})
+        finally: B._post_json = old
+        self.assertEqual(seen[0][0], "https://web-fetch.apify.actor/"); self.assertEqual(seen[0][2], {"url": "https://a.example/x", "formats": ["text"]})
+        self.assertEqual((seen[0][1], seen[0][3]), ({"Authorization": "Bearer k"}, 150))
+        self.assertEqual((out["dom_text"], out["final_url"], out["target_status"], out["config"]), ("Big Headline here", "https://a.example/x?r=1", 200, "web-fetch-text"))
+        self.assertAlmostEqual(out["billed_units"], 100 * (0.0015 + 0.00005), places=4)
+        self.assertIs(B.ADAPTERS["apify"]["browser"], B._apify_web_fetch)
+        self.assertTrue(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "big headline"}}, out)[0])
+        for bad in ({"code": "FETCH_TIMEOUT", "error": "slow"}, {"fetch": {}, "text": None}, []):
+            B._post_json = lambda url, headers, body, timeout, bad=bad: (200, bad)
+            try:
+                with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: web-fetch returned no text"): B._apify_web_fetch("k", {"start_url": "https://a.example/x"})
+            finally: B._post_json = old
+        prov = json.loads((SITE / "collectors" / "providers.json").read_text())["providers"]
+        self.assertIn("browser", next(p for p in prov if p["id"] == "apify")["categories"])
+        pr = load_yaml(BENCH / "pricing.yaml")["providers"]["apify"]["browser"]
+        self.assertEqual((pr["free_tier"]["pool"], pr["credits_per_call"]["browser"], pr["model"]), ("apify_usd_cents", 0.155, "credits"))
 
     def test_late_run_gets_no_freshness_row(self):
         with tmpd(self) as d:
@@ -1048,7 +1071,12 @@ class Rulings3(unittest.TestCase):
         self.assertEqual(p["status"], "ran")   # full set: not stale
 
     def test_stale_reasons(self):
-        self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error", "budget"))
+        self.assertEqual(runner.STALE_REASONS, ("quota", "timeout", "auth_error", "error", "budget", "paid_usage", "metered_budget", "rate_limited"))
+        self.assertEqual(runner.stale("metered_budget", {"calls": 0, "data_calls": 0}, "x")["status"], "stopped_budget")
+        self.assertEqual(runner.stale("rate_limited", {"calls": 0, "data_calls": 0}, "x")["status"], "stopped_rate_limited")
+        self.assertEqual(runner.stale("budget", {"calls": 0, "data_calls": 0}, "x")["status"], "stale_budget")   # Bright Data spend_budget unchanged
+        self.assertEqual(runner.stale("quota", {"calls": 0, "data_calls": 0}, "x")["status"], "stale_quota")     # free-quota guard / rule 3 unchanged
+        self.assertEqual(runner.stale("paid_usage", {"calls": 0, "data_calls": 0}, "x")["status"], "stopped_paid_usage")
         with self.assertRaises(AssertionError): runner.stale("partial", {"calls": 0, "data_calls": 0}, "x")
 
     def test_partial_counts_only_scored_or_tos_lines(self):
@@ -1112,6 +1140,20 @@ class Rulings3(unittest.TestCase):
         self.assertEqual([r["run_date"] for r in doc["tables"]["search"]], ["2026-10-12"])   # collect falls back to the older log
         B.finish_doc(doc, s, CFG, prev, [])
         self.assertEqual(doc["tables"]["search"], []); self.assertEqual(doc["freshness"], []); self.assertEqual(doc["not_run_yet"], [])
+
+    def test_apify_retest_rows_publish_with_preliminary_note(self):
+        """Fred 2026-10-26 8:26 AM ET approved publishing the Apify retest; its rows fold in through --rebuild-only, labelled preliminary."""
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        sd = json.loads((BENCH / "runs" / "2026-10-26" / "_run-offset0.json").read_text())
+        got = {(p["provider"], p["category"]): (p["status"], p.get("calls")) for p in sd["providers"]}
+        self.assertEqual(got, {("apify", "search"): ("ran", 21), ("apify", "scrape"): ("not_implemented", None), ("apify", "browser"): ("ran", 21)})
+        self.assertTrue(B.fresh_data(sd)); self.assertEqual(B.stale_providers(sd), set())
+        doc = tables.build(BENCH / "runs", load_yaml(BENCH / "pricing.yaml")["providers"], BENCH / "sets", {}, CFG)
+        rows = {(r["set"]): r for k in ("search", "browser") for r in doc["tables"][k] if r["provider"] == "apify" and r["run_date"] == "2026-10-26"}
+        self.assertEqual(sorted(rows), ["news_2026-44", "newsfetch_2026-44"])
+        for r in rows.values():
+            self.assertEqual(r["attempted"]["v"], 21); self.assertTrue(r["run_note"].startswith("Preliminary retest")); self.assertIn("n=21", r["run_note"])
+        self.assertIn("240 s", rows["news_2026-44"]["run_note"]); self.assertIn("apify/web-fetch", rows["newsfetch_2026-44"]["run_note"])
 
     def test_stale_only_run_leaves_latest_json(self):   # main(): data only from a stale provider -> latest.json byte-identical
         import shutil, io, urllib.error
@@ -1837,7 +1879,7 @@ class DryRunCleanup(unittest.TestCase):
 
 class ApifyMeterGuard(unittest.TestCase):
     PROV = [{"id": "apify", "categories": ["search"], "key_env": "APIFY_API_TOKEN"}]
-    PRICING = {"apify": {"search": {"model": "per_request", "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
+    PRICING = {"apify": {"search": {"model": "per_request", "credits_per_call": {"search": 1}, "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
     def setUp(self): self.tmp = mktmp(self); self.called = []
     def _fn(self, key, item): self.called.append(item["id"]); return {"results": [], "billed_units": 1}
     def _run(self, meter, ledger_cents=0, n=5):
@@ -1848,25 +1890,25 @@ class ApifyMeterGuard(unittest.TestCase):
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": meter})
         return s["providers"][0]
     def test_config_meter_budget(self):
-        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01})
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd", "period")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01, "period": "calendar_month"})
     def test_meter_above_ledger_wins_and_trips_at_4(self):
         p = self._run(lambda: 4.0, ledger_cents=184)
-        self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+        self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
         self.assertIn("max(meter $4.0000, ledger $1.8400)", p["reason"])
-        p = self._run(lambda: 3.995, ledger_cents=184); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+        p = self._run(lambda: 3.995, ledger_cents=184); self.assertEqual((p["status"], self.called), ("stopped_budget", []))
         p = self._run(lambda: 3.0, ledger_cents=184); self.assertEqual((p["status"], p["calls"]), ("ran", 5))
     def test_ledger_above_meter_wins(self):
-        p = self._run(lambda: 0.5, ledger_cents=399.5); self.assertEqual((p["status"], self.called), ("stale_budget", []))
+        p = self._run(lambda: 0.5, ledger_cents=399.5); self.assertEqual((p["status"], self.called), ("stopped_budget", []))
     def test_meter_unreadable_skips_apify(self):
         def boom(): raise RuntimeError("HTTP 500")
         for m in (boom, lambda: None, lambda: float("nan"), lambda: -1.0):
             self.called = []; p = self._run(m)
-            self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 0, []))
+            self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
             self.assertIn("usage meter unreadable; failing closed (rule 6)", p["reason"])
         s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": [{"id": "n0", "query": "q", "check": {}}], "sha": "x"}}, pricing=self.PRICING, tos={},
                        adapters={"apify": {"search": self._fn}}, cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "r2", ledger_path=self.tmp / "q2.json",
                        run_date="2026-10-20", env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
-        self.assertEqual(s["providers"][0]["status"], "stale_budget")
+        self.assertEqual(s["providers"][0]["status"], "stopped_budget")
     def test_meter_and_ledger_and_gap_logged(self):
         reads = iter([1.0] * 5 + [1.5])
         p = self._run(lambda: next(reads), ledger_cents=90)
@@ -1881,7 +1923,139 @@ class ApifyMeterGuard(unittest.TestCase):
         s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
                        cfg={"meter_budget": mb}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 4.0})
-        self.assertEqual((s["providers"][0]["status"], self.called), ("stale_budget", []))
+        self.assertEqual((s["providers"][0]["status"], self.called), ("stopped_budget", []))
+
+    def test_cap_is_month_to_date_across_runs_and_resets_on_the_1st(self):
+        """Fred 2026-10-26 8:25 AM ET: $4 Apify cap per calendar month, not per run."""
+        rows = lambda n: [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
+        def go(date, n, ledger):
+            self.called = []
+            s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows(n), "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                           cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / f"runs-{date}", ledger_path=ledger, run_date=date,
+                           env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 0.0})
+            return s["providers"][0]
+        oct_l = self.tmp / "2026-10-quota.json"
+        oct_l.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 395}, "over_free_units": 0}))
+        p1 = go("2026-10-20", 2, oct_l); self.assertEqual((p1["status"], p1["calls"]), ("ran", 2))
+        self.assertEqual(json.loads(oct_l.read_text())["used"]["apify_usd_cents"], 397)   # run 1 adds to October's total
+        p2 = go("2026-10-27", 5, oct_l)   # run 2 sees run 1's spend: only 3 cents left under $4.00
+        self.assertEqual((p2["status"], len(self.called)), ("stopped_budget", 3))
+        self.assertEqual(json.loads(oct_l.read_text())["used"]["apify_usd_cents"], 400)
+        p3 = go("2026-11-02", 5, oct_l)   # same file carried into November: resets on the 1st
+        self.assertEqual((p3["status"], p3["calls"]), ("ran", 5))
+        self.assertEqual(json.loads(oct_l.read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 5}, "over_free_units": 0})
+
+class ApifyStopRulesSpec(unittest.TestCase):
+    """AWI-RUN-2026-10-26-APIFY-001 AC2/4/5/6/8/9/12 (Kitty T1 findings). Mocks only, no network."""
+    PRICING = {"apify": {k: load_yaml(BENCH / "pricing.yaml")["providers"]["apify"][k] for k in ("search", "browser")}}
+    def setUp(self): self.tmp = mktmp(self); self.called = []; self.slept = []
+    def _fn(self, answers):
+        it = iter(answers)
+        def f(key, item):
+            self.called.append(item["id"]); a = next(it, None)
+            if isinstance(a, BaseException): raise a
+            return a if isinstance(a, dict) else {"dom_text": "Headline", "billed_units": 0.155, "results": []}
+        return f
+    def _run(self, answers=(), n=4, cats=("browser",), meter=lambda: 1.0, pricing=None, adapters=None):
+        sets = {}
+        if "browser" in cats: sets["newsfetch_2026-44"] = {"rows": [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}} for i in range(n)], "sha": "x"}
+        if "search" in cats: sets["search_evergreen"] = {"rows": [{"id": f"q{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)], "sha": "y"}
+        with mock.patch.object(runner.time, "sleep", self.slept.append):
+            s = runner.run(providers=[{"id": "apify", "categories": list(cats), "key_env": "APIFY_API_TOKEN"}], sets=sets, pricing=pricing or self.PRICING, tos={},
+                           adapters=adapters or {"apify": {c: self._fn(answers) for c in cats}}, cfg={"stop_on_http": CFG["stop_on_http"], "meter_budget": CFG["meter_budget"]},
+                           runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26", env={"APIFY_API_TOKEN": "mock"}, mock=True,
+                           spend_dir=self.tmp / "spend", meters={"apify": meter})
+        return {p["category"]: p for p in s["providers"]}
+    def lines(self): return [json.loads(l) for f in sorted((self.tmp / "runs").glob("*/*/*.jsonl")) for l in f.read_text().splitlines()]
+
+    # AC2
+    def test_guard_refuses_call_whose_estimate_would_pass_4_dollars(self):   # kills M3 (+$0.001 slack)
+        p = self._run(n=1, cats=("search",), meter=lambda: 3.96)   # 3.96 + 4.08 cents = 4.0008 > 4.00
+        self.assertEqual((p["search"]["status"], self.called), ("stopped_budget", []))
+        p = self._run(n=1, cats=("search",), meter=lambda: 3.959)  # 3.959 + 0.0408 = 3.9998 <= 4.00
+        self.assertEqual(self.called, ["q0"])
+    def test_at_3_9026_guard_allows_two_search_calls_and_web_fetch(self):   # what the docs now say
+        reads = iter([3.9026, 3.9434, 3.9842, 3.9842])
+        p = self._run(n=4, cats=("search",), meter=lambda: next(reads))
+        self.assertEqual((p["search"]["status"], self.called), ("stopped_budget", ["q0", "q1"]))
+        self.called = []; self._run(n=1, meter=lambda: 3.9026); self.assertEqual(self.called, ["t0"])
+    def test_unknown_per_call_cost_fails_closed(self):
+        for model in (None, "credits", "mystery"):
+            self.called = []; pr = {"apify": {"browser": {"model": model, "free_tier": self.PRICING["apify"]["browser"]["free_tier"]}}}
+            p = self._run(n=2, pricing=pr)
+            self.assertEqual((p["browser"]["status"], self.called), ("stopped_budget", [])); self.assertIn("unknown per-call cost", p["browser"]["reason"])
+    def test_search_estimate_covers_measured_meter_cost(self):
+        log = json.loads((BENCH / "spend" / "apify-meter-2026-10.json").read_text())["runs"]
+        per_call_cents = 100 * log[1]["run_meter_usd"] / 21   # $0.8563 over the 21 RAG calls of 2026-10-26
+        self.assertGreaterEqual(runner.estimate_units(self.PRICING["apify"]["search"], "search", {"query": "q"}, "apify", CFG), per_call_cents)
+    def test_ledger_save_is_atomic(self):
+        led = runner.QuotaLedger(self.tmp / "l.json", "2026-10"); led.add("p", 1)
+        with mock.patch.object(runner.os, "replace", wraps=os.replace) as rep: led.save()
+        rep.assert_called_once(); self.assertEqual(json.loads((self.tmp / "l.json").read_text())["used"], {"p": 1}); self.assertEqual(list(self.tmp.glob(".*tmp")), [])
+    def test_cap_overrun_recorded_when_billed_exceeds_estimate(self):
+        p = self._run([{"dom_text": "Headline", "billed_units": 50.0}], n=1, meter=lambda: 3.99)
+        ov = p["browser"]["cap_overrun"][0]; self.assertEqual((ov["billed_units"], ov["estimate_units"], ov["over_cap"], ov["alert"]), (50.0, 0.155, True, "chief"))
+        self.assertIn("cap_overrun", self.lines()[0])
+        self.assertEqual(len(json.loads((self.tmp / "spend" / "apify-cap-overrun-2026-10.json").read_text())["records"]), 1)
+    # AC4
+    def test_client_timeout_is_a_logged_fail(self):
+        import socket
+        p = self._run([None, socket.timeout("timed out"), None], n=3)
+        L = self.lines(); self.assertEqual([l["status"] for l in L], ["pass", "fail", "pass"])
+        self.assertIs(L[1]["pass"], False); self.assertTrue(L[1]["timeout"]); self.assertEqual(p["browser"]["status"], "ran")
+        self.assertTrue(tables.is_timeout(L[1]))
+    def test_all_timeout_run_still_writes_lines(self):
+        p = self._run([TimeoutError("timed out")] * 3, n=3)
+        self.assertEqual([l["status"] for l in self.lines()], ["fail"] * 3); self.assertTrue(p["browser"]["status"].startswith("stale_"))
+    # AC5
+    def test_402_401_403_stop_every_category(self):
+        for err, st in (("HTTP 402: x", "stopped_paid_usage"), ("HTTP 401: x", "stale_auth_error"), ("HTTP 403: x", "stale_auth_error")):
+            self.called = []; self.tmp = mktmp(self)
+            p = self._run([RuntimeError(err)], n=3, cats=("search", "browser"))
+            self.assertEqual(self.called, ["q0"]); self.assertEqual((p["search"]["status"], p["browser"]["status"]), (st, st))
+            self.assertEqual(p["browser"]["calls"], 0); self.assertIn("provider stopped earlier this run", p["browser"]["reason"])
+    def test_payment_codes_in_200_body_stop(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        for code in ("payment-required", "usage-limit-exceeded", "platform-feature-disabled"):
+            self.tmp = mktmp(self)
+            with mock.patch.object(B, "_post_json", return_value=(200, {"code": code})):
+                p = self._run(n=4, adapters={"apify": {"browser": B._apify_web_fetch}})
+            self.assertEqual((p["browser"]["status"], len(self.lines())), ("stopped_paid_usage", 1), code)
+            self.assertEqual(self.lines()[0]["run_status"], "stopped_paid_usage")
+        self.tmp = mktmp(self)
+        with mock.patch.object(B, "_get_json", return_value=(200, {"error": {"type": "usage-limit-exceeded"}})):
+            p = self._run(n=2, cats=("search",), adapters={"apify": {"search": B._apify_search}})
+        self.assertEqual(p["search"]["status"], "stopped_paid_usage")
+    # AC6
+    def test_retry_after_honoured_and_bounded(self):
+        e = lambda ra: RuntimeError(f"HTTP 429 (Retry-After: {ra}): slow down")
+        self._run([e(7), None, e(600), None], n=4)
+        self.assertEqual(self.slept, [7.0, CFG["stop_on_http"]["retry_after_max_s"]])
+    def test_retry_after_header_reaches_the_error(self):
+        import io, urllib.error
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        def r429(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {"Retry-After": "5"}, io.BytesIO(b"x"))
+        with mock.patch("urllib.request.urlopen", r429), self.assertRaisesRegex(RuntimeError, r"HTTP 429 \(Retry-After: 5\)"): B._post_json("https://a.example/", {}, {}, 1)
+    def test_timeout_does_not_reset_429_streak(self):
+        e = lambda: RuntimeError("HTTP 429: slow")
+        p = self._run([e(), e(), TimeoutError("timed out"), e(), None], n=5)
+        self.assertEqual((p["browser"]["status"], self.called), ("stopped_rate_limited", ["t0", "t1", "t2", "t3"]))
+    # AC8
+    def test_cumulative_spend_on_lines_and_summary(self):
+        led = self.tmp / "q.json"; led.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 100}, "over_free_units": 0}))
+        p = self._run(n=2); L = self.lines()
+        self.assertEqual([l["cumulative_spend"] for l in L], [100.155, 100.31]); self.assertEqual(L[1]["cumulative_usd"], 1.0031)
+        self.assertEqual((p["browser"]["run_spend_units"], p["browser"]["cumulative_spend_usd"]), (0.31, 1.0031))
+    # AC9: bench/README.md values match config stop_on_http / meter_budget and the collector constants
+    def test_readme_matches_config(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        t = (BENCH / "README.md").read_text(); soh = CFG["stop_on_http"]; mb = CFG["meter_budget"]["apify"]
+        for want in (f'stop_on_http["429_consecutive"]` ({soh["429_consecutive"]})', f'`stopped_{soh["402"]}`, from `stop_on_http["402"]`',
+                     f'${mb["stop_usd"]:.2f} stop', f'`{CFG["apify_search_config"]}`', "Actor `requestTimeoutSecs` 240", "240 + 60 = 300",
+                     f'after {B.APIFY_WEB_FETCH_CLIENT_TIMEOUT_S} s', f'{100 * sum(B.APIFY_WEB_FETCH_EVENT_USD.values()):.3f} cents',
+                     f'retry_after_max_s` ({soh["retry_after_max_s"]} s)', f'{self.PRICING["apify"]["search"]["credits_per_call"]["search"]} cents'):
+            self.assertIn(want, t)
+        self.assertEqual(CFG["apify_search_configs"][CFG["apify_search_config"]]["requestTimeoutSecs"], 240)
 
 class ApifyMainWiring(unittest.TestCase):
     """main() must hand runner.run the live Apify usage meter (apify_meter with the run's token), not None."""
@@ -2089,3 +2263,85 @@ class TavilyPhase0(unittest.TestCase):
         exp = [r for rows in built["tables"].values() for r in rows if r["provider"] == "tavily"]
         self.assertTrue(pub); self.assertEqual(pub, exp)
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
+
+class StopOnHttp(unittest.TestCase):
+    """AWI-RUN-2026-10-26: stop a provider at the first HTTP 402 and after N consecutive HTTP 429s (config stop_on_http)."""
+    PROV = [{"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}]
+    PRICING = {"apify": {"browser": {"model": "credits", "credits_per_call": {"browser": 0.155}, "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
+    def setUp(self): self.tmp = mktmp(self); self.called = []
+    def _run(self, answers, n=6, cfg=None):
+        it = iter(answers)
+        def fn(key, item):
+            self.called.append(item["id"]); a = next(it)
+            if isinstance(a, Exception): raise a
+            return {"dom_text": "Headline", "billed_units": 0.155}
+        rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(n)]
+        s = runner.run(providers=self.PROV, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"browser": fn}},
+                       cfg={"stop_on_http": CFG["stop_on_http"]} if cfg is None else cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        return s["providers"][0]
+    def test_config(self):
+        self.assertEqual(CFG["stop_on_http"], {"402": "paid_usage", "429_consecutive": 3, "retry_after_default_s": 0, "retry_after_max_s": 60})
+    def test_402_stops_at_first(self):
+        p = self._run([None, RuntimeError("HTTP 402: plan limit"), None, None, None, None])
+        self.assertEqual((p["status"], p["calls"], self.called), ("stopped_paid_usage", 2, ["t0", "t1"])); self.assertIn("HTTP 402 on t1", p["reason"])
+    def test_429_storm_stops_after_three_in_a_row(self):
+        r = lambda: RuntimeError("HTTP 429: slow down")
+        p = self._run([r(), r(), None, r(), r(), r()])
+        self.assertEqual((p["status"], p["calls"]), ("stopped_rate_limited", 6)); self.assertIn("3 consecutive HTTP 429 answers, last on t5", p["reason"])
+        self.called = []; p = self._run([r(), r(), r(), None, None, None], n=6)
+        self.assertEqual((p["status"], self.called), ("stopped_rate_limited", ["t0", "t1", "t2"]))
+    def test_429_storm_stops_non_apify_provider(self):
+        """Spec R5: stop_on_http applies to every provider, not only Apify."""
+        prov = [{"id": "hyperbrowser", "categories": ["browser"], "key_env": "HB_KEY"}]
+        pricing = {"hyperbrowser": {"browser": {"model": "credits", "credits_per_call": {"browser": 1}, "free_tier": {"units_per_month": 500, "needs_card": False}}}}
+        called = []
+        def fn(key, item):
+            called.append(item["id"]); raise RuntimeError("HTTP 429: slow down")
+        rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(5)]
+        s = runner.run(providers=prov, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={}, adapters={"hyperbrowser": {"browser": fn}},
+                       cfg={"stop_on_http": CFG["stop_on_http"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
+                       env={"HB_KEY": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        p = s["providers"][0]
+        self.assertEqual((p["status"], called), ("stopped_rate_limited", ["t0", "t1", "t2"]))
+    def test_no_config_keeps_old_behaviour(self):
+        p = self._run([RuntimeError("HTTP 402: x")] + [RuntimeError("HTTP 429: x")] * 5, cfg={})
+        self.assertEqual(p["calls"], 6)
+    def test_full_clean_run_publishes(self):
+        p = self._run([None] * 6); self.assertEqual((p["status"], p["calls"]), ("ran", 6))
+
+class ApifyT3Fixes(unittest.TestCase):
+    """AWI-RUN-2026-10-26-APIFY-001 t3: R4 status names, per_request without cost, non-dict ledger, cap_overrun under the stop (M23). Mocks only."""
+    PRICING = ApifyStopRulesSpec.PRICING; setUp = ApifyStopRulesSpec.setUp; _fn = ApifyStopRulesSpec._fn; _run = ApifyStopRulesSpec._run; lines = ApifyStopRulesSpec.lines
+    def test_apify_stops_never_use_old_stale_names(self):
+        r = lambda: RuntimeError("HTTP 429: slow down")
+        outs = [self._run(n=1, cats=("search",), meter=lambda: 3.99)["search"],                  # guard refusal
+                self._run(n=1, cats=("search",), meter=lambda: None)["search"],                  # unreadable meter
+                self._run(n=2, pricing={"apify": {"browser": {"model": "per_request", "free_tier": self.PRICING["apify"]["browser"]["free_tier"]}}})["browser"],   # unknown cost
+                self._run([r(), r(), r(), None], n=4)["browser"]]                                 # 429 storm
+        self.assertEqual([o["status"] for o in outs], ["stopped_budget"] * 3 + ["stopped_rate_limited"])
+        blob = json.dumps(outs) + json.dumps(self.lines())
+        for old in ("stale_budget", "stale_quota"): self.assertNotIn(old, blob)
+        for doc in (BENCH / "README.md", BENCH / "config.yaml"):
+            t = doc.read_text()
+            self.assertNotIn("(`stale_quota`). After each 429", t); self.assertNotIn("consecutive HTTP 429 answers (stale_quota)", t)
+            self.assertNotIn('fails closed (`stale_budget`, "unknown per-call cost"', t); self.assertNotIn("unreadable meter fails closed (stale_budget", t)
+    def test_per_request_without_cost_on_metered_pool_fails_closed(self):
+        for model in ("per_request", "tier"):
+            for cat in ("search", "browser"):
+                self.called = []; ft = self.PRICING["apify"][cat]["free_tier"]
+                p = self._run(n=2, cats=(cat,), pricing={"apify": {cat: {"model": model, "free_tier": ft}}})[cat]
+                self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []), (model, cat)); self.assertIn("unknown per-call cost", p["reason"])
+    def test_non_dict_ledger_fails_closed_without_overwrite(self):
+        for bad in ("null", "[]", '"x"'):
+            self.called = []; (self.tmp / "q.json").write_text(bad)
+            with self.assertRaises(runner.LedgerError): self._run(n=1, cats=("search",))
+            self.assertEqual((self.called, (self.tmp / "q.json").read_text()), ([], bad), bad)
+            self.assertEqual(list((self.tmp).glob("runs/*/_run-*.json")), [])
+    def test_bill_over_estimate_under_stop_records_cap_overrun(self):   # kills M23
+        p = self._run([{"dom_text": "Headline", "billed_units": 0.5, "results": []}], n=1, meter=lambda: 1.0)["browser"]
+        self.assertEqual(self.called, ["t0"]); ov = p["cap_overrun"][0]
+        self.assertEqual((ov["billed_units"], ov["estimate_units"], ov["over_cap"], ov["alert"]), (0.5, 0.155, False, "chief"))
+        self.assertLess(ov["cumulative_usd"], ov["stop_usd"])
+        self.assertEqual(self.lines()[0]["cap_overrun"], ov)
+        log = json.loads((self.tmp / "spend" / "apify-cap-overrun-2026-10.json").read_text()); self.assertEqual(log["records"], [ov])

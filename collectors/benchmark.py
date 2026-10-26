@@ -26,7 +26,8 @@ def _post(url, headers, body):
     try:
         with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:   # message carries status + short vendor text only, never the key
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _exa_search(key, item):
     st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto"})
@@ -55,7 +56,8 @@ def _get_json(url, headers, timeout=150):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _apify_search(key, item):
     """Ranked results from the Actor's searchResult.rank; result URL = the fetched page's metadata.url (Google returns
@@ -64,6 +66,9 @@ def _apify_search(key, item):
     cfg = load_yaml(BENCH / "config.yaml"); name = cfg["apify_search_config"]; conf = cfg["apify_search_configs"][name]
     q = urllib.parse.urlencode({"query": item["query"], "maxResults": 10, "outputFormats": "markdown"} | conf)
     st, d = _get_json(f"{APIFY_RAG_URL}?{q}", {"Authorization": f"Bearer {key}"}, timeout=conf["requestTimeoutSecs"] + 60)
+    if isinstance(d, dict) and (d.get("error") or d.get("code")):   # AC5: Apify error object in a 2xx body (e.g. payment-required)
+        e = d.get("error"); code = d.get("code") or (e.get("type") if isinstance(e, dict) else e)
+        raise RuntimeError(f"HTTP {st}: rag-web-browser error ({str(code)[:60]})")
     d = sorted(d if isinstance(d, list) else [], key=lambda x: (x.get("searchResult") or {}).get("rank") or 99)
     res = []
     for x in d:
@@ -73,6 +78,35 @@ def _apify_search(key, item):
     fetched = sum(1 for x in d if (x.get("crawl") or {}).get("requestStatus") == "handled")
     cents = 100 * (APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
     return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
+
+# Apify Web Fetch (Store Actor apify/web-fetch), Standby endpoint: one URL -> page text. Pay per event, no platform usage.
+# FREE-plan event prices from the Actor's public pricing record, read 2026-10-26 (USD): fetch 0.0015 (successful only), Actor Start 0.00005.
+APIFY_WEB_FETCH_URL = "https://web-fetch.apify.actor/"
+APIFY_WEB_FETCH_EVENT_USD = {"fetch": 0.0015, "start": 0.00005}
+APIFY_WEB_FETCH_CLIENT_TIMEOUT_S = 150   # the Actor's own fetch timeout is 2 min (FETCH_TIMEOUT)
+
+def _post_json(url, headers, body, timeout):
+    import urllib.request, urllib.error
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"} | headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
+    except urllib.error.HTTPError as e:   # status + short vendor text only, never the key
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
+
+def _apify_web_fetch(key, item):
+    """browser task: POST {url, formats: [text]} -> dom_text = the Actor's text, final_url = fetch.loadedUrl.
+    billed_units = US cents at FREE event prices (Actor Start + one fetch event; the Actor charges fetch only when it returns content)."""
+    st, d = _post_json(APIFY_WEB_FETCH_URL, {"Authorization": f"Bearer {key}"}, {"url": item["start_url"], "formats": ["text"]},
+                       timeout=APIFY_WEB_FETCH_CLIENT_TIMEOUT_S)
+    if not isinstance(d, dict) or d.get("code") or d.get("text") is None:
+        code = d.get("code") if isinstance(d, dict) else "non-object body"
+        raise RuntimeError(f"HTTP {st}: web-fetch returned no text ({str(code)[:60]})")
+    f = d.get("fetch") or {}
+    cents = 100 * (APIFY_WEB_FETCH_EVENT_USD["start"] + APIFY_WEB_FETCH_EVENT_USD["fetch"])
+    return {"http_status": st, "billed_units": round(cents, 4), "dom_text": d["text"], "final_url": f.get("loadedUrl"),
+            "target_status": f.get("httpStatusCode"), "config": "web-fetch-text"}
 
 def apify_meter(key):
     st, d = _get_json("https://api.apify.com/v2/users/me/limits", {"Authorization": f"Bearer {key}"}, timeout=30)
@@ -101,7 +135,8 @@ def _browserless_fetch(key, item):
     try:
         with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:   # never echo the request URL (it carries the token)
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
     except Exception as e:
         raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
     return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
@@ -124,11 +159,12 @@ def _brightdata_scrape(key, item):
     try:
         with urllib.request.urlopen(req, timeout=90) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
-            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
+            "apify": {"search": _apify_search, "browser": _apify_web_fetch}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
             "brightdata": {"scrape": _brightdata_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
@@ -137,7 +173,7 @@ def keyed_providers(provs, env):
     return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
 
 def keep_previous_rows(doc, prev_path, stale):
-    """CEO ruling 2026-10-19: a stale_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
+    """CEO ruling 2026-10-19: a stale_<reason> or stopped_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
     are the previous latest.json rows, unchanged; with no previous row it has none. Returns the stale providers with a previous row."""
     if not stale: return set()
     prev = json.loads(Path(prev_path).read_text()) if Path(prev_path).exists() else {}
@@ -148,7 +184,7 @@ def keep_previous_rows(doc, prev_path, stale):
     doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
     return {r["provider"] for t in doc["tables"].values() for r in t if r["provider"] in stale}
 
-def is_stale(p): return p["status"].startswith("stale_")
+def is_stale(p): return p["status"].startswith(("stale_", "stopped_"))
 def stale_providers(s): return {p["provider"] for p in s["providers"] if is_stale(p)}
 
 def fresh_data(s):
