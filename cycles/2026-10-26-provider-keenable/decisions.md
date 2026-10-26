@@ -33,16 +33,19 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 
 ## Phasing
 - **K1** (hazeydata/agentwebindex#29): adapter, guards, config and tos entry, all default-closed; the vendor_confirmation record stays null in K1; mocks only.
-- **K2 and K3 waited on open questions** (OQ-K4, OQ-K5, the AC10 fact-check, and the endpoint and free-tier limits). They are now closed, so the K2 flip PR (hazeydata/agentwebindex#30) records the vendor_confirmation and sets `live_run_allowed: true`; `paid_usage_allowed` stays false.
+- **K2 and K3 waited on open questions** (OQ-K4, OQ-K5, the AC10 fact-check, and the endpoint and free-tier limits). They are now closed, so the K2 flip PR (hazeydata/agentwebindex#30; historical: #30 was reverted and the flip re-lands as #36, see below) records the vendor_confirmation and sets `live_run_allowed: true`; `paid_usage_allowed` stays false.
 - Endpoint: keyless `POST https://api.keenable.ai/v1/search/public` with `X-Keenable-Title: AgentWebIndex` (docs.keenable.ai). Serial, at most 9/s, under 900 per rolling hour; a 429 gets at most one retry after Retry-After, then `rate_limited`; a 402 stops all calls.
 - Pricing: pricing.yaml records $4 per 1,000 requests (pay as you go, https://keenable.ai/pricing) outside `providers`; Keenable stays off Also priced and Prices this cycle (tested).
 
 ## Later (not this cycle)
 - Styskin's reproduced eval, https://x.com/styskin/status/2114405816669544464: Exa needs `contents.highlights=true`, and the exact-URL judge is Google-biased. Methodology notes for a later spec; not implemented.
-- K3: the committed tos entry still says `benchmarking: forbidden`, so the runner records `excluded_tos_benchmarking` even after the flip. Updating that clause per the OQ-K5 ruling is a separate, non-flip PR (it can't ride in the flip PR).
-- K3: `collectors/benchmark.py keyed_providers()` needs a key env, so keenable is never picked for a live run; runner eligibility needs a pricing free_tier entry.
+- K3 (resolved in code, was stale): `bench/tos_matrix.yaml` `providers.keenable.benchmarking.status` is `permitted_by_ruling` (tos_matrix.yaml:271), and `runner.forbidden_clause` (runner.py:191-194) excludes only a `forbidden` benchmarking or publishing_results clause, so the runner no longer records `excluded_tos_benchmarking` for keenable.
+- K3 (resolved in code, was stale): `collectors/benchmark.py keyed_providers()` (benchmark.py:239) picks keyless keenable with no key env whenever `guard.live_allowed(cfg, tos, "keenable")` is true, which it is after this flip. `run_pricing()` (benchmark.py:243-248) adds `keenable_price_record.free_tier` from `pricing.yaml` to the runner's pricing map as a `search` `per_request` entry, only if that `free_tier` is set and keenable is not already in `providers`; it is for run eligibility only, and tables, Prices and Also priced still read `pricing.yaml` `providers`.
 
 ## Flip re-land (R7)
 - #30 (the K2 flip) was squash-merged as 8173d1a5 into the stacked branch `feat/awi-provider-keenable-001` (#29), not a merged base. Per R7 option (b) it was removed from #29 with a normal revert commit, 7804f749, so #29 landed as code, tests and config only (squash 24dcf9a9 into `feat/awi-provider-contextdev-001`).
 - The flip is re-landed unchanged as its own data/docs-only PR against the merged base `feat/awi-provider-contextdev-001`, and must pass confirmation_diff flip-only (R13) with rc=0 and get its own SHIP.
 - Prevention: from now on, a flip PR targets a merged base, never a stacked feature branch.
+
+## README split (Spec R9, option a)
+- README.md:73-74 (the Keenable bullet and the vendor-confirmation gate bullet) stays stale in #36. It is fixed in a follow-up docs-only PR against `feat/awi-provider-contextdev-001`, opened after #36 merges. The split is forced by R13's flip-only allowlist, which rejects README in a flip PR (Spec R9). That README PR must merge before the chain merges to main.
