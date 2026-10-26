@@ -4,10 +4,11 @@ This PR records the vendor's written request and opens the context.dev live gate
 
 ## Record
 - date: 2026-10-25 (post time 2026-10-25T04:27:40Z = 00:27:40 ET).
-- sender: @mynameisyahia (Yahia Bakour, Founder and CEO of Context.dev).
+- sender: "@mynameisyahia (Yahia Bakour, Founder and CEO, Context.dev)" (R23 "@handle (Name, title)"; same string in bench/config.yaml and bench/tos_matrix.yaml).
 - quote (verbatim from the saved API read): "@HazeyDataFred Hello! Can you add https://t.co/TjSwtUVs0K as well?"
 - What it is: the vendor's CEO **asked to be added** to the weekly benchmark, in a reply to HazeyData's post 2114114836904690156. The word "test" is not in the post.
-- evidence_path: cycles/2026-10-25-provider-contextdev/evidence/posts-api.json.txt, a byte-for-byte copy of fact's saved public X API read (posts-api.json.txt in fact's vendor-x evidence folder; SHA256 7a195d696344624a58cb001a8296481d9bbe42b0a253d9737741e17dbb155da2, listed in that folder's SHA256SUMS). The post itself could not be archived (archive.org HTTP 523), so the saved API read is the evidence.
+- evidence_path: cycles/2026-10-25-provider-contextdev/evidence/posts-api.json.txt: the JSON body of fact's saved public X API read, with the tool-wrapper and rate-limit lines removed (JSON unchanged; SHA256 bdbbe10be1353a73d8652b711ba75ed7bcb5a96869156dac43edc4b7a2f9e41e, listed in evidence/SHA256SUMS). Fact's unstripped original: SHA256 7a195d696344624a58cb001a8296481d9bbe42b0a253d9737741e17dbb155da2.
+- **R23 archive still missing (blocks SHIP).** web.archive.org save of https://x.com/mynameisyahia/status/2114212271258038294 failed: HTTP 523 at 2026-10-26 09:57:55, 09:58:05 and 09:58:15 ET (plus 2 earlier tries the same morning); the availability API at 09:58:26 ET returned no snapshot. The fallback for this case is waiting on a ruling from Spec; none is applied here.
 - recorded_pr: this PR.
 
 ## Fact-check (AC27b passed)
