@@ -1,0 +1,4 @@
+{"query": "mock query", "mode": "pro", "results": [
+ {"title": "Sentinel title KEENSENT-T1", "url": "https://keensent-url-1.example/page", "description": "KEENSENT-SNIPPET-DESC-1", "snippet": "KEENSENT-SNIPPET-1 longer text", "published_at": "2026-10-25T10:00:00Z", "acquired_at": "2026-10-25T11:00:00Z"},
+ {"title": "Sentinel title KEENSENT-T2", "url": "https://keensent-url-2.example/a", "description": "KEENSENT-SNIPPET-DESC-2", "snippet": "KEENSENT-SNIPPET-2", "published_at": null, "acquired_at": null}
+]}
