@@ -2814,7 +2814,8 @@ class VendorConfirmationGate(ContextDevBase):
         for pid in ("keenable", "contextdev"):
             self.assertIs(tos[pid]["vendor_confirmation_required"], True); self.assertIsNone(tos[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(tos[pid]), pid)
         k = tos["keenable"]
-        self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
+        self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "permitted_by_ruling"))   # Keenable R4 (2): Fred's 7:35 ruling, OQ-K5 closed
+        self.assertIn("7:35", k["benchmarking"]["ruling"]); self.assertIn("OQ-K5", k["benchmarking"]["ruling"])
         self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
         self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
         self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])

@@ -268,12 +268,13 @@
    "checked_at": "2026-10-25",
    "allowed": "no",
    "benchmarking": {
-    "status": "forbidden",
-    "quote": "to any third party the results of any benchmark tests of the Service"
+    "status": "permitted_by_ruling",
+    "quote": "to any third party the results of any benchmark tests of the Service",
+    "ruling": "Fred, Oct 26 2026 7:35 AM, relayed by Side Hustle CEO: \"Yes, the CEO's X post is enough permission to publish Keenable.\" Covers the terms clauses \"provide to any third party the results of any benchmark tests of the Service.\" and \"distribute or otherwise disclose the API Output to any third parties on a standalone basis.\" (https://keenable.ai/terms, Date of Last Revision: October 3, 2026). OQ-K5 closed (CEO): the competitor clause does not apply; HazeyData benchmarks indexes and does not build one. Spec AWI-PROVIDER-KEENABLE-001 R4 (2); sources in agentwebindex-meta cycles/2026-10-26-provider-keenable/decisions.md."
    },
    "vendor_confirmation_required": true,
    "vendor_confirmation": null,
-   "note": "R10: unpublished until Keenable replies in writing. Quote from sponsor-leads-draft.md (off-repo lead record) (lead record), to be re-verified against the live terms before any confirmation is recorded. AWI-PROVIDER-KEENABLE-001 K1 (2026-10-26): adapter, config and price record added, all default-closed; vendor_confirmation stays null until the K2 flip PR; terms re-read 2026-10-26 (Date of Last Revision: October 3, 2026), see cycles/2026-10-26-provider-keenable/evidence."
+   "note": "R10: unpublished until Keenable replies in writing. Quote from sponsor-leads-draft.md (off-repo lead record) (lead record), to be re-verified against the live terms before any confirmation is recorded. AWI-PROVIDER-KEENABLE-001 K1 (2026-10-26): adapter, config and price record added, all default-closed; vendor_confirmation stays null until the K2 flip PR; benchmarking permitted by Fred's Oct 26 7:35 AM ruling (R4 (2)); terms re-read 2026-10-26 (Date of Last Revision: October 3, 2026), see cycles/2026-10-26-provider-keenable/evidence."
   }
  }
 }
