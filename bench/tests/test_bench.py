@@ -2424,6 +2424,29 @@ class ContextDevLiveGate(ContextDevBase):
         self.assertFalse(list((root / "bench/runs").rglob("contextdev")) and [d for d in (root / "bench/runs").rglob("contextdev") if d not in set((SITE / "bench/runs").rglob("contextdev"))])
         self.assertFalse(list((root / "data/spend").glob("contextdev-*")))
 
+    def test_ac25_l2_monday_news_job_open_gate_attempts_contextdev(self):   # Weatherman L2: same job with an open fixture gate; contextdev no longer sits out
+        import shutil
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        root = mktmp(self) / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        c = closed_cfg(load_yaml(root / "bench/config.yaml")); c["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation=dict(X_REPLY_CONFIRMATION))
+        (root / "bench/config.yaml").write_text(json.dumps(c))
+        t = load_yaml(root / "bench/tos_matrix.yaml"); t["providers"] = closed_tos(t["providers"]); t["providers"]["contextdev"]["vendor_confirmation"] = dict(X_REPLY_CONFIRMATION)
+        (root / "bench/tos_matrix.yaml").write_text(json.dumps(t))
+        news = sorted(f.stem for f in (root / "bench/sets").glob("news_*.jsonl"))[-1]
+        printed = []; urls = []
+        def no_net(req, *a, **k): urls.append(getattr(req, "full_url", req)); raise OSError("mock: network blocked")
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "contextdev", "--only-sets", news]), \
+             mock.patch("urllib.request.urlopen", side_effect=no_net), mock.patch.object(B, "contextdev_meter", return_value=0), \
+             mock.patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))):
+            B.main()
+        sk = [json.loads(l) for l in printed if l.startswith("{")]
+        self.assertNotIn(("contextdev", "skipped_no_vendor_confirmation"), [(p.get("provider"), p.get("status")) for p in sk])
+        self.assertTrue(urls and all("context.dev" in str(u) for u in urls), urls)   # the gate let the runner try contextdev (mocked, no real network)
+
 class ContextDevGuard(ContextDevBase):
     def test_ac11_stop_at_exactly_900_from_config(self):   # AC11
         self.assertEqual(CFG["free_tier_guard"]["contextdev"]["stop_at_credits"], 900)
@@ -2878,6 +2901,18 @@ class VendorConfirmationGate(ContextDevBase):
             if not skip: self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
         self.assertIsNone(closed_cfg()["free_tier_guard"]["contextdev"]["vendor_confirmation"])
         if not open_: self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+    def test_ac24b_l1_publishable_contextdev_when_open(self):   # Weatherman L1: publishable('contextdev') still checked when the gate is open
+        pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; from awibench.tables import publish_gate
+        opened = closed_tos(); opened["contextdev"]["vendor_confirmation"] = dict(X_REPLY_CONFIRMATION)
+        self.assertTrue(gates_mod.vendor_confirmed(opened["contextdev"]))
+        self.assertIs(gates_mod.publishable("contextdev", pricing, opened), publish_gate("contextdev", pricing, opened)[0])   # open: P0/P1 still decide
+        self.assertFalse(gates_mod.publishable("contextdev", pricing, closed_tos()))
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; open_ = committed_consistent(self)
+        self.assertIs(gates_mod.publishable("contextdev", pricing, committed), bool(open_ and publish_gate("contextdev", pricing, committed)[0]))
+        for ok in (True, False):   # open record: the P0/P1 result decides; closed record: False whatever P0/P1 says
+            with mock.patch("awibench.tables.publish_gate", return_value=(ok, "mock")):
+                self.assertIs(gates_mod.publishable("contextdev", pricing, opened), ok)
+                self.assertFalse(gates_mod.publishable("contextdev", pricing, closed_tos()))
     def test_ac24c_keenable_never_renders(self):   # AC24c: fixture logs with keenable rows + a pricing fixture entry; data JSON and a flattened CSV carry no keenable
         runs = self.tmp / "runs"
         for ps, st in (("keenable", "pass"), ("mockp", "pass")):
