@@ -409,8 +409,8 @@ class T(unittest.TestCase):
     def _real(self):
         return (load_yaml(BENCH / "pricing.yaml")["providers"], load_yaml(BENCH / "tos_matrix.yaml")["providers"],
                 json.loads((SITE / "collectors/providers.json").read_text())["providers"])
-    def _real_run(self, provs=None, cfg=None, pricing=None):
-        rp, tos, allp = self._real(); pricing = pricing or rp; provs = provs or allp
+    def _real_run(self, provs=None, cfg=None, pricing=None, tos=None):
+        rp, rt, allp = self._real(); pricing = pricing or rp; provs = provs or allp; tos = rt if tos is None else tos
         sd = self.tmp / "rsets"; mocks.make_sets(sd)
         tasks = load_yaml(sd / "browser_tasks.yaml"); tasks[0] = dict(tasks[0], category="anti_bot")   # an anti-bot browser task for decision 2
         sets = {f: {"rows": read_jsonl(sd / f"{f}.jsonl"), "sha": "x"} for f in ("search_evergreen", "scrape_urls")}
@@ -461,11 +461,11 @@ class T(unittest.TestCase):
             errs = validate.validate_by_set(self.tmp, CFG)["browser_tasks"][0]
             self.assertEqual(errs == [], ok, (u, errs[:1]))
     def test_d4_month1_only_six_providers(self):
-        s, pricing, tos = self._real_run()
+        s, pricing, tos = self._real_run(cfg=closed_cfg(), tos=closed_tos())   # R25: explicit closed fixture
         st = {(p["provider"], p["category"]): p["status"] for p in s["providers"]}
         ran = {k for k, v in st.items() if v in ("ran", "stale_quota")}
         self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"})
-        self.assertEqual(st[("contextdev", "search")], "skipped_no_vendor_confirmation")   # AC6a: committed config keeps contextdev out of live runs
+        self.assertEqual(st[("contextdev", "search")], "skipped_no_vendor_confirmation")   # AC6a: a closed config keeps contextdev out of live runs
         for (pid, cat), v in st.items():
             if pid == "brave": self.assertEqual(v, "excluded_tos_benchmarking")
             elif pid not in CFG["month1_free_tier_providers"]: self.assertEqual(v, "skipped_not_month1", pid)
@@ -2150,6 +2150,28 @@ X_REPLY_CONFIRMATION = {"date": "2026-10-26", "sender": "@mynameisyahia", "quote
                         "evidence_path": "evidence/vendor/contextdev/x-reply-2114212271258038294.html", "recorded_pr": "https://github.com/hazeydata/agentwebindex-meta/pull/999"}
 MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
 
+# R25: gate-behavior tests run on these explicit closed/open fixtures, never on whatever the committed files say today.
+def closed_cfg(cfg=None):
+    """Deep copy of `cfg` (default: committed config) with the contextdev live gate closed (R9 defaults)."""
+    c = json.loads(json.dumps(CFG if cfg is None else cfg)); c["free_tier_guard"]["contextdev"].update(live_run_allowed=False, vendor_confirmation=None); return c
+def closed_tos(tos=None):
+    """Deep copy of tos_matrix providers (default: committed) with keenable and contextdev vendor_confirmation null."""
+    t = json.loads(json.dumps(load_yaml(BENCH / "tos_matrix.yaml")["providers"] if tos is None else tos))
+    for pid in ("keenable", "contextdev"): t[pid]["vendor_confirmation"] = None
+    return t
+def committed_consistent(tc):
+    """R25 committed-state check. Returns True if the committed contextdev gate is open, after asserting the open state is
+    consistent: live_run_allowed is bool True, the config record passes gates.record_error, the tos entry still requires
+    confirmation and carries the same valid record, and guard.live_allowed agrees. Returns False if live_run_allowed is False;
+    callers then apply the old closed assertions unchanged. Anything else (e.g. "yes") fails."""
+    g = CFG["free_tier_guard"]["contextdev"]; e = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"]
+    if g["live_run_allowed"] is False: return False
+    tc.assertIs(g["live_run_allowed"], True)
+    tc.assertIsNone(gates_mod.record_error(g["vendor_confirmation"])); tc.assertIs(e["vendor_confirmation_required"], True)
+    tc.assertIsNone(gates_mod.record_error(e["vendor_confirmation"])); tc.assertEqual(e["vendor_confirmation"], g["vendor_confirmation"])
+    tc.assertTrue(gates_mod.vendor_confirmed(e)); tc.assertTrue(guard_mod.live_allowed(CFG, {"contextdev": e}))
+    return True
+
 class ContextDevBase(unittest.TestCase):
     """AWI-PROVIDER-CONTEXTDEV-001 spec rev 4 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
     self.cfg is the committed config with the R9 live gate opened and grant_anchor_day 15, so the guard logic is reachable; the committed gate is tested separately."""
@@ -2240,11 +2262,12 @@ class ContextDevConfig(ContextDevBase):
             self.assertFalse(list(self.spend.glob("contextdev-*.json")))
     def test_config_block_matches_rev4_shape(self):   # AC10/AC11/AC13/AC6a/AC26 config values, committed file
         g = CFG["free_tier_guard"]["contextdev"]
+        want = {"pool": "contextdev", "quota_credits": 1000, "stop_at_credits": 900, "grant_anchor_day": None, "live_run_allowed": False, "vendor_confirmation": None,
+                "meter": "https://api.context.dev/v1/org/usage", "max_concurrent": 1, "count": "attempts", "retry_after_429_s": 1,
+                "quota_stop_errors": ["HTTP 402 USAGE_EXCEEDED", "HTTP 401 USAGE_EXCEEDED"], "paid_tier": False}
+        if committed_consistent(self): want |= {"live_run_allowed": True, "vendor_confirmation": g["vendor_confirmation"]}   # R25: open only with a valid record
         self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
-                                            "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")},
-                         {"pool": "contextdev", "quota_credits": 1000, "stop_at_credits": 900, "grant_anchor_day": None, "live_run_allowed": False, "vendor_confirmation": None,
-                          "meter": "https://api.context.dev/v1/org/usage", "max_concurrent": 1, "count": "attempts", "retry_after_429_s": 1,
-                          "quota_stop_errors": ["HTTP 402 USAGE_EXCEEDED", "HTTP 401 USAGE_EXCEEDED"], "paid_tier": False})
+                                            "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")}, want)
         self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev"])
         self.assertNotIn("contextdev", CFG["ceo_free_tier_allowlist"])   # needs_card is false in pricing.yaml; no allowlist exception
     def test_also_priced_helper_eleven_with_flag(self):   # AC22 support (the site repo tests the page itself): helper honours exclude_from_also_priced
@@ -2259,8 +2282,9 @@ class ContextDevConfig(ContextDevBase):
 
 class ContextDevLiveGate(ContextDevBase):
     def test_ac6a_live_allowed_function(self):   # AC6a
-        real_tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; tos = {"contextdev": real_tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}
-        self.assertFalse(guard_mod.live_allowed(CFG, real_tos)); self.assertFalse(guard_mod.live_allowed(CFG, tos))   # committed config / committed tos
+        real_tos = closed_tos(); tos = {"contextdev": real_tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}   # R25: closed tos fixture
+        self.assertFalse(guard_mod.live_allowed(closed_cfg(), real_tos)); self.assertFalse(guard_mod.live_allowed(closed_cfg(), tos))   # closed config / closed tos fixtures
+        self.assertIs(guard_mod.live_allowed(CFG, load_yaml(BENCH / "tos_matrix.yaml")["providers"]), committed_consistent(self))   # R25: committed files open only if consistent
         g = lambda **kw: {"free_tier_guard": {"contextdev": kw}}
         self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=None), tos))
         self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=False, vendor_confirmation=MOCK_CONFIRMATION), tos))
@@ -2331,8 +2355,8 @@ class ContextDevLiveGate(ContextDevBase):
         cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=dict(MOCK_CONFIRMATION)); search = mock.Mock(side_effect=self.ad_search)   # positive control
         self.assertTrue(guard_mod.live_allowed(cfg, self.tos))
         self.go(n=2, cfg=cfg, adapters={"contextdev": {"search": search}}); self.assertEqual(search.call_count, 2)
-    def test_ac6a_default_config_zero_calls(self):   # AC6a (a): committed gate, key set
-        cfg = mocks.mock_cfg(CFG)
+    def test_ac6a_default_config_zero_calls(self):   # AC6a (a): closed gate fixture (R25), key set
+        cfg = mocks.mock_cfg(closed_cfg())
         s = self.go(n=3, kinds=("search", "scrape"), cfg=cfg)
         self.assertEqual([p["status"] for p in s["providers"]], ["skipped_no_vendor_confirmation"] * 2); self.assertEqual(self.calls, [])
         self.assertFalse(list(self.spend.glob("contextdev-*"))); self.assertFalse((self.tmp / "runs").exists())
@@ -2344,15 +2368,17 @@ class ContextDevLiveGate(ContextDevBase):
         s = self.go(n=2); self.assertEqual((self.prov(s)["status"], len(self.calls)), ("ran", 2))
     def test_ac6a_gate_does_not_stop_other_providers(self):
         other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
-        s = self.go(providers=self.prov_def() + [other], cfg=mocks.mock_cfg(CFG), pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"},
+        s = self.go(providers=self.prov_def() + [other], cfg=mocks.mock_cfg(closed_cfg()), pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"},
                     adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]))
         self.assertEqual((self.prov(s)["status"], self.prov(s, "mockp")["status"], self.calls), ("skipped_no_vendor_confirmation", "ran", []))
-    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), committed config, key set, any network call fails the test
+    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), closed config fixture (R25), key set, any network call fails the test
         import shutil
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         root = mktmp(self) / "site"
         shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
         (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        (root / "bench/config.yaml").write_text(json.dumps(closed_cfg(load_yaml(root / "bench/config.yaml"))))   # R25: explicit closed fixture
+        t = load_yaml(root / "bench/tos_matrix.yaml"); t["providers"] = closed_tos(t["providers"]); (root / "bench/tos_matrix.yaml").write_text(json.dumps(t))
         news = sorted(f.stem for f in (root / "bench/sets").glob("news_*.jsonl"))[-1]
         snap = lambda: sorted((str(f.relative_to(root)), hashlib.sha256(f.read_bytes()).hexdigest()) for d in ("data", "bench/runs", "bench/spend") if (root / d).exists() for f in (root / d).rglob("*") if f.is_file())
         before = snap(); printed = []
@@ -2810,14 +2836,18 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertEqual(len(rows(base | self.REQ | {"vendor_confirmation": self.FULL})), 1)
         self.assertEqual(len(rows(base)), 1)   # not required: unaffected
     def test_ac24b_committed_files_closed(self):   # AC24b: the real committed files
-        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
-        for pid in ("keenable", "contextdev"):
-            self.assertIs(tos[pid]["vendor_confirmation_required"], True); self.assertIsNone(tos[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(tos[pid]), pid)
-        k = tos["keenable"]
-        self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
-        self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
-        self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
-        self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; open_ = committed_consistent(self)   # R25
+        for tos in (closed_tos(committed), committed):   # closed fixture: every old assertion; committed: the same unless contextdev is consistently open
+            skip = tos is committed and open_
+            for pid in ("keenable", "contextdev"):
+                if skip and pid == "contextdev": continue
+                self.assertIs(tos[pid]["vendor_confirmation_required"], True); self.assertIsNone(tos[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(tos[pid]), pid)
+            k = tos["keenable"]
+            self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
+            self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
+            if not skip: self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
+        self.assertIsNone(closed_cfg()["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        if not open_: self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
     def test_ac24c_keenable_never_renders(self):   # AC24c: fixture logs with keenable rows + a pricing fixture entry; data JSON and a flattened CSV carry no keenable
         runs = self.tmp / "runs"
         for ps, st in (("keenable", "pass"), ("mockp", "pass")):
@@ -2973,10 +3003,13 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(cd.head_confirmed(head)); self.assertTrue(cd.head_confirmed(h2)); self.assertTrue(cd.head_confirmed(h3))
         self.assertTrue(cd.head_confirmed({T: None, C: {}}))
         # committed repo files: nothing confirmed, values null
-        committed = {T: load_yaml(BENCH / "tos_matrix.yaml"), C: load_yaml(BENCH / "config.yaml")}
-        self.assertFalse(cd.head_confirmed(committed))
-        for pid in ("keenable", "contextdev"): self.assertIsNone(committed[T]["providers"][pid]["vendor_confirmation"])
-        self.assertIsNone(committed[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        committed = {T: load_yaml(BENCH / "tos_matrix.yaml"), C: load_yaml(BENCH / "config.yaml")}; open_ = committed_consistent(self)   # R25
+        closed = {T: committed[T] | {"providers": closed_tos(committed[T]["providers"])}, C: closed_cfg(committed[C])}
+        for docs in ((closed, committed) if not open_ else (closed,)):   # old closed assertions: closed fixture always, committed files when closed
+            self.assertFalse(cd.head_confirmed(docs))
+            for pid in ("keenable", "contextdev"): self.assertIsNone(docs[T]["providers"][pid]["vendor_confirmation"])
+            self.assertIsNone(docs[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        if open_: self.assertTrue(cd.head_confirmed(committed)); self.assertIsNone(committed[T]["providers"]["keenable"]["vendor_confirmation"])
     def test_ac24e_cli_over_git_repo(self):   # AC24e: CLI parses base (merge-base) and HEAD yaml from git, no network
         r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True)
         tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None, "benchmarking": {"quote": "q"}}}}
@@ -3275,10 +3308,13 @@ class SnapshotPricesGate(unittest.TestCase):
     def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
         sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
         provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
-        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
-        ids = [p["id"] for p in S.snapshot_providers(provs, tos)]
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        ids = [p["id"] for p in S.snapshot_providers(provs, closed_tos(committed))]   # R25: closed fixture
         self.assertNotIn("contextdev", ids)
         self.assertEqual(len(ids), 15)
+        cids = [p["id"] for p in S.snapshot_providers(provs, committed)]   # committed: closed unless consistently open
+        if committed_consistent(self): self.assertEqual(sorted(cids), sorted(ids + ["contextdev"]))
+        else: self.assertEqual(cids, ids)
     def test_ac24g_snapshot_skip_follows_vendor_confirmed(self):   # AC24g (R12): skip iff gates.vendor_confirmed is false; main() uses it
         sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
         provs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
