@@ -17,6 +17,59 @@ def tmpd(tc):
 CFG = load_yaml(BENCH / "config.yaml"); RSS = Path(__file__).parent / "fixtures" / "rss"
 RUN_AT = dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00")
 
+
+def parse_workflow_yaml(text):
+    """Minimal block-YAML reader for the workflow files (PyYAML is optional here): mappings, '- ' lists, one-line flow maps
+    `{k: v, ...}`, `|` block scalars, quoted scalars and comments. Enough to read on/jobs/steps/env/run; unknown shapes raise."""
+    def scalar(v):
+        v = v.strip()
+        if v.startswith('"'): return v[1:v.index('"', 1)]
+        if v.startswith("{"):
+            body = v[1:v.rindex("}")].strip(); out = {}
+            parts, depth, cur = [], 0, ""
+            for ch in body:
+                if ch in "{[": depth += 1
+                if ch in "}]": depth -= 1
+                if ch == "," and depth == 0: parts.append(cur); cur = ""
+                else: cur += ch
+            if cur.strip(): parts.append(cur)
+            for part in parts:
+                k, _, val = part.partition(":"); out[k.strip()] = scalar(val)
+            return out
+        return v.split(" #")[0].strip()
+    lines = [l for l in text.splitlines()]
+    def strip_comment(l): return "" if l.lstrip().startswith("#") else l
+    def block(i, indent):   # returns (value, next_i)
+        items = []; mapping = {}; is_list = None
+        while i < len(lines):
+            raw = lines[i]; l = strip_comment(raw)
+            if not l.strip(): i += 1; continue
+            ind = len(l) - len(l.lstrip())
+            if ind < indent: break
+            if ind > indent: raise ValueError(f"unexpected indent at line {i+1}: {raw!r}")
+            body = l.strip()
+            if body.startswith("- "):
+                is_list = True; sub = " " * (ind + 2) + body[2:]; lines[i] = sub
+                val, i = block(i, ind + 2); items.append(val); continue
+            k, sep, v = body.partition(":")
+            if not sep: raise ValueError(f"not a mapping at line {i+1}: {raw!r}")
+            v = v.strip(); i += 1
+            if v.split(" #")[0].strip() == "|":
+                buf = []
+                while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) > ind):
+                    buf.append(lines[i]); i += 1
+                cut = min((len(b) - len(b.lstrip()) for b in buf if b.strip()), default=0)
+                mapping[k.strip()] = "\n".join(b[cut:] for b in buf).rstrip("\n") + "\n"
+            elif v == "" or v.startswith("#"):
+                nxt = i
+                while nxt < len(lines) and not strip_comment(lines[nxt]).strip(): nxt += 1
+                if nxt < len(lines) and len(lines[nxt]) - len(lines[nxt].lstrip()) > ind:
+                    sub_ind = len(lines[nxt]) - len(lines[nxt].lstrip()); mapping[k.strip()], i = block(nxt, sub_ind)
+                else: mapping[k.strip()] = None
+            else: mapping[k.strip()] = scalar(v)
+        return (items if is_list else mapping), i
+    doc, _ = block(0, 0); return doc
+
 class T(unittest.TestCase):
     def setUp(self): self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
 
@@ -2101,7 +2154,7 @@ class ContextDevBase(unittest.TestCase):
     W = "2026-10-15"
     def setUp(self):
         self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
-        self.cfg["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation="mock-record", grant_anchor_day=15)
+        self.cfg["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation=dict(MOCK_CONFIRMATION), grant_anchor_day=15)
         self.pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; self.tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
         self.tos["contextdev"] = self.tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}   # in-memory R10 record so the live/publish paths are reachable
         sd = self.tmp / "sets"; mocks.make_sets(sd); self.rows = read_jsonl(sd / "search_evergreen.jsonl"); self.srows = read_jsonl(sd / "scrape_urls.jsonl")
@@ -2207,13 +2260,45 @@ class ContextDevLiveGate(ContextDevBase):
         self.assertFalse(guard_mod.live_allowed(CFG, real_tos)); self.assertFalse(guard_mod.live_allowed(CFG, tos))   # committed config / committed tos
         g = lambda **kw: {"free_tier_guard": {"contextdev": kw}}
         self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=None), tos))
-        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=False, vendor_confirmation="rec"), tos))
-        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed="yes", vendor_confirmation="rec"), tos))
-        self.assertTrue(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=False, vendor_confirmation=MOCK_CONFIRMATION), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed="yes", vendor_confirmation=MOCK_CONFIRMATION), tos))
+        self.assertTrue(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), tos))
         # R10: config flags alone are not enough; the tos_matrix record must pass vendor_confirmed
-        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), real_tos))
-        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), {"contextdev": tos["contextdev"] | {"vendor_confirmation": {"date": "2026-11-01"}}}))
-        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation="rec"), {}))
+        self.assertEqual(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), real_tos), real_tos["contextdev"].get("vendor_confirmation") is None)   # R22: a null tos record is fine; a set one must be valid
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), {"contextdev": tos["contextdev"] | {"vendor_confirmation": {"date": "2026-11-01"}}}))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), {}))
+    def test_r21_guard_config_record_uses_validator(self):   # R21 (1): guard's live gate runs the config record through gates.record_error, no truthiness
+        from awibench import gates
+        tos = {"contextdev": load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}
+        g = lambda vc: {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": vc}}}
+        self.assertTrue(guard_mod.live_allowed(g(dict(MOCK_CONFIRMATION)), tos))                                               # positive control
+        bad = ["yes", {}, {"date": "2026-11-01"}, "https://example.invalid/reply", dict(MOCK_CONFIRMATION, recorded_pr=27), dict(MOCK_CONFIRMATION, extra=1), ["x"], 1, True]
+        for vc in bad:
+            self.assertIsNotNone(gates.record_error(vc), vc)                                                                # invalid (all truthy except {}, which R21 lists)
+            self.assertFalse(guard_mod.live_allowed(g(vc), tos), vc)
+        for vc in ("yes", {}, {"date": "2026-11-01", "sender": "s"}):                                                       # zero live calls through the runner
+            s = self.go(cfg=self.cfg_with(vendor_confirmation=vc))
+            self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []), vc)
+    def test_r22_live_allowed_all_conditions(self):   # R22 (supersedes R21 (1)): every condition must hold, else fail closed (mock)
+        base = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"]
+        ok_cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
+        tos = lambda **kw: {"contextdev": {k: v for k, v in (base | kw).items() if v is not ...}}
+        la = guard_mod.live_allowed; F = "vendor_confirmation_required"
+        self.assertTrue(la(ok_cfg, tos(**{F: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                        # everything valid
+        self.assertTrue(la(ok_cfg, tos(**{F: True, "vendor_confirmation": None})))                                           # tos record not set: only the config record counts
+        self.assertFalse(la(ok_cfg, tos(**{F: ..., "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                        # tos flag missing
+        self.assertFalse(la(ok_cfg, tos(**{F: False, "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                      # tos flag false
+        for flag in ("true", 1, None): self.assertFalse(la(ok_cfg, tos(**{F: flag})), flag)                                    # flag must be bool True
+        self.assertFalse(la(ok_cfg, {})); self.assertFalse(la(ok_cfg, None)); self.assertFalse(la(ok_cfg, {"contextdev": None}))   # tos entry missing
+        self.assertFalse(la(ok_cfg, {"contextdev": "x"}))
+        for bad in ("yes", {}, {"date": "2026-11-01"}, dict(MOCK_CONFIRMATION, recorded_pr=27), None):                      # flag true, invalid config record
+            cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": bad}}}
+            self.assertFalse(la(cfg, tos(**{F: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)})), bad)
+        for bad in ("yes", {"date": "2026-11-01"}, dict(MOCK_CONFIRMATION, date="2026-02-30"), {}):                         # tos record set but invalid
+            self.assertFalse(la(ok_cfg, tos(**{F: True, "vendor_confirmation": bad})), bad)
+        for lra in (False, "true", 1, None):                                                                                 # live_run_allowed must be bool True
+            cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": lra, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
+            self.assertFalse(la(cfg, tos(**{F: True})), lra)
     def test_ac6a_default_config_zero_calls(self):   # AC6a (a): committed gate, key set
         cfg = mocks.mock_cfg(CFG)
         s = self.go(n=3, kinds=("search", "scrape"), cfg=cfg)
@@ -2897,6 +2982,29 @@ class VendorConfirmationGate(ContextDevBase):
                                env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": "HEAD"})
             if rc: self.assertNotEqual(p.returncode, 0, p.stdout); self.assertNotIn("REACHED_END", p.stdout); self.assertIn("FAILED: confirmation_diff", p.stdout)
             else: self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("confirmation_diff OK", p.stdout)
+    def test_r21_run_tests_warns_when_base_is_head(self):   # R21 (2): local override warns when base == head; CI never references it
+        src = (SITE / "run_tests.sh").read_text(); block = src[src.index("# >>> AC24e"):src.index("# <<< AC24e")]
+        stub = self.tmp / "stub21"; stub.mkdir(); (stub / "python3").write_text("#!/bin/sh\nexit 0\n"); (stub / "python3").chmod(0o755)
+        r = self.tmp / "r21"; (r / "bench").mkdir(parents=True)
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); (r / "a").write_text("1\n"); git("add", "-A"); git("commit", "-qm", "one"); (r / "a").write_text("2\n"); git("commit", "-qam", "two")
+        run = lambda base: subprocess.run(["bash", "-c", "set -eo pipefail\n" + block], cwd=r / "bench", capture_output=True, text=True,
+                                          env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": base})
+        for base in ("HEAD", "main", git("rev-parse", "HEAD").stdout.strip()):
+            p = run(base); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("WARNING: confirmation_diff base", p.stdout, base); self.assertIn("same commit as HEAD", p.stdout)
+        p = run("HEAD~1"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertNotIn("WARNING", p.stdout)                # positive control: a real base, no warning
+        for wf in sorted((SITE / ".github/workflows").glob("*.yml")): self.assertNotIn("AWI_CONFIRMATION_BASE", wf.read_text(), wf.name)
+    def test_r21_workflows_take_shas_from_event(self):   # R21 (3): both confirmation workflows wire base and head SHAs from the event, not env, inputs or branch names
+        ev = {"AWI_BASE_REF": "${{ github.event.pull_request.base.sha }}", "AWI_HEAD_REF": "${{ github.event.pull_request.head.sha }}"}
+        for name, trig in (("confirmation-diff-base.yml", "pull_request_target"), ("confirmation-diff.yml", "pull_request")):
+            text = (SITE / ".github/workflows" / name).read_text(); doc = parse_workflow_yaml(text)
+            self.assertEqual(list(doc["on"]), [trig], name)                                                # no workflow_dispatch / inputs
+            self.assertNotRegex(text, r"inputs\.|github\.base_ref|github\.head_ref|origin/|vars\.|env\.AWI", name)
+            steps = [st for job in doc["jobs"].values() for st in job["steps"] if "awibench.confirmation_diff" in st.get("run", "")]
+            self.assertEqual(len(steps), 1, name); st = steps[0]
+            self.assertEqual({k: st["env"][k] for k in ev}, ev, name)
+            self.assertRegex(st["run"], r'awibench\.confirmation_diff "\$\{?(base|AWI_BASE_REF)\}?" "\$\{?(head|AWI_HEAD_REF)\}?"', name)
+            if "base=" in st["run"]: self.assertIn('base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"', st["run"], name)
     def test_r16_sq1_bootstrap_fails_closed(self):   # SQ1 + R17 SQ-A: base without a checker FAILS, no exemption (fake/empty/sys.exit(0) checkers too)
         wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
         block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
@@ -3055,7 +3163,7 @@ class VendorConfirmationGate(ContextDevBase):
     def test_ac24h_base_judged_ci_r15(self):   # R15: the BASE checker judges the PR; a PR that rewrites the checker, the flag name and the key still fails
         wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
         self.assertRegex(wf, r"(?m)^on:\n  pull_request_target:"); self.assertIn("ref: \"${{ github.event.pull_request.base.sha }}\"", wf)
-        self.assertIn("persist-credentials: false", wf); self.assertNotIn("pull_request.head.sha", wf); self.assertNotIn("head.ref", wf)   # PR head is data, never checked out
+        self.assertIn("persist-credentials: false", wf); self.assertEqual(wf.count("pull_request.head.sha"), 1); self.assertIn('AWI_HEAD_REF: "${{ github.event.pull_request.head.sha }}"', wf); self.assertNotIn("head.ref", wf)   # PR head is data (a SHA), never checked out
         block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
         r = self.tmp / "bj"; (r / "bench/awibench").mkdir(parents=True)
         for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
@@ -3104,7 +3212,7 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
         wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional
         self.assertRegex(wf, r"(?m)^on:\n  pull_request:"); self.assertIn("fetch-depth: 0", wf)
-        self.assertRegex(wf, r'python -m awibench\.confirmation_diff "origin/\$\{\{ github\.base_ref \}\}"')
+        self.assertIn('python -m awibench.confirmation_diff "$AWI_BASE_REF" "$AWI_HEAD_REF"', wf); self.assertNotIn("base_ref", wf)
     def test_ac11_creditguard_allows_is_the_stop_check(self):   # AC11 (kills mutant K1: allows <= -> <)
         d = self.tmp / "cg"; d.mkdir(); g = guard_mod.CreditGuard(d, "contextdev", None, 900)
         try:

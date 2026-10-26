@@ -23,7 +23,7 @@ jobs:
       - name: base-judged confirmation_diff
         env:
           AWI_BASE_REF: "${{ github.event.pull_request.base.sha }}"
-          AWI_HEAD_REF: refs/awi/pr-head
+          AWI_HEAD_REF: "${{ github.event.pull_request.head.sha }}"   # R21 (3): both SHAs from the event; the head is git data, never checked out
         run: |
           # >>> base-judge
           set -euo pipefail

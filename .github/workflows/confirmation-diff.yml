@@ -14,4 +14,7 @@ jobs:
         with: {python-version: "3.12"}
       - name: advisory self-test - PR's own confirmation_diff (authoritative check is confirmation-diff-base)
         working-directory: bench
-        run: python -m awibench.confirmation_diff "origin/${{ github.base_ref }}"
+        env:   # R21 (3): base and head SHAs from the event, not branch names
+          AWI_BASE_REF: "${{ github.event.pull_request.base.sha }}"
+          AWI_HEAD_REF: "${{ github.event.pull_request.head.sha }}"
+        run: python -m awibench.confirmation_diff "$AWI_BASE_REF" "$AWI_HEAD_REF"

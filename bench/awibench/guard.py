@@ -1,6 +1,6 @@
 """context.dev free-tier credit guard (AWI-PROVIDER-CONTEXTDEV-001 spec rev 4; Side Hustle CEO R1-R9, fact desk F1-F7, 2026-10-25).
 
-- live_allowed: R9 gate. No call unless config free_tier_guard.<pid>.live_run_allowed is true AND vendor_confirmation is set AND gates.vendor_confirmed(tos_matrix entry) (R10).
+- live_allowed: R9 + R22 gate. No call unless config live_run_allowed is True AND the config vendor_confirmation passes gates.record_error AND the tos_matrix entry exists with vendor_confirmation_required True AND its own record, if set, passes gates.record_error.
 - anchor_window_start: the free tier refills on the org's grant-anchor day (F1), not on the 1st. The counter file is keyed by the
   window-start date; an unknown anchor day (null) raises AnchorNotConfigured and the runner uses one counter that never resets.
 - CreditGuard: attempts counter in <dir>/contextdev-<window-start>.json. EVERY attempt adds its credit cost (F4), billed or not (R1);
@@ -11,7 +11,7 @@
 """
 import calendar, datetime as dt, fcntl, json, math, os, re, threading, time
 from pathlib import Path
-from .gates import vendor_confirmed
+from .gates import REQUIRED_FLAG, vendor_confirmed
 
 UNREADABLE = "credit counter unreadable; failing closed"
 UNANCHORED = "unanchored"
@@ -24,10 +24,16 @@ class AnchorNotConfigured(ValueError):
     """grant_anchor_day is null: the window start is unknown, so the counter must never reset."""
 
 def live_allowed(cfg, tos, pid="contextdev"):
-    """R9 + R10: live calls only when config live_run_allowed is True, the config vendor_confirmation flag record is set (R9 record only),
-    AND the tos_matrix entry passes gates.vendor_confirmed, which only wraps gates.record_error (gates.py:12), the one record validator (R19)."""
+    """R9 + R22 (supersedes R21 (1)): live calls only when ALL hold, else fail closed: config live_run_allowed is bool True; the config
+    vendor_confirmation passes gates.record_error (gates.py:12, the one record validator; no truthiness check); the tos_matrix entry
+    exists; its vendor_confirmation_required is True; and its own vendor_confirmation, if set, passes gates.record_error.
+    Both record checks go through gates.vendor_confirmed, which only wraps gates.record_error."""
     g = ((cfg or {}).get("free_tier_guard") or {}).get(pid) or {}
-    return g.get("live_run_allowed") is True and bool(g.get("vendor_confirmation")) and pid in (tos or {}) and vendor_confirmed(tos[pid])   # no tos entry -> closed
+    e = (tos or {}).get(pid)
+    # vendor_confirmed({flag: True, record}) is exactly gates.record_error(record) is None (AC24d: one function)
+    return (g.get("live_run_allowed") is True and vendor_confirmed({REQUIRED_FLAG: True, "vendor_confirmation": g.get("vendor_confirmation")})
+            and type(e) is dict and e.get(REQUIRED_FLAG) is True
+            and (e.get("vendor_confirmation") is None or vendor_confirmed(e)))
 
 def _clamp(y, m, day): return dt.date(y, m, min(day, calendar.monthrange(y, m)[1]))
 

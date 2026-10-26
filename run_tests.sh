@@ -12,6 +12,8 @@ nice -n 19 python3 -m awibench.secrets_scan
 # AC24e: a vendor_confirmation change must ride in a data/docs-only PR (base: AWI_CONFIRMATION_BASE, default origin/main; missing base fails)
 base="${AWI_CONFIRMATION_BASE:-origin/main}"
 git rev-parse -q --verify "$base^{commit}" >/dev/null || { echo "FAILED: confirmation_diff base $base not found (git fetch origin main)"; exit 1; }
+# R21 (2): AWI_CONFIRMATION_BASE is a local, advisory override only (CI never sets or reads it); an empty diff passes, so say so loudly
+if [ "$(git rev-parse "$base^{commit}")" = "$(git rev-parse "HEAD^{commit}")" ]; then echo "WARNING: confirmation_diff base $base is the same commit as HEAD: the diff is empty and this local check proves nothing (AWI_CONFIRMATION_BASE is local and advisory; CI judges the event's base and head SHAs)"; fi
 if ! python3 -m awibench.confirmation_diff "$base"; then echo "FAILED: confirmation_diff vs $base"; exit 1; fi
 echo "confirmation_diff OK vs $base"
 # <<< AC24e
