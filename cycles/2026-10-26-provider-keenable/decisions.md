@@ -12,7 +12,7 @@ The terms clauses it covers, from https://keenable.ai/terms (Date of Last Revisi
 Written permission: the @styskin post https://x.com/styskin/status/2114208595525144970 (2026-10-25 00:13:03 EDT / 04:13:03 UTC):
 > "@HazeyDataFred Please include @KeenableAI into your tests."
 
-The post couldn't be archived (archive.org save returned HTTP 523; no snapshot). The saved public X API read is the evidence: `evidence/posts-api.json.txt` (copied from `/workspace/agentwebindex-evidence/vendor-x/posts-api.json.txt`).
+The post couldn't be archived (archive.org save returned HTTP 523; no snapshot). The saved public X API read is the evidence: `evidence/posts-api.json.txt` (copied from the off-repo evidence store `agentwebindex-evidence/vendor-x/posts-api.json.txt`).
 
 ## Open questions closed
 - **OQ-K4, closed (CEO):** scores and metrics only. No raw Keenable result URLs or snippets in any public output (AC23; config `publish_raw_results: false`; run-log lines keep `results_count` and the response hash).
@@ -21,7 +21,7 @@ The post couldn't be archived (archive.org save returned HTTP 523; no snapshot).
 
 ## Fact-check (AC10): confirmed
 The fact desk (Lucille) confirmed the post, the identity and the officer role from a primary source: Andrey Styskin is Co-founder & CEO per the keenable.ai team section ("Andrey Styskin    Co-founder & CEO    ex-CEO of Search and Ads at Yandex"; JSON-LD founder jobTitle "Co-founder and CEO", sameAs https://x.com/styskin).
-- Fact-check file: `/workspace/agentwebindex-evidence/vendor-x/fact-check-lucille.md`
+- Fact-check file: `agentwebindex-evidence/vendor-x/fact-check-lucille.md` (off-repo evidence store), copied to `evidence/fact-check-lucille.md`
 - keenable.ai archive: https://web.archive.org/web/20261026113537/https://keenable.ai/
 - Residual risk (from the fact-check): the role rests on the vendor's own site; blue verification doesn't vet identity; the post has no third-party archive; it is a solicited reply in HazeyData's own thread.
 
