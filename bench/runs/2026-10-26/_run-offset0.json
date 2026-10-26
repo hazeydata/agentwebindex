@@ -1,0 +1,46 @@
+{
+ "run_date": "2026-10-26",
+ "mock": false,
+ "offset_h": 0,
+ "providers": [
+  {
+   "provider": "apify",
+   "category": "search",
+   "status": "ran",
+   "calls": 21,
+   "data_calls": 21,
+   "quota_used": 235.505,
+   "quota": 500,
+   "meter_usd": 3.9022,
+   "ledger_usd": 2.355,
+   "meter_minus_ledger_usd": 1.5471,
+   "run_meter_usd": 0.8563,
+   "run_ledger_usd": 0.4789,
+   "run_meter_minus_ledger_usd": 0.3774
+  },
+  {
+   "provider": "apify",
+   "category": "scrape",
+   "status": "not_implemented"
+  },
+  {
+   "provider": "apify",
+   "category": "browser",
+   "status": "ran",
+   "calls": 21,
+   "data_calls": 21,
+   "quota_used": 187.61300000000006,
+   "quota": 500,
+   "meter_usd": 3.0459,
+   "ledger_usd": 1.8761,
+   "meter_minus_ledger_usd": 1.1698,
+   "run_meter_usd": 0.0255,
+   "run_ledger_usd": 0.0326,
+   "run_meter_minus_ledger_usd": -0.007
+  }
+ ],
+ "combined_from": [
+  "bench/runs/2026-10-26/apify-run-001/run-rag-summary.json (search)",
+  "bench/runs/2026-10-26/apify-run-001/run-webfetch-summary.json (browser)"
+ ]
+}

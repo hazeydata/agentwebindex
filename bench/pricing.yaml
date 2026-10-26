@@ -386,7 +386,7 @@
     "checked_at": "2026-10-19",
     "verified_date": "2026-10-19",
     "model": "per_request",
-    "credits_per_call": {},
+    "credits_per_call": {"search": 4.08}, "credits_per_call_source": "guard estimate in US cents: measured 2026-10-26, live Apify meter moved $0.8563 over 21 RAG calls (run_meter_usd, bench/spend/apify-meter-2026-10.json) = 4.078 cents/call, rounded up",
     "proxy_per_gb": "NOT CAPTURED",
     "free_tier": {
      "units_per_month": 500,
@@ -433,6 +433,34 @@
      }
     },
     "note": null
+   },
+   "browser": {
+    "pricing_url": "https://apify.com/apify/web-fetch",
+    "source_url": "https://api.apify.com/v2/acts/apify~web-fetch",
+    "checked_at": "2026-10-26",
+    "verified_date": "2026-10-26",
+    "model": "credits",
+    "credits_per_call": {"browser": 0.155},
+    "proxy_per_gb": "NOT CAPTURED",
+    "free_tier": {
+     "units_per_month": 500,
+     "needs_card": false,
+     "pool": "apify_usd_cents",
+     "note": "Same Apify Free plan '$5 to spend' pool as RAG Web Browser search (US cents). Web Fetch is pay per event with no platform usage: FREE tier fetch $0.0015 (successful fetches only) plus Actor Start $0.00005 (pricingInfos of the public Actor record, read 2026-10-26). Guard estimate 0.155 cents per call."
+    },
+    "tiers": {
+     "entry": {
+      "name": "Starter (Store BRONZE tier) per-event rate",
+      "usd_per_credit": 0.01,
+      "note": "credit = 1 US cent of event charges at FREE/BRONZE prices (fetch $0.0015, same at both); per-1k fetches = $1.50 (+$0.05 Actor Start)"
+     },
+     "volume": {
+      "name": "Store GOLD+ tier per-event rate",
+      "usd_per_credit": 0.006667,
+      "note": "GOLD/PLATINUM/DIAMOND fetch event $0.001 = 2/3 of the FREE price, so one FREE-price cent costs $0.006667 (Actor record 2026-10-26)"
+     }
+    },
+    "note": "Fetch via the Web Fetch Actor (apify/web-fetch), Standby mode, formats=text"
    }
   },
   "hyperbrowser": {

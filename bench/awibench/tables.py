@@ -34,9 +34,9 @@ def week_labels(n, cfg=None):
 
 def not_run_yet(summary, cfg, doc):
     """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'.
-    A provider that ran (status ran or stale_<reason>) is never 'not run yet', even when collect dropped its log."""
+    A provider that ran (status ran, stale_<reason> or stopped_<reason>) is never 'not run yet', even when collect dropped its log."""
     shown = {r["provider"] for t in doc["tables"].values() for r in t}; out = []
-    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith("stale_")}
+    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith(("stale_", "stopped_"))}
     for p in (summary or {}).get("providers", []):
         pid = p["provider"]
         if pid in (cfg.get("month1_free_tier_providers") or []) and pid not in shown and pid not in {o["provider"] for o in out}:
@@ -47,7 +47,7 @@ def not_run_yet(summary, cfg, doc):
 def collect(runs_dir):
     """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
     CEO ruling 2026-10-19: a log that did not cover the full set (fewer pass/fail/skipped_tos items at offset 0 than set_rows,
-    any auth_error line, any line the runner stamped run_status=stale_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
+    any auth_error line, any line the runner stamped run_status=stale_<reason> or stopped_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
@@ -148,6 +148,8 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
                "free_quota_note": cc["free_quota_note"],
                "cost_units_note": (f"cost uses {ver[kind]} credit(s) per call as documented at {ver.get('source_url')} (checked {ver.get('checked_at')}); "
                                    "the run log's billed_units held the runner's unverified guard") if isinstance(ver.get(kind), (int, float)) else None}
+        note = (((cfg or {}).get("run_notes") or {}).get(pid) or {}).get(run_date, {}).get(kind)
+        if note: row["run_note"] = note   # owner-set label, e.g. a preliminary retest (config run_notes)
         for k in ("entry", "volume"):
             for col in (f"{k}_tier_cost_per_1k", f"{k}_tier_cost_per_successful_1k"):
                 v = cc[col]; row[col] = _cell(None if v is None else ("inf" if v == float("inf") else v), _refs(rel, alln) + pref if v is not None else [],
