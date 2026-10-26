@@ -3747,7 +3747,12 @@ class K1Committed(Base):
         for t in ({}, None, {"keenable": None}, {"keenable": self.tos["keenable"] | {gates.REQUIRED_FLAG: False}}, {"keenable": {k: v for k, v in self.tos["keenable"].items() if k != gates.REQUIRED_FLAG}},
                   {"keenable": self.tos["keenable"] | {"vendor_confirmation": "yes"}}):
             self.assertFalse(la(ok, t, "keenable"), t)
-        self.assertFalse(la(CFG, TOS)); self.assertFalse(la(CFG, TOS, "contextdev"))
+        # R30: contextdev is checked on fixtures, strict both ways, independent of the committed confirmation (#28 flips it)
+        cd_tos = {"contextdev": {gates.REQUIRED_FLAG: True, "vendor_confirmation": None}}
+        cd_ok = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(REC)}}}
+        cd_none = copy.deepcopy(cd_ok); cd_none["free_tier_guard"]["contextdev"]["vendor_confirmation"] = None
+        self.assertFalse(la(cd_none, cd_tos)); self.assertFalse(la(cd_none, cd_tos, "contextdev"))   # no confirmation record: closed
+        self.assertTrue(la(cd_ok, cd_tos)); self.assertTrue(la(cd_ok, cd_tos, "contextdev"))   # valid record: open (default id is contextdev)
         self.assertIs(la(CFG, TOS, "keenable"), mocks.keenable_committed_check(self, CFG, TOS))   # committed: open only with a valid record   # contextdev default id unchanged
     def test_ac5_committed_config_zero_calls(self):
         fn = mock.Mock(side_effect=self.ok)
