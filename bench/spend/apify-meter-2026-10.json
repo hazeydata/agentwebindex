@@ -1,0 +1,24 @@
+{
+ "month": "2026-10",
+ "provider": "apify",
+ "runs": [
+  {
+   "ledger_usd": 1.8761,
+   "meter_minus_ledger_usd": 1.1698,
+   "meter_usd": 3.0459,
+   "run_date": "2026-10-26",
+   "run_ledger_usd": 0.0326,
+   "run_meter_minus_ledger_usd": -0.007,
+   "run_meter_usd": 0.0255
+  },
+  {
+   "ledger_usd": 2.355,
+   "meter_minus_ledger_usd": 1.5471,
+   "meter_usd": 3.9022,
+   "run_date": "2026-10-26",
+   "run_ledger_usd": 0.4789,
+   "run_meter_minus_ledger_usd": 0.3774,
+   "run_meter_usd": 0.8563
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+FLAG news_2026-42 short week (n=16)
+FLAG news_2026-42 below minimum (n=16)
+FLAG news_2026-43 short week (n=40)
+FLAG news_2026-44 short week (n=21)
+FLAG news_2026-44 below minimum (n=21)
+{"provider": "apify", "category": "search", "status": "ran", "calls": 21, "data_calls": 21, "quota_used": 235.505, "quota": 500, "meter_usd": 3.9022, "ledger_usd": 2.355, "meter_minus_ledger_usd": 1.5471, "run_meter_usd": 0.8563, "run_ledger_usd": 0.4789, "run_meter_minus_ledger_usd": 0.3774}
+{"provider": "apify", "category": "scrape", "status": "not_implemented"}
+{"provider": "apify", "category": "browser", "status": "ran", "calls": 0, "data_calls": 0, "quota_used": 235.505, "quota": 500}
+wrote data/benchmarks/latest.json has_results: True (not committed; see README)
+exit=0
