@@ -3071,7 +3071,8 @@ class VendorConfirmationGate(ContextDevBase):
                 t = mocks.keenable_closed(None, tos)[1] if pid == "keenable" else tos   # Keenable R25: keenable closed fixture; committed keenable state checked by keenable_committed_check
                 self.assertIs(t[pid]["vendor_confirmation_required"], True); self.assertIsNone(t[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(t[pid]), pid)
             k = tos["keenable"]
-            self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
+            self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "permitted_by_ruling"))   # Keenable R4 (2): Fred's 7:35 ruling, OQ-K5 closed
+            self.assertIn("7:35", k["benchmarking"]["ruling"]); self.assertIn("OQ-K5", k["benchmarking"]["ruling"])
             self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
             if not skip: self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
         mocks.keenable_committed_check(self, CFG, committed)
@@ -3707,7 +3708,7 @@ class Base(unittest.TestCase):
         self.tmp = self.tmp_path; self.spend = self.tmp / "spend"; self.spend.mkdir(); self.calls = []; self.sleeps = []
         self.cfg = mocks.mock_cfg(CFG); self.cfg["free_tier_guard"]["keenable"].update(live_run_allowed=True, vendor_confirmation=dict(REC))
         self.tos = copy.deepcopy(TOS); self.tos["keenable"]["vendor_confirmation"] = dict(REC)
-        self.tos["keenable"]["benchmarking"] = {"status": "allowed", "quote": "fixture: CEO ruling OQ-K5 (committed tos keeps forbidden; K3 decides)"}
+        self.tos["keenable"]["benchmarking"] = {"status": "allowed", "quote": "fixture: CEO ruling OQ-K5 (committed tos: permitted_by_ruling, Keenable R4 (2))"}
         sd = self.tmp / "sets"; mocks.make_sets(sd); self.rows = read_jsonl(sd / "search_evergreen.jsonl")
         self.pricing = {"keenable": {"search": mocks.pricing_fixture("credits")}}
     def ok(self, key, item):
