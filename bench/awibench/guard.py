@@ -25,7 +25,7 @@ class AnchorNotConfigured(ValueError):
 
 def live_allowed(cfg, tos, pid="contextdev"):
     """R9 + R10: live calls only when config live_run_allowed is True, the config vendor_confirmation flag record is set (R9 record only),
-    AND the tos_matrix confirmation record passes gates.vendor_confirmed (the only place a confirmation record is validated)."""
+    AND the tos_matrix entry passes gates.vendor_confirmed, which only wraps gates.record_error (gates.py:12), the one record validator (R19)."""
     g = ((cfg or {}).get("free_tier_guard") or {}).get(pid) or {}
     return g.get("live_run_allowed") is True and bool(g.get("vendor_confirmation")) and pid in (tos or {}) and vendor_confirmed(tos[pid])   # no tos entry -> closed
 
