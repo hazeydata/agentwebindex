@@ -2146,8 +2146,8 @@ class TavilyPhase0(unittest.TestCase):
 
 
 # R23 (AC27b-d): an X reply from a verified vendor officer is a valid vendor record; the R19 validator is unchanged. FIXTURE ONLY (example text, not the vendor's words).
-X_REPLY_CONFIRMATION = {"date": "2026-10-26", "sender": "@mynameisyahia", "quote": "Example text: yes, the free tier may be used for this benchmark.",
-                        "evidence_path": "evidence/vendor/contextdev/x-reply-2114212271258038294.html", "recorded_pr": "https://github.com/hazeydata/agentwebindex-meta/pull/999"}
+X_REPLY_CONFIRMATION = {"date": "2026-10-26", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "Example text: yes, the free tier may be used for this benchmark.",
+                        "evidence_path": "evidence/vendor/example/x-reply-0000000000000000001.html", "recorded_pr": "https://github.com/hazeydata/agentwebindex-meta/pull/999"}
 MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
 
 # R25: gate-behavior tests run on these explicit closed/open fixtures, never on whatever the committed files say today.
@@ -2336,12 +2336,26 @@ class ContextDevLiveGate(ContextDevBase):
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
             s = self.go(n=2, cfg=cfg, tos=tos, adapters={"contextdev": {"search": search}})
         self.assertEqual((self.prov(s)["status"], search.call_count), ("ran", 2)); net.assert_not_called()   # mocked adapter only
-        self.assertIsNone(gates_mod.record_error(dict(rec, quote=None))); self.assertIsNone(gates_mod.record_error(dict(rec, evidence_path="")))   # one of the two is enough
-        for q, ev in (("", ""), ("", None), (None, ""), (None, None), ("  ", None)):   # both empty fails
+        # R26 (supersedes R19's at-least-one; resolves AC27d): BOTH quote and evidence_path must be non-empty strings
+        for q, ev in (("", rec["evidence_path"]), (None, rec["evidence_path"]), ("  ", rec["evidence_path"]), (rec["quote"], ""), (rec["quote"], None), (rec["quote"], " "),
+                      ("", ""), ("", None), (None, ""), (None, None), ("  ", None), (1, rec["evidence_path"]), (rec["quote"], ["x"])):
             bad = dict(rec, quote=q, evidence_path=ev)
             self.assertIsNotNone(gates_mod.record_error(bad), (q, ev))
             self.assertFalse(guard_mod.live_allowed(self.cfg_with(live_run_allowed=True, vendor_confirmation=bad), tos), (q, ev))
             self.assertFalse(guard_mod.live_allowed(cfg, {"contextdev": dict(tos["contextdev"], vendor_confirmation=bad)}), (q, ev))
+    def test_r26_c07_missing_key_or_block_zero_calls(self):   # R26 (1) / C07: live_allowed is consulted unconditionally for contextdev
+        valid_tos = {"contextdev": self.tos["contextdev"] | {"vendor_confirmation": dict(MOCK_CONFIRMATION)}}
+        no_key = json.loads(json.dumps(self.cfg)); g = no_key["free_tier_guard"]["contextdev"]; del g["live_run_allowed"]; g["vendor_confirmation"] = None
+        no_block = json.loads(json.dumps(self.cfg)); del no_block["free_tier_guard"]["contextdev"]
+        no_ftg = json.loads(json.dumps(self.cfg)); no_ftg.pop("free_tier_guard")
+        key_only_gone = json.loads(json.dumps(self.cfg)); del key_only_gone["free_tier_guard"]["contextdev"]["live_run_allowed"]   # valid record, key missing
+        for name, cfg in (("key deleted, null record", no_key), ("block removed", no_block), ("free_tier_guard removed", no_ftg), ("key deleted, valid record", key_only_gone)):
+            self.calls.clear(); search = mock.Mock(side_effect=self.ad_search)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, cfg=cfg, tos=valid_tos, adapters={"contextdev": {"search": search}})
+            self.assertEqual((self.prov(s)["status"], search.call_count), ("skipped_no_vendor_confirmation", 0), name); net.assert_not_called()
+            self.assertFalse(list(self.spend.glob("contextdev-*")), name); self.assertFalse((self.tmp / "runs").exists(), name)
+            self.assertFalse(guard_mod.live_allowed(cfg, valid_tos), name)
     def test_r22_bad_config_record_zero_live_calls(self):   # R21 (1) / R22: "yes", {} or a partial config record -> live_allowed False and the provider/http client is never invoked
         for bad in ("yes", {}, {"date": "2026-11-01", "sender": "x@context.dev"}, {k: v for k, v in MOCK_CONFIRMATION.items() if k != "recorded_pr"}):
             cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=bad)
@@ -2818,8 +2832,8 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k not in ("quote", "evidence_path")}}))   # neither quote nor evidence
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": "yes"}))
         self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL}))
-        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL | {"quote": None}}))   # evidence_path alone (quote null)
-        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL | {"evidence_path": None}}))   # quote alone (evidence_path null)
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"quote": None}}))   # R26: evidence_path alone (quote null) fails
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"evidence_path": None}}))   # R26: quote alone (evidence_path null) fails
         self.assertTrue(vc({"vendor_confirmation_required": False})); self.assertTrue(vc({})); self.assertTrue(vc(None))
         real = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
         old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 15)
@@ -2904,6 +2918,19 @@ class VendorConfirmationGate(ContextDevBase):
         head["bench/tos_matrix.yaml"]["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
         if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
         return head
+    def test_r26_c07_confirmation_diff_rejects_guard_field_deletion(self):   # R26 / C07: deleting live_run_allowed, the record key or the block fails, flip or not
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; import copy
+        for files in ([T, C], [T, C, "cycles/2026-10-25-provider-contextdev/decisions.md"]):
+            for name, mut in (("live_run_allowed", lambda g: g["free_tier_guard"]["contextdev"].pop("live_run_allowed")),
+                              ("vendor_confirmation", lambda g: g["free_tier_guard"]["contextdev"].pop("vendor_confirmation")),
+                              ("block", lambda g: g["free_tier_guard"].pop("contextdev")), ("free_tier_guard", lambda g: g.pop("free_tier_guard"))):
+                for flip in (False, True):
+                    base, head = self._cd_docs()
+                    if flip: self._flip(head, cfg_too=False)
+                    mut(head[C]); r = cd.check(files, base, head)
+                    self.assertTrue(any(x.startswith("R26") for x in r), (name, flip, r))
+        base, head = self._cd_docs(); self.assertEqual(cd.guard_field_deleted(base, head), [])
+        base, head = self._cd_docs(); self._flip(head); self.assertEqual(cd.check([T, C], base, head), [])   # a normal flip still passes
     def test_ac24e_flip_only_allowlist(self):   # AC24e (R13): structural, field-level
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
         base, head = self._cd_docs(); self._flip(head)
@@ -2930,7 +2957,7 @@ class VendorConfirmationGate(ContextDevBase):
             "flip + sender in an unrelated tos record": lambda b, h: tos(h)["exa"].update(sender="b"),
             "flip + other tos field (checked_at)": lambda b, h: tos(h)["contextdev"].update(checked_at="2026-10-30"),
             "flip + other config field (stop_at_credits)": lambda b, h: g(h).update(stop_at_credits=990),
-            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "2026-10-30", "sender": "s", "quote": "q", "evidence_path": None, "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}),
+            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "2026-10-30", "sender": "s", "quote": "q", "evidence_path": "e/p.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}),
             "flip + keenable benchmarking.quote": lambda b, h: tos(h)["keenable"]["benchmarking"].update(quote="x"),
         }
         for name, mut in probes.items(): self.assertEqual(len(case(mut)), 1, name)
@@ -3133,7 +3160,7 @@ class VendorConfirmationGate(ContextDevBase):
             return (gates.record_error(rec), gates.vendor_confirmed({"vendor_confirmation_required": True, "vendor_confirmation": rec}),
                     [x for x in cd.check(["README.md"], b, h) if "SQ-C" in x], [x for x in cd.check([C], b2, h2) if "SQ-C" in x],
                     [x for x in cd.check([T, C], b3, h3) if "SQ-C" in x])
-        good = [R, dict(R, quote=None), dict(R, evidence_path=None), dict(R, quote=""), dict(R, date="2024-02-29"),
+        good = [R, dict(R, date="2024-02-29"),
                 dict(R, recorded_pr="https://github.com/hazeydata/agentwebindex-meta/pull/1")]
         for rec in good:                                                                                                  # positive controls
             err, ok, *sqc = all_paths(rec); self.assertIsNone(err, rec); self.assertTrue(ok, rec); self.assertEqual(sqc, [[], [], []], rec)
@@ -3146,6 +3173,7 @@ class VendorConfirmationGate(ContextDevBase):
             "http url": dict(R, recorded_pr="http://github.com/x/pull/1"), "int PR (Z02)": dict(R, recorded_pr=27), "bare https": dict(R, recorded_pr="https://"),
             "PR not url": dict(R, recorded_pr="#27"), "PR with space": dict(R, recorded_pr="https://x y"),
             "both null": dict(R, quote=None, evidence_path=None), "both empty": dict(R, quote="", evidence_path=" "),
+            "quote null (R26)": dict(R, quote=None), "evidence_path null (R26)": dict(R, evidence_path=None), "quote empty (R26)": dict(R, quote=""), "evidence_path empty (R26)": dict(R, evidence_path=" "),
             "quote list": dict(R, quote=["q"]), "quote int, path ok": dict(R, quote=1), "evidence_path set (K8-02n)": dict(R, evidence_path={"p"}),
             "quote false": dict(R, quote=False), "link string": "https://example.invalid/reply", "empty mapping": {}, "list": [R],
         }
@@ -3169,9 +3197,9 @@ class VendorConfirmationGate(ContextDevBase):
             b, h = self._cd_docs(); edit(h); r = cd.check(list(files), b, h); return [x for x in r if "SQ-C" in x], r
         hits, r = sqc(lambda h: None); self.assertEqual(r, [])                                                             # positive control: valid types, nothing confirmed
         hits, r = sqc(lambda h: self._flip(h), files=(T, C)); self.assertEqual(r, [])                                      # positive control: full valid record (flip-only PR)
-        for k in ("quote", "evidence_path"):                                                                               # quote and/or evidence_path
+        for k in ("quote", "evidence_path"):                                                                               # R26: both required
             rec = dict(self.REC, **{k: None}); hits, r = sqc(lambda h: self._flip(h) and h[T]["providers"]["contextdev"].update(vendor_confirmation=rec), files=(T, C))
-            self.assertEqual(r, [], k)
+            self.assertTrue(hits, k)
         hits, r = sqc(lambda h: h[C]["free_tier_guard"]["contextdev"].update(live_run_allowed=0), files=(C,))
         self.assertTrue(any("live_run_allowed must be bool" in x for x in hits), r)                                       # data-only false -> 0
         for bad in ("true", 1, None):
@@ -3208,7 +3236,9 @@ class VendorConfirmationGate(ContextDevBase):
             git("checkout", "-q", "main"); git("checkout", "-qb", "ok"); (r / "README.md").write_text("x\n"); git("add", "-A"); git("commit", "-qm", "docs")
             self.assertEqual(cd.main(["main"]), 0)                                                                        # positive control over git
         self.assertEqual(set(cd.PROTECTED), {"bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
-                                              ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml"})
+                                              ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml",
+                                              ".github/workflows/benchmark.yml"})   # Keenable R5 (1)
+        self.assertNotIn("run_tests.sh", cd.PROTECTED)
     def test_r16_sq3_strict_type_and_value(self):   # SQ3: false->0/'false'/null and true->1/'true' are changes
         cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; files = [T, C, "bench/awibench/runner.py"]
         for old, news in ((False, (0, "false", None, 0.0)), (True, (1, "true", None, 1.0))):
@@ -3319,7 +3349,7 @@ class SnapshotPricesGate(unittest.TestCase):
         sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
         provs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
         tos = {"a": {"vendor_confirmation_required": True, "vendor_confirmation": None},
-               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q", "evidence_path": None, "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}}}
+               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q", "evidence_path": "e/p.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}}}
         self.assertEqual([p["id"] for p in S.snapshot_providers(provs, tos)], ["b", "c"])   # unflagged c unaffected
         self.assertIn("provs=snapshot_providers(", (SITE / "collectors/snapshot_prices.py").read_text())
         self.assertIn("snapshot_prices", (BENCH / "README.md").read_text())   # documented (docs match code)
