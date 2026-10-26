@@ -10,7 +10,7 @@ import mocks
 FX = Path(__file__).parent / "fixtures" / "keenable"
 CFG = load_yaml(BENCH / "config.yaml"); TOS_DOC = load_yaml(BENCH / "tos_matrix.yaml"); TOS = TOS_DOC["providers"]
 PRICING_DOC = load_yaml(BENCH / "pricing.yaml")
-REC = {"date": "2026-10-25", "sender": "@styskin", "quote": "mock quote", "evidence_path": "mock/evidence.json", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/0"}
+REC = {"date": "2026-10-25", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "mock quote", "evidence_path": "mock/evidence.json", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/0"}
 PROV = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": None}
 SENTINELS = ("keensent-url-1.example", "keensent-url-2.example", "KEENSENT-SNIPPET", "KEENSENT-T")
 sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
@@ -213,6 +213,30 @@ class K1PublicOutputs(Base):
         csv = "\n".join(",".join(str(v) for v in r.values()) for tb in doc.get("tables", {}).values() for r in tb)
         for x in SENTINELS: self.assertNotIn(x, json.dumps(doc, default=str)); self.assertNotIn(x, csv)
         for x in SENTINELS: self.assertNotIn(x, json.dumps(s, default=str))
+    def test_r5_publish_raw_results_only_exact_true(self):   # Keenable R5 (3): absent / non-bool True values redact; only bool True keeps raw results
+        for v in (False, None, "true", 1, "yes", [], {}):
+            for absent in ((True, False) if v is False else (False,)):
+                cfg = self.cfg_with(publish_raw_results=v)
+                if absent: del cfg["free_tier_guard"]["keenable"]["publish_raw_results"]
+                import shutil; shutil.rmtree(self.tmp / "runs", ignore_errors=True)
+                s = self.go(n=2, cfg=cfg); self.assertEqual(self.prov(s)["status"], "ran", (v, absent))
+                self.assertTrue(all("results" not in l and l["results_count"] == 2 for l in self.lines()), (v, absent))
+        import shutil; shutil.rmtree(self.tmp / "runs", ignore_errors=True)
+        s = self.go(n=2, cfg=self.cfg_with(publish_raw_results=True)); self.assertTrue(all("results" in l for l in self.lines()))   # positive control
+    def test_r5_keyless_missing_config_fails_closed(self):   # Keenable R5 (2): the keyless placeholder never bypasses live_allowed()
+        cases = {}
+        c = copy.deepcopy(self.cfg); c.pop("free_tier_guard"); cases["free_tier_guard missing"] = c
+        c = copy.deepcopy(self.cfg); c["free_tier_guard"] = {}; cases["free_tier_guard {}"] = c
+        c = copy.deepcopy(self.cfg); del c["free_tier_guard"]["keenable"]; cases["provider block missing"] = c
+        c = copy.deepcopy(self.cfg); c["free_tier_guard"]["keenable"] = {}; cases["provider block {}"] = c
+        c = copy.deepcopy(self.cfg); del c["free_tier_guard"]["keenable"]["live_run_allowed"]; cases["live_run_allowed key missing"] = c
+        for name, cfg in cases.items():
+            self.calls.clear(); fn = mock.Mock(side_effect=self.ok)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, cfg=cfg, fn=fn)
+            self.assertEqual((self.prov(s)["status"], fn.call_count), ("skipped_no_vendor_confirmation", 0), name); net.assert_not_called()
+            self.assertFalse(list(self.spend.glob("keenable-*")), name); self.assertFalse(guard.live_allowed(cfg, self.tos, "keenable"), name)
+        self.assertIn("keenable", guard.LIVE_GATED)
     def test_contextdev_still_keeps_results(self):   # the redaction is keenable-only
         c = mocks.mock_cfg(CFG); self.assertNotIn("publish_raw_results", c["free_tier_guard"]["contextdev"])
 
