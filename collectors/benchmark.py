@@ -205,14 +205,47 @@ def contextdev_meter(key):
         return used if type(used) is int and used >= 0 else None
     except Exception: return None
 
+# Keenable (AWI-PROVIDER-KEENABLE-001 AC18/AC22). Keyless public endpoint, the ONLY URL this adapter calls (docs.keenable.ai/api-reference/search:
+# "`POST /v1/search/public` takes the same body and returns the same shape, with no API key"; X-Keenable-Title is required). No key, no
+# signup; the keyed /v1/search and the x402 routes are never called, and no keenable.ai page is fetched. Never called live in K1.
+KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search/public"
+KEENABLE_TITLE = "AgentWebIndex"
+
+def _keenable_search(key, item):   # `key` is unused (keyless); the runner passes a placeholder
+    import urllib.request, urllib.error
+    req = urllib.request.Request(KEENABLE_SEARCH_URL, data=json.dumps({"query": item["query"]}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0", "X-Keenable-Title": KEENABLE_TITLE})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: st, d = r.status, json.loads(_body(r))
+    except urllib.error.HTTPError as e:   # status + Retry-After only (AC23: no vendor text that could carry results)
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None
+        raise RuntimeError(f"HTTP {e.code}: {f'Retry-After: {ra}; ' if ra else ''}keenable error") from None
+    out = {"http_status": st, "billed_units": 0, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("snippet") or r.get("description"),
+           "published_at": r.get("published_at")} for r in (d.get("results") or [])]}
+    if d.get("keenable/usage") is not None or d.get("usage") is not None: out["usage"] = d.get("keenable/usage") or d.get("usage")   # metered: guard.paid_stop stops
+    return out
+
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
             "apify": {"search": _apify_search, "browser": _apify_web_fetch}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
-            "brightdata": {"scrape": _brightdata_scrape}, "contextdev": {"search": _contextdev_search, "scrape": _contextdev_scrape}}
+            "brightdata": {"scrape": _brightdata_scrape}, "contextdev": {"search": _contextdev_search, "scrape": _contextdev_scrape},
+            "keenable": {"search": _keenable_search}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
-def keyed_providers(provs, env):
-    """Providers that have a collector AND a non-empty key in env. Empty -> the run is skipped (nothing written)."""
-    return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
+def keyed_providers(provs, env, cfg=None, tos=None):
+    """Providers that have a collector AND a non-empty key in env, plus (AC24) keyless providers (guard.KEYLESS), which need no
+    env key and are gated only by guard.live_allowed(cfg, tos, pid). Empty -> the run is skipped (nothing written)."""
+    def ok(p):
+        if not ADAPTERS.get(p["id"]): return False
+        if p["id"] in guard.KEYLESS: return cfg is not None and tos is not None and guard.live_allowed(cfg, tos, p["id"]) is True
+        return bool(p.get("key_env") and env.get(p["key_env"]))
+    return [p["id"] for p in provs if ok(p)]
+
+def run_pricing(pricing_doc):
+    """AC24: the runner's pricing map = pricing.yaml providers plus the keenable free_tier from keenable_price_record (run eligibility
+    only; tables/Prices/Also priced keep reading pricing.yaml providers, so AC21 still holds)."""
+    pr = dict(pricing_doc["providers"]); ft = (pricing_doc.get("keenable_price_record") or {}).get("free_tier")
+    if ft and "keenable" not in pr: pr["keenable"] = {"search": {"model": "per_request", "free_tier": ft}}
+    return pr
 
 def keep_previous_rows(doc, prev_path, stale):
     """CEO ruling 2026-10-19: a stale_<reason> or stopped_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
@@ -226,7 +259,7 @@ def keep_previous_rows(doc, prev_path, stale):
     doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
     return {r["provider"] for t in doc["tables"].values() for r in t if r["provider"] in stale}
 
-def is_stale(p): return p["status"].startswith(("stale_", "stopped_"))
+def is_stale(p): return p["status"].startswith(("stale_", "stopped_")) or p["status"] in guard.STOP_STATUSES   # keenable rate_limited
 def stale_providers(s): return {p["provider"] for p in s["providers"] if is_stale(p)}
 
 def fresh_data(s, held=()):
@@ -321,10 +354,10 @@ def main():
         s = {"run_date": today, "run_dates": dates, "mock": False, "offset_h": a.reprobe_offset or 0, "providers": list(merged.values())}
     else:
       if a.only_providers: provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
-      if not keyed_providers(provs, os.environ):   # a run without keys must never overwrite published data or run summaries
+      if not keyed_providers(provs, os.environ, cfg, tos):   # a run without keys must never overwrite published data or run summaries
           print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
-      s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
+      s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
                    offset_h=a.reprobe_offset or 0, only_ids=only,
                    meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),

@@ -153,6 +153,16 @@
    "pricing_url": "https://www.context.dev/pricing",
    "key_env": "CONTEXT_DEV_API_KEY",
    "exclude_from_also_priced": true
+  },
+  {
+   "id": "keenable",
+   "name": "Keenable",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://keenable.ai/pricing",
+   "key_env": null,
+   "exclude_from_also_priced": true
   }
  ]
 }

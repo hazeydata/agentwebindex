@@ -52,7 +52,7 @@ def collect(runs_dir):
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
         lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
-        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith(("stale_", "stopped_")) for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
+        if any(r.get("status") == "auth_error" or r.get("run_status") not in (None, "ran") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
         out[key] = (rel, lines)   # sorted() => later dates win
     return out
 
