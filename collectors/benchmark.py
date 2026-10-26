@@ -195,9 +195,21 @@ ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}
             "keenable": {"search": _keenable_search}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
-def keyed_providers(provs, env):
-    """Providers that have a collector AND a non-empty key in env. Empty -> the run is skipped (nothing written)."""
-    return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
+def keyed_providers(provs, env, cfg=None, tos=None):
+    """Providers that have a collector AND a non-empty key in env, plus (AC24) keyless providers (guard.KEYLESS), which need no
+    env key and are gated only by guard.live_allowed(cfg, tos, pid). Empty -> the run is skipped (nothing written)."""
+    def ok(p):
+        if not ADAPTERS.get(p["id"]): return False
+        if p["id"] in guard.KEYLESS: return cfg is not None and tos is not None and guard.live_allowed(cfg, tos, p["id"]) is True
+        return bool(p.get("key_env") and env.get(p["key_env"]))
+    return [p["id"] for p in provs if ok(p)]
+
+def run_pricing(pricing_doc):
+    """AC24: the runner's pricing map = pricing.yaml providers plus the keenable free_tier from keenable_price_record (run eligibility
+    only; tables/Prices/Also priced keep reading pricing.yaml providers, so AC21 still holds)."""
+    pr = dict(pricing_doc["providers"]); ft = (pricing_doc.get("keenable_price_record") or {}).get("free_tier")
+    if ft and "keenable" not in pr: pr["keenable"] = {"search": {"model": "per_request", "free_tier": ft}}
+    return pr
 
 def keep_previous_rows(doc, prev_path, stale):
     """CEO ruling 2026-10-19: a stale_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
@@ -306,10 +318,10 @@ def main():
         s = {"run_date": today, "run_dates": dates, "mock": False, "offset_h": a.reprobe_offset or 0, "providers": list(merged.values())}
     else:
       if a.only_providers: provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
-      if not keyed_providers(provs, os.environ):   # a run without keys must never overwrite published data or run summaries
+      if not keyed_providers(provs, os.environ, cfg, tos):   # a run without keys must never overwrite published data or run summaries
           print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
-      s = runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
+      s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
                    offset_h=a.reprobe_offset or 0, only_ids=only,
                    meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),

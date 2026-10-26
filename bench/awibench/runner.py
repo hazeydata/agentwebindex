@@ -139,6 +139,10 @@ def eligibility(pid, pricing, cfg):
     """Returns (ok, reason). Needs a known free quota, and no card requirement unless the CEO lists the provider."""
     ft = (pricing or {}).get("free_tier") or {}
     q = ft.get("units_per_month")
+    if ft.get("metered") is False and pid in guard.KEYLESS:   # AC24: keyless, unmetered public pool (no monthly figure); quota = units_per_hour
+        q = ft.get("units_per_hour")
+        if not_captured(q) or not isinstance(q, int) or q <= 0: return False, "keyless free tier units_per_hour NOT CAPTURED or zero"
+        return (True, "free tier (keyless, unmetered)") if ft.get("needs_card") is False else (False, "free tier needs a card (or unknown)")
     if not_captured(q) or q <= 0: return False, "free tier quota NOT CAPTURED or zero"
     if ft.get("needs_card") is not False and pid not in cfg.get("ceo_free_tier_allowlist", []):
         return False, "free tier needs a card (or unknown) and provider not on CEO list"
@@ -232,21 +236,25 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             fg = (cfg.get("free_tier_guard") or {}).get(pid)
             if fg and pid in guard.FREE_ONLY and fg.get("paid_usage_allowed") is not False:   # Keenable R1: missing or non-bool fails closed
                 summary["providers"].append(base | {"status": "stopped_paid_usage", "reason": f"config free_tier_guard.{pid}.paid_usage_allowed must be bool false; no call made"}); continue
-            if fg and "live_run_allowed" in fg and not guard.live_allowed(cfg, tos, pid):   # R9: no live call before written vendor confirmation is recorded
+            # R9/R26 (C07): a live-gated provider (guard.LIVE_GATED or guard.KEYLESS (Keenable R5: the keyless placeholder never bypasses it), or any tos entry that requires vendor confirmation, or any guard block
+            # with a live_run_allowed key) is called only if guard.live_allowed() is True. A missing key, null record or missing block fails closed.
+            if (pid in guard.LIVE_GATED or pid in guard.KEYLESS or t_e.get(gates.REQUIRED_FLAG) is True or (fg and "live_run_allowed" in fg)) and not guard.live_allowed(cfg, tos, pid):
                 summary["providers"].append(base | {"status": "skipped_no_vendor_confirmation", "reason": f"live_run_allowed is not true or vendor_confirmation is not recorded (config free_tier_guard.{pid}); no call made"}); continue
+            if pid in guard.LIVE_GATED and not fg: raise CapViolation(f"{pid}: free_tier_guard.{pid} missing; the credit guard must always apply")   # unreachable: live_allowed needs the block
             key = "keyless" if pid in guard.KEYLESS else env.get(p["key_env"])   # keenable: keyless public endpoint (AC18)
             fn = (adapters.get(pid) or {}).get(kind)
             if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": "not run (no key)"}); continue
             if fn is None: summary["providers"].append(base | {"status": "not_implemented"}); continue
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
-            pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
+            pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"] if pr["free_tier"].get("units_per_month") is not None else pr["free_tier"]["units_per_hour"]   # AC24 keyless
             sem = None; gmeta = {}; last_read = None
             if fg:   # AWI-PROVIDER-CONTEXTDEV-001: attempts guard per grant-anchor window, max(meter, counter), max_concurrent semaphore; free tier only
                 if fg.get("paid_tier") is not False: raise CapViolation(f"{pid}: free_tier_guard.paid_tier must be false (no paid path)")
                 quota = min(quota, fg["quota_credits"]); sem = guard.make_semaphore(fg["max_concurrent"])
             lim = guard.make_limiter(fg, clock, sleep) if fg else None   # keenable AC19: <= 9/s and <= 899 per rolling hour, client side
-            no_raw = bool(fg) and fg.get("publish_raw_results") is False   # keenable AC23
+            # keenable AC23 + Keenable R5 (3): raw results count as publishable only when publish_raw_results is exactly bool True; absent or any other value = False
+            no_raw = (pid in guard.FREE_ONLY or "publish_raw_results" in (fg or {})) and (fg or {}).get("publish_raw_results") is not True
             status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
