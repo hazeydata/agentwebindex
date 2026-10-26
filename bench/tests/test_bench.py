@@ -2145,6 +2145,9 @@ class TavilyPhase0(unittest.TestCase):
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
 
 
+# R23 (AC27b-d): an X reply from a verified vendor officer is a valid vendor record; the R19 validator is unchanged. FIXTURE ONLY (example text, not the vendor's words).
+X_REPLY_CONFIRMATION = {"date": "2026-10-26", "sender": "@mynameisyahia", "quote": "Example text: yes, the free tier may be used for this benchmark.",
+                        "evidence_path": "evidence/vendor/contextdev/x-reply-2114212271258038294.html", "recorded_pr": "https://github.com/hazeydata/agentwebindex-meta/pull/999"}
 MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
 
 class ContextDevBase(unittest.TestCase):
@@ -2299,6 +2302,22 @@ class ContextDevLiveGate(ContextDevBase):
         for lra in (False, "true", 1, None):                                                                                 # live_run_allowed must be bool True
             cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": lra, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
             self.assertFalse(la(cfg, tos(**{F: True})), lra)
+    def test_r23_x_reply_record_valid(self):   # R23 (AC27b-d): X-reply-shaped record passes gates.record_error and live_allowed (mocked); both quote and evidence_path empty fails
+        rec = dict(X_REPLY_CONFIRMATION)
+        self.assertIsNone(gates_mod.record_error(rec))
+        tos = {"contextdev": dict(self.tos["contextdev"], vendor_confirmation_required=True, vendor_confirmation=dict(rec))}
+        cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=dict(rec))
+        self.assertTrue(guard_mod.live_allowed(cfg, tos))
+        search = mock.Mock(side_effect=self.ad_search)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+            s = self.go(n=2, cfg=cfg, tos=tos, adapters={"contextdev": {"search": search}})
+        self.assertEqual((self.prov(s)["status"], search.call_count), ("ran", 2)); net.assert_not_called()   # mocked adapter only
+        self.assertIsNone(gates_mod.record_error(dict(rec, quote=None))); self.assertIsNone(gates_mod.record_error(dict(rec, evidence_path="")))   # one of the two is enough
+        for q, ev in (("", ""), ("", None), (None, ""), (None, None), ("  ", None)):   # both empty fails
+            bad = dict(rec, quote=q, evidence_path=ev)
+            self.assertIsNotNone(gates_mod.record_error(bad), (q, ev))
+            self.assertFalse(guard_mod.live_allowed(self.cfg_with(live_run_allowed=True, vendor_confirmation=bad), tos), (q, ev))
+            self.assertFalse(guard_mod.live_allowed(cfg, {"contextdev": dict(tos["contextdev"], vendor_confirmation=bad)}), (q, ev))
     def test_r22_bad_config_record_zero_live_calls(self):   # R21 (1) / R22: "yes", {} or a partial config record -> live_allowed False and the provider/http client is never invoked
         for bad in ("yes", {}, {"date": "2026-11-01", "sender": "x@context.dev"}, {k: v for k, v in MOCK_CONFIRMATION.items() if k != "recorded_pr"}):
             cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=bad)
