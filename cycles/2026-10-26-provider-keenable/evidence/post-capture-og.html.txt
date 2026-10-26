@@ -1,0 +1,14 @@
+<!-- og/twitter meta lines extracted verbatim from a direct HTML capture of https://x.com/styskin/status/2114208595525144970 at 2026-10-26T08:45:51-04:00 (HTTP 200, 121098 bytes). Full capture kept off-repo (agentwebindex-evidence/vendor-x/post-styskin-2114208595525144970.html, sha256 fe771d260d03c39157e0a23132c82001d143eab8037e0c4ed332b8dc208fb170) because it carries base64 ids that trip the secret scanners. -->
+<meta property="og:site_name" content="X (formerly Twitter)"/>
+<meta property="og:locale" content="en_US"/>
+<meta property="og:url" content="https://x.com/styskin/status/2114208595525144970"/>
+<meta property="og:type" content="article"/>
+<meta property="og:title" content="Andrey Styskin (@styskin) on X"/>
+<meta name="twitter:title" content="Andrey Styskin (@styskin) on X"/>
+<meta property="og:description" content="@HazeyDataFred Please include @KeenableAI into your tests."/>
+<meta name="twitter:description" content="@HazeyDataFred Please include @KeenableAI into your tests."/>
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:site" content="@x"/>
+<meta name="twitter:creator" content="@styskin"/>
+<meta property="al:ios:url" content="twitter://status?id=2114208595525144970"/>
+<meta property="al:android:url" content="twitter://status?id=2114208595525144970"/>

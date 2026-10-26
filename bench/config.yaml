@@ -72,7 +72,7 @@
    "endpoint_note": "AC18: keyless public endpoint with header X-Keenable-Title: AgentWebIndex; no key, no signup; the keyed /v1/search and x402 routes are never called",
    "live_run_allowed": true,
    "live_run_ruling": "AWI-PROVIDER-KEENABLE-001 K1: no live calls; set true only in the K2 flip PR together with a vendor_confirmation record that passes gates.record_error",
-   "vendor_confirmation": {"date": "2026-10-25", "sender": "@styskin", "quote": "@HazeyDataFred Please include @KeenableAI into your tests.", "evidence_path": "cycles/2026-10-26-provider-keenable/evidence/posts-api.json.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/30"},
+   "vendor_confirmation": {"date": "2026-10-25", "sender": "@styskin (Andrey Styskin, CEO and co-founder, Keenable)", "quote": "@HazeyDataFred Please include @KeenableAI into your tests.", "evidence_path": "cycles/2026-10-26-provider-keenable/evidence/posts-api.json.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/30"},
    "paid_usage_allowed": false,
    "paid_usage_note": "R1/AC20: free tier only, $0 per run. HTTP 402, a payment-required response, a usage block or billed units > 0 stops all keenable calls (stopped_paid_usage) and goes to Fred through CEO; missing or non-bool fails closed",
    "publish_raw_results": false,
