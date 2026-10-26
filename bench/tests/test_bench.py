@@ -432,7 +432,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 21)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001)
+        self.assertEqual(n, 22)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + apify browser web-fetch (AWI-RUN-2026-10-26)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -703,13 +703,36 @@ class Collectors2(unittest.TestCase):
         self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["60"], ["raw-http"], 120, "rag-raw-http-t60"))
     def test_apify_named_config_sets_request_timeout_and_is_logged(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
-        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t120")
+        self.assertEqual(CFG["apify_search_config"], "rag-raw-http-t240")   # AWI-RUN-2026-10-26 longer-timeout retest
         self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t120"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 120})
+        self.assertEqual(CFG["apify_search_configs"]["rag-raw-http-t240"], {"scrapingTool": "raw-http", "requestTimeoutSecs": 240})
         seen = []; old = B._get_json; B._get_json = lambda url, headers, timeout=150: (seen.append((url, timeout)), (200, []))[1]
         try: out = B._apify_search("k", {"query": "q"})
         finally: B._get_json = old
         qs = up.parse_qs(up.urlparse(seen[0][0]).query)
-        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["120"], ["raw-http"], 180, "rag-raw-http-t120"))
+        self.assertEqual((qs["requestTimeoutSecs"], qs["scrapingTool"], seen[0][1], out["config"]), (["240"], ["raw-http"], 300, "rag-raw-http-t240"))
+
+    def test_apify_web_fetch_adapter_posts_text_and_bills_events(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = []; ok = {"url": "https://a.example/x", "fetch": {"loadedUrl": "https://a.example/x?r=1", "httpStatusCode": 200}, "metadata": {}, "text": "Big Headline here"}
+        old = B._post_json; B._post_json = lambda url, headers, body, timeout: (seen.append((url, headers, body, timeout)), (200, ok))[1]
+        try: out = B._apify_web_fetch("k", {"start_url": "https://a.example/x", "timeout_s": 30})
+        finally: B._post_json = old
+        self.assertEqual(seen[0][0], "https://web-fetch.apify.actor/"); self.assertEqual(seen[0][2], {"url": "https://a.example/x", "formats": ["text"]})
+        self.assertEqual((seen[0][1], seen[0][3]), ({"Authorization": "Bearer k"}, 150))
+        self.assertEqual((out["dom_text"], out["final_url"], out["target_status"], out["config"]), ("Big Headline here", "https://a.example/x?r=1", 200, "web-fetch-text"))
+        self.assertAlmostEqual(out["billed_units"], 100 * (0.0015 + 0.00005), places=4)
+        self.assertIs(B.ADAPTERS["apify"]["browser"], B._apify_web_fetch)
+        self.assertTrue(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "big headline"}}, out)[0])
+        for bad in ({"code": "FETCH_TIMEOUT", "error": "slow"}, {"fetch": {}, "text": None}, []):
+            B._post_json = lambda url, headers, body, timeout, bad=bad: (200, bad)
+            try:
+                with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: web-fetch returned no text"): B._apify_web_fetch("k", {"start_url": "https://a.example/x"})
+            finally: B._post_json = old
+        prov = json.loads((SITE / "collectors" / "providers.json").read_text())["providers"]
+        self.assertIn("browser", next(p for p in prov if p["id"] == "apify")["categories"])
+        pr = load_yaml(BENCH / "pricing.yaml")["providers"]["apify"]["browser"]
+        self.assertEqual((pr["free_tier"]["pool"], pr["credits_per_call"]["browser"], pr["model"]), ("apify_usd_cents", 0.155, "credits"))
 
     def test_late_run_gets_no_freshness_row(self):
         with tmpd(self) as d:
@@ -2089,3 +2112,37 @@ class TavilyPhase0(unittest.TestCase):
         exp = [r for rows in built["tables"].values() for r in rows if r["provider"] == "tavily"]
         self.assertTrue(pub); self.assertEqual(pub, exp)
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
+
+class StopOnHttp(unittest.TestCase):
+    """AWI-RUN-2026-10-26: stop a provider at the first HTTP 402 and after N consecutive HTTP 429s (config stop_on_http)."""
+    PROV = [{"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}]
+    PRICING = {"apify": {"browser": {"model": "credits", "credits_per_call": {"browser": 0.155}, "free_tier": {"units_per_month": 500, "needs_card": False, "pool": "apify_usd_cents"}}}}
+    def setUp(self): self.tmp = mktmp(self); self.called = []
+    def _run(self, answers, n=6, cfg=None):
+        it = iter(answers)
+        def fn(key, item):
+            self.called.append(item["id"]); a = next(it)
+            if isinstance(a, Exception): raise a
+            return {"dom_text": "Headline", "billed_units": 0.155}
+        rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(n)]
+        s = runner.run(providers=self.PROV, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"browser": fn}},
+                       cfg={"stop_on_http": CFG["stop_on_http"]} if cfg is None else cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        return s["providers"][0]
+    def test_config(self):
+        self.assertEqual(CFG["stop_on_http"], {"402": "budget", "429_consecutive": 3})
+    def test_402_stops_at_first(self):
+        p = self._run([None, RuntimeError("HTTP 402: plan limit"), None, None, None, None])
+        self.assertEqual((p["status"], p["calls"], self.called), ("stale_budget", 2, ["t0", "t1"])); self.assertIn("HTTP 402 on t1", p["reason"])
+    def test_429_storm_stops_after_three_in_a_row(self):
+        r = lambda: RuntimeError("HTTP 429: slow down")
+        p = self._run([r(), r(), None, r(), r(), r()])
+        self.assertEqual((p["status"], p["calls"]), ("stale_quota", 6)); self.assertIn("3 consecutive HTTP 429 answers, last on t5", p["reason"])
+        self.called = []; p = self._run([r(), r(), r(), None, None, None], n=6)
+        self.assertEqual((p["status"], self.called), ("stale_quota", ["t0", "t1", "t2"]))
+    def test_no_config_keeps_old_behaviour(self):
+        p = self._run([RuntimeError("HTTP 402: x")] + [RuntimeError("HTTP 429: x")] * 5, cfg={})
+        self.assertEqual(p["calls"], 6)
+    def test_full_clean_run_publishes(self):
+        p = self._run([None] * 6); self.assertEqual((p["status"], p["calls"]), ("ran", 6))
+

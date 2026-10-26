@@ -74,6 +74,34 @@ def _apify_search(key, item):
     cents = 100 * (APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
     return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
 
+# Apify Web Fetch (Store Actor apify/web-fetch), Standby endpoint: one URL -> page text. Pay per event, no platform usage.
+# FREE-plan event prices from the Actor's public pricing record, read 2026-10-26 (USD): fetch 0.0015 (successful only), Actor Start 0.00005.
+APIFY_WEB_FETCH_URL = "https://web-fetch.apify.actor/"
+APIFY_WEB_FETCH_EVENT_USD = {"fetch": 0.0015, "start": 0.00005}
+APIFY_WEB_FETCH_CLIENT_TIMEOUT_S = 150   # the Actor's own fetch timeout is 2 min (FETCH_TIMEOUT)
+
+def _post_json(url, headers, body, timeout):
+    import urllib.request, urllib.error
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "AgentWebIndexBot/1.0"} | headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
+    except urllib.error.HTTPError as e:   # status + short vendor text only, never the key
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+
+def _apify_web_fetch(key, item):
+    """browser task: POST {url, formats: [text]} -> dom_text = the Actor's text, final_url = fetch.loadedUrl.
+    billed_units = US cents at FREE event prices (Actor Start + one fetch event; the Actor charges fetch only when it returns content)."""
+    st, d = _post_json(APIFY_WEB_FETCH_URL, {"Authorization": f"Bearer {key}"}, {"url": item["start_url"], "formats": ["text"]},
+                       timeout=APIFY_WEB_FETCH_CLIENT_TIMEOUT_S)
+    if not isinstance(d, dict) or d.get("code") or d.get("text") is None:
+        code = d.get("code") if isinstance(d, dict) else "non-object body"
+        raise RuntimeError(f"HTTP {st}: web-fetch returned no text ({str(code)[:60]})")
+    f = d.get("fetch") or {}
+    cents = 100 * (APIFY_WEB_FETCH_EVENT_USD["start"] + APIFY_WEB_FETCH_EVENT_USD["fetch"])
+    return {"http_status": st, "billed_units": round(cents, 4), "dom_text": d["text"], "final_url": f.get("loadedUrl"),
+            "target_status": f.get("httpStatusCode"), "config": "web-fetch-text"}
+
 def apify_meter(key):
     st, d = _get_json("https://api.apify.com/v2/users/me/limits", {"Authorization": f"Bearer {key}"}, timeout=30)
     return d["data"]["current"]["monthlyUsageUsd"]
@@ -128,7 +156,7 @@ def _brightdata_scrape(key, item):
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
-            "apify": {"search": _apify_search}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
+            "apify": {"search": _apify_search, "browser": _apify_web_fetch}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
             "brightdata": {"scrape": _brightdata_scrape}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 

@@ -4,10 +4,10 @@ run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 Provider-level outcomes: skipped_no_key, not_implemented, skipped_no_free_tier, ran, and stale_<reason>.
 CEO ruling 2026-10-19: a row publishes ONLY when the run covered the full set (items reached == set size). Any incomplete
 run is stale_<reason>, reason one of STALE_REASONS:
-  quota      - the free-quota guard stopped it before the next call
+  quota      - the free-quota guard stopped it before the next call, or (config stop_on_http) N consecutive HTTP 429 answers
   timeout    - the provider's run budget (config run_budget_s) ran out
   auth_error - any HTTP 401/403 stops the provider at the first one
-  budget     - the paid spend guard (config spend_budget) stopped it before the next request
+  budget     - the paid spend guard (config spend_budget) stopped it before the next request, or (config stop_on_http) its first HTTP 402
   error      - anything else: every call errored, or fewer items reached than the set holds
 A stale provider is not published: tables.collect never uses an incomplete log, and collectors/benchmark.py keeps the previous
 latest.json row (or omits the provider entirely when it has none). Billed spend is always logged (no rollback).
@@ -221,7 +221,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
-            status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []
+            status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []; run429 = 0
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
             for set_name, s in sets.items():
@@ -289,6 +289,15 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     fh.append(json.dumps(rec) + "\n"); recs.append(rec); reached += rec["status"] in REACHED
                     if auth:   # stop this provider now; not published, its spend is kept
                         status = stale("auth_error", status, f"HTTP 40{auth.group(1)} on {item['id']} ({set_name})")
+                        break
+                    soh = cfg.get("stop_on_http") or {}
+                    err = str(out.get("error", ""))
+                    if soh.get("402") and re.match(r"\S+: HTTP 402\b", err):   # out of credit / plan limit: stop now
+                        status = stale(soh["402"], status, f"HTTP 402 on {item['id']} ({set_name})")
+                        break
+                    run429 = run429 + 1 if is_rate_limited(rec) else 0
+                    if soh.get("429_consecutive") and run429 >= soh["429_consecutive"]:   # 429 storm: stop now
+                        status = stale("quota", status, f"{run429} consecutive HTTP 429 answers, last on {item['id']} ({set_name})")
                         break
                     if ledger.used(pool) > quota:
                         over = ledger.used(pool) - quota
