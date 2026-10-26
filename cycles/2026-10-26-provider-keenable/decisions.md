@@ -41,3 +41,8 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 - Styskin's reproduced eval, https://x.com/styskin/status/2114405816669544464: Exa needs `contents.highlights=true`, and the exact-URL judge is Google-biased. Methodology notes for a later spec; not implemented.
 - K3: the committed tos entry still says `benchmarking: forbidden`, so the runner records `excluded_tos_benchmarking` even after the flip. Updating that clause per the OQ-K5 ruling is a separate, non-flip PR (it can't ride in the flip PR).
 - K3: `collectors/benchmark.py keyed_providers()` needs a key env, so keenable is never picked for a live run; runner eligibility needs a pricing free_tier entry.
+
+## Flip re-land (R7)
+- #30 (the K2 flip) was squash-merged as 8173d1a5 into the stacked branch `feat/awi-provider-keenable-001` (#29), not a merged base. Per R7 option (b) it was removed from #29 with a normal revert commit, 7804f749, so #29 landed as code, tests and config only (squash 24dcf9a9 into `feat/awi-provider-contextdev-001`).
+- The flip is re-landed unchanged as its own data/docs-only PR against the merged base `feat/awi-provider-contextdev-001`, and must pass confirmation_diff flip-only (R13) with rc=0 and get its own SHIP.
+- Prevention: from now on, a flip PR targets a merged base, never a stacked feature branch.
