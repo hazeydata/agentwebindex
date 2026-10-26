@@ -1,7 +1,11 @@
 """Benchmark runner: free-tier only, hard $0 cap (D4), quota halting (AC11), ToS skips (D2/AC12),
 run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
 
-Provider-level outcomes: skipped_no_key, skipped_no_vendor_confirmation (contextdev live gate, R9), not_implemented, skipped_no_free_tier, ran, and stale_<reason>.
+Provider-level outcomes: skipped_no_key, skipped_no_vendor_confirmation (contextdev/keenable live gate, R9/R22), not_implemented, skipped_no_free_tier, ran, and stale_<reason>.
+Keenable (AWI-PROVIDER-KEENABLE-001): stopped_paid_usage (R1/AC20: HTTP 402, a usage block, billed units > 0, or paid_usage_allowed not false;
+no further call) and rate_limited (AC19: a 429 without Retry-After, or a second 429 after the one retry, or the client-side limiter's hourly
+cap). Both are, like stale_<reason>, never published; their run-log lines are stamped run_status. A keyless provider (guard.KEYLESS)
+needs no env key. Keenable run-log lines carry no raw result URLs or snippets (AC23): only a count and the response hash.
 CEO ruling 2026-10-19: a row publishes ONLY when the run covered the full set (items reached == set size). Any incomplete
 run is stale_<reason>, reason one of STALE_REASONS:
   quota      - the free-quota guard stopped it before the next call
@@ -226,9 +230,11 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             if m1 is not None and pid not in m1:
                 summary["providers"].append(base | {"status": "skipped_not_month1", "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"}); continue
             fg = (cfg.get("free_tier_guard") or {}).get(pid)
+            if fg and pid in guard.FREE_ONLY and fg.get("paid_usage_allowed") is not False:   # Keenable R1: missing or non-bool fails closed
+                summary["providers"].append(base | {"status": "stopped_paid_usage", "reason": f"config free_tier_guard.{pid}.paid_usage_allowed must be bool false; no call made"}); continue
             if fg and "live_run_allowed" in fg and not guard.live_allowed(cfg, tos, pid):   # R9: no live call before written vendor confirmation is recorded
                 summary["providers"].append(base | {"status": "skipped_no_vendor_confirmation", "reason": f"live_run_allowed is not true or vendor_confirmation is not recorded (config free_tier_guard.{pid}); no call made"}); continue
-            key = env.get(p["key_env"])
+            key = "keyless" if pid in guard.KEYLESS else env.get(p["key_env"])   # keenable: keyless public endpoint (AC18)
             fn = (adapters.get(pid) or {}).get(kind)
             if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": "not run (no key)"}); continue
             if fn is None: summary["providers"].append(base | {"status": "not_implemented"}); continue
@@ -239,6 +245,8 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             if fg:   # AWI-PROVIDER-CONTEXTDEV-001: attempts guard per grant-anchor window, max(meter, counter), max_concurrent semaphore; free tier only
                 if fg.get("paid_tier") is not False: raise CapViolation(f"{pid}: free_tier_guard.paid_tier must be false (no paid path)")
                 quota = min(quota, fg["quota_credits"]); sem = guard.make_semaphore(fg["max_concurrent"])
+            lim = guard.make_limiter(fg, clock, sleep) if fg else None   # keenable AC19: <= 9/s and <= 899 per rolling hour, client side
+            no_raw = bool(fg) and fg.get("publish_raw_results") is False   # keenable AC23
             status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
@@ -260,7 +268,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     est = estimate_units(pr, kind, item, pid, cfg)
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
-                    if fg: req = guard.contextdev_request(kind, item); est = guard.contextdev_credits(kind, req, None)   # F4 credit rule, requested result count
+                    if fg: req = guard.request_opts(pid, kind, item); est = guard.credits(pid, kind, req, None)   # F4 credit rule, requested result count
                     if mb:
                         mv = read_meter(meters, pid)
                         if mv is None:
@@ -287,7 +295,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     while True:   # one pass per provider call; contextdev gets a second pass only for the HTTP 429 retry (AC17a)
                         tries += 1; cg = None
                         if fg:   # credit guard before every attempt; the counter file is keyed by the grant-anchor window of this call's ts
-                            try: ws = guard.anchor_window_start(dt.datetime.fromisoformat(line["ts"]), fg.get("grant_anchor_day"))
+                            try: ws = guard.hour_window(dt.datetime.fromisoformat(line["ts"])) if fg.get("window") == "utc_hour" else guard.anchor_window_start(dt.datetime.fromisoformat(line["ts"]), fg.get("grant_anchor_day"))
                             except guard.AnchorNotConfigured: ws = None; gmeta["guard_note"] = "grant anchor not configured; the counter never resets (fail closed)"
                             try: cg = guard.CreditGuard(gdir, pid, ws, fg["stop_at_credits"], fg.get("lock_timeout_s", 30.0))
                             except guard.GuardUnreadable:
@@ -301,11 +309,14 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                             if not cg.allows(est, mv):   # guard.CreditGuard.allows is the single stop check
                                 cg.release()
                                 status = stale("quota", status, f"credit guard: max(meter {mv}, attempts counter {last_read[1]}) = {eff} + next call {est} would pass the stop at {fg['stop_at_credits']} credits (quota {fg['quota_credits']})"); halt = True; break
+                        if lim is not None and not lim.acquire():   # AC19: stop before the hourly cap, no call made
+                            if cg: cg.release()
+                            status = {"status": "rate_limited", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"client-side limit of {fg['rate_limit']['max_per_hour']} calls per rolling hour reached before {item['id']}; not published"}; halt = True; break
                         t0 = clock()
                         net = False
                         try: out = guard.guarded_call(sem, fn, key, item) if sem else fn(key, item)
                         except Exception as e: out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; net = is_network_error(e)
-                        if fg and "error" in out: out["error"] = out["error"].replace(key, "***")   # adapters scrub too; belt and braces
+                        if fg and key and "error" in out: out["error"] = out["error"].replace(key, "***")   # adapters scrub too; belt and braces
                         lat = (clock() - t0) * 1000
                         qstop = retry = False
                         if fg:   # billing by status line (F5, cost math); the counter takes the attempt at its estimated credits either way
@@ -313,15 +324,17 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                             hs = None if net else (int(m.group(1)) if m else out.get("http_status"))
                             body = guard.error_body(out.get("error")); qstop = guard.is_quota_stop(hs, body)
                             n_ret = len(out.get("results") or []) if kind == "search" and "error" not in out else None
-                            units = guard.contextdev_billed(hs, body, guard.contextdev_credits(kind, req, n_ret))
+                            units = guard.billed(pid, hs, body, guard.credits(pid, kind, req, n_ret))
                             try: cg.record(est, units)
                             except guard.GuardUnreadable: cg_fail = True
                             else: cg_fail = False
                             finally: cg.release()
                             ra = re.search(r"Retry-After: ([^;\s]+)", str(out.get("error", "")))
-                            retry = tries == 1 and hs == 429 and not net and ra is not None   # F5: only a 429 that carries Retry-After is retried, once
+                            retry = tries == 1 and hs == 429 and not net and ra is not None
+                            pstop = guard.paid_stop(pid, hs, out)   # keenable R1/AC20
+                            rstop = pid in guard.FREE_ONLY and hs == 429 and not retry   # keenable AC19: no retry storm   # F5: only a 429 that carries Retry-After is retried, once
                         else:
-                            cg_fail = False
+                            cg_fail = False; pstop = rstop = None
                         auth = None if qstop else re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
                         if not fg:
                             units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
@@ -337,10 +350,14 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                                       "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
                                       "response_hash": hashlib.sha256(body_s.encode()).hexdigest()}
                         if "config" in out: rec["config"] = out["config"]
-                        if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "snippet", "published_at")} for r in out.get("results", [])[:10]]
+                        if kind == "search" and no_raw: rec["results_count"] = len(out.get("results") or [])   # AC23: no raw URLs/snippets in run logs
+                        elif kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "snippet", "published_at")} for r in out.get("results", [])[:10]]
                         if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
                         elif qstop: rec |= {"status": "quota_stop", "pass": None}   # 402/401 USAGE_EXCEEDED: logged, not scored
-                        elif net: rec |= {"status": "unbilled_no_response", "pass": None}   # no response: 0 units, not scored, not reached
+                        elif net: rec |= {"status": "unbilled_no_response", "pass": None}
+                        if pstop: rec |= {"status": "paid_usage_stop", "pass": None}
+                        elif rstop: rec |= {"status": "rate_limited", "pass": None}
+                        if no_raw and rec.get("reason"): rec["reason"] = "redacted (AC23)" if "error" not in out else re.sub(r"https?://\S+", "<url>", str(rec["reason"]))[:120]   # no response: 0 units, not scored, not reached
                         fh.append(json.dumps(rec) + "\n"); recs.append(rec); reached += rec["status"] in REACHED
                         if auth:   # stop this provider now; not published, its spend is kept
                             status = stale("auth_error", status, f"HTTP 40{auth.group(1)} on {item['id']} ({set_name})")
@@ -348,6 +365,10 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         if qstop:   # F5: quota stop, never retried, never an auth_error
                             status = stale("quota", status, f"HTTP {hs} USAGE_EXCEEDED on {item['id']} ({set_name}); out of credits, not retried")
                             halt = True; break
+                        if pstop:   # R1/AC20: stop every further call; goes to Fred through CEO
+                            status = {"status": "stopped_paid_usage", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"{pstop} on {item['id']}; no further calls; not published"}; halt = True; break
+                        if rstop:
+                            status = {"status": "rate_limited", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"HTTP 429 on {item['id']} ({'after the one retry' if tries > 1 else 'no Retry-After'}); stopped, not retried further; not published"}; halt = True; break
                         if cg_fail:   # the call was made but could not be counted: stop now, fail closed
                             status = stale("budget", status, guard.UNREADABLE); halt = True; break
                         if ledger.used(pool) > quota:
@@ -373,7 +394,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             for out_f, lines in pending.items():
                 if lines:
                     out_f.parent.mkdir(parents=True, exist_ok=True)
-                    if status["status"].startswith("stale_"):   # stamp the stale run's lines so tables.collect never publishes them
+                    if status["status"] != "ran":   # stamp the stale run's lines so tables.collect never publishes them
                         lines = [json.dumps(json.loads(l) | {"run_status": status["status"]}) + "\n" for l in lines]
                     with open(out_f, "a") as fh: fh.write("".join(lines))
             gap = meter_gap(meters, pid, m0, ledger.used(pool) * mb["ledger_unit_usd"], spend_dir, run_date) if mb and m0 else {}

@@ -1,6 +1,18 @@
 # AgentWebIndex pricing (JSON-compatible YAML). Filled 2026-10-15; null/NOT CAPTURED where the vendor page did not state a value. Tavily search re-verified 2026-10-24 (AWI-PAGE-REDO-001 Phase 0: pricing page + credit-count docs; price unchanged).
 {
  "_doc": "SPEC-bench \u00a72. Every value must be read from the vendor's own pricing page and dated in checked_at. Unknown = \"NOT CAPTURED\" (no cost score; free tier unknown = provider skipped). See awibench/cost.py for fields per model. Filled 2026-10-15 from official pricing pages (source_url per entry); free quotas given only when the page states a monthly figure, else null + note.",
+ "keenable_price_record": {
+  "_doc": "AWI-PROVIDER-KEENABLE-001 AC21: Keenable's price is recorded here, outside providers, so it never reaches Also priced, Prices or the cost columns this cycle (CEO default; changes only by a later ruling). The benchmark uses the keyless public endpoint, which is unmetered ($0 per run by design, AC20).",
+  "provider": "keenable",
+  "model": "per_request",
+  "usd_per_1k_requests": 4.0,
+  "plan": "Pay as you go (Cloud-only access)",
+  "source_url": "https://keenable.ai/pricing",
+  "checked_at": "2026-10-26",
+  "quote": "$4 / 1000 requests Pay as you go Cloud-only access",
+  "free_allowance_quote": "100,000 requests a month, free. The allowance resets each month (https://docs.keenable.ai/credits.md; authenticated usage only)",
+  "evidence": "agentwebindex-meta cycles/2026-10-26-provider-keenable/evidence/AWI-KEENABLE-SRC-001.md (SHA256SUMS.txt)"
+ },
  "providers": {
   "exa": {
    "search": {

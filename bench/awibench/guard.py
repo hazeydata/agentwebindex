@@ -8,6 +8,17 @@
   raises GuardUnreadable and the runner fails closed (stale_budget).
 - contextdev_credits: F4 credit cost of one call. contextdev_billed: F5 billing per HTTP status (cost math only).
 - make_semaphore / guarded_call: every contextdev adapter call runs inside a max_concurrent (1) BoundedSemaphore (F2).
+
+Keenable (AWI-PROVIDER-KEENABLE-001 K1, R1-R3; mocks only, never called live in K1):
+- live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
+  free_tier_guard.<pid>.paid_usage_allowed to be bool False (missing or non-bool fails closed, R1).
+- request_opts / credits / billed dispatch per provider id (contextdev keeps its F4/F5 rules; keenable: 1 attempt per call, 0 billed:
+  the keyless public endpoint is unmetered).
+- paid_stop: a keenable HTTP 402, or any response carrying a usage/billing block, means billed usage or no free allowance: stop all
+  calls (stopped_paid_usage). rate_stop: a 429 is retried at most once after Retry-After, then the provider stops as rate_limited.
+- RateLimiter: client-side limiter, serial, at most max_per_second per rolling second and fewer than max_per_hour+1 per rolling hour
+  (config rate_limit: 9/s and 899/h, under the docs' 10/s and 1,000/h unauthenticated limits and the spec's 900/h budget).
+- hour_window: keenable's call counter is keyed by the UTC hour (window "utc_hour"), so the persistent counter caps each hour too.
 """
 import calendar, datetime as dt, fcntl, json, math, os, re, threading, time
 from pathlib import Path
@@ -23,12 +34,18 @@ class GuardUnreadable(RuntimeError):
 class AnchorNotConfigured(ValueError):
     """grant_anchor_day is null: the window start is unknown, so the counter must never reset."""
 
+FREE_ONLY = ("keenable",)   # providers whose config must say paid_usage_allowed: false (R1)
+KEYLESS = ("keenable",)   # AC18: keyless public endpoint, no env key read
+STOP_STATUSES = ("stopped_paid_usage", "rate_limited")   # provider outcomes that, like stale_<reason>, are never published
+
 def live_allowed(cfg, tos, pid="contextdev"):
     """R9 + R22 (supersedes R21 (1)): live calls only when ALL hold, else fail closed: config live_run_allowed is bool True; the config
     vendor_confirmation passes gates.record_error (gates.py:12, the one record validator; no truthiness check); the tos_matrix entry
     exists; its vendor_confirmation_required is True; and its own vendor_confirmation, if set, passes gates.record_error.
-    Both record checks go through gates.vendor_confirmed, which only wraps gates.record_error."""
+    Both record checks go through gates.vendor_confirmed, which only wraps gates.record_error.
+    Keenable K1 AC3 + R1: the same rules for any provider id; a FREE_ONLY provider also needs paid_usage_allowed bool False."""
     g = ((cfg or {}).get("free_tier_guard") or {}).get(pid) or {}
+    if pid in FREE_ONLY and g.get("paid_usage_allowed") is not False: return False
     e = (tos or {}).get(pid)
     # vendor_confirmed({flag: True, record}) is exactly gates.record_error(record) is None (AC24d: one function)
     return (g.get("live_run_allowed") is True and vendor_confirmed({REQUIRED_FLAG: True, "vendor_confirmation": g.get("vendor_confirmation")})
@@ -56,7 +73,7 @@ class CreditGuard:
     window_start: the grant-anchor window start date, or None (anchor unknown: one counter, never reset)."""
     def __init__(self, spend_dir, pid, window_start, stop_at, lock_timeout=30.0, poll=0.05):
         d = Path(spend_dir); self.pid, self.stop_at, self.lock = pid, stop_at, None
-        self.window = UNANCHORED if window_start is None else window_start.isoformat()
+        self.window = UNANCHORED if window_start is None else window_start if type(window_start) is str else window_start.isoformat()   # str: keenable UTC-hour window
         if not d.is_dir() or not os.access(d, os.R_OK | os.W_OK | os.X_OK): raise GuardUnreadable("spend dir")
         self.path = d / f"{pid}-{self.window}.json"
         try: self.lock = open(d / f".{pid}.lock", "a")
@@ -136,3 +153,65 @@ def meter_gap(spend_dir, pid, run_date, meter, counter):
         log["runs"].append({"run_date": run_date} | gap); f.write_text(json.dumps(log, indent=1, sort_keys=True))
     except (OSError, ValueError): pass
     return gap
+
+# ---- per-provider dispatch (contextdev functions above stay the contextdev rules; looked up at call time so tests may patch them)
+def request_opts(pid, kind, item):
+    if pid == "contextdev": return contextdev_request(kind, item)
+    if pid == "keenable": return keenable_request(kind, item)
+    raise ValueError(f"no guarded request rule for {pid!r}")
+
+def credits(pid, kind, request, n_results):
+    if pid == "contextdev": return contextdev_credits(kind, request, n_results)
+    if pid == "keenable": return keenable_credits(kind, request, n_results)
+    raise ValueError(f"no credit rule for {pid!r}")
+
+def billed(pid, http_status, body, cr):
+    if pid == "contextdev": return contextdev_billed(http_status, body, cr)
+    if pid == "keenable": return 0   # keyless public endpoint: unmetered, no credits (docs credits.md: "Unauthenticated calls are unbilled")
+    raise ValueError(f"no billing rule for {pid!r}")
+
+def paid_stop(pid, http_status, out):
+    """R1/AC20: the reason to stop all keenable calls (stopped_paid_usage), else None. HTTP 402 (credits exhausted / payment required),
+    a payment-required text, or any usage block (keyless calls omit it, so its presence means metered usage) or billed units > 0."""
+    if pid not in FREE_ONLY: return None
+    out = out or {}
+    if http_status == 402 or "payment required" in str(out.get("error", "")).lower(): return f"HTTP {http_status or 402} payment required / free allowance exhausted"
+    if out.get("usage") is not None: return "response carried a usage (billing) block"
+    if out.get("billed_units") not in (None, 0): return f"response reported billed units {out.get('billed_units')!r}"
+    return None
+
+def keenable_request(kind, item):
+    """The only request shape: query only (default mode); search only."""
+    if kind != "search": raise ValueError(f"keenable is search-only, not {kind!r}")
+    return {}
+
+def keenable_credits(kind, request, n_results):
+    """One attempt per call (the counter caps calls per UTC hour)."""
+    if kind != "search": raise ValueError(f"keenable is search-only, not {kind!r}")
+    return 1
+
+def hour_window(ts):
+    """UTC hour of ts as 'YYYY-MM-DDTHH' (keenable counter window)."""
+    return (ts.astimezone(dt.timezone.utc) if ts.tzinfo else ts).strftime("%Y-%m-%dT%H")
+
+class RateLimiter:
+    """Client-side limiter for one serial caller. acquire() sleeps (via the injected sleep) until a call fits in max_per_second per
+    rolling second, then returns True; it returns False, without sleeping, when the call would be the (max_per_hour+1)-th in the
+    rolling hour (the run then stops before the vendor's hourly cap). Times are tracked virtually (now + slept), so a fake sleep works."""
+    def __init__(self, max_per_second, max_per_hour, clock=time.monotonic, sleep=time.sleep):
+        for v in (max_per_second, max_per_hour):
+            if type(v) is not int or v < 1: raise ValueError("rate limits must be positive ints")
+        self.ps, self.ph, self.clock, self.sleep, self.t, self.skew = max_per_second, max_per_hour, clock, sleep, [], 0.0
+    def acquire(self):
+        now = self.clock() + self.skew
+        self.t = [x for x in self.t if x > now - 3600]
+        if len(self.t) >= self.ph: return False
+        recent = [x for x in self.t if x > now - 1.0]
+        if len(recent) >= self.ps:
+            wait = recent[-self.ps] + 1.0 - now
+            if wait > 0: self.sleep(wait); self.skew += wait; now += wait
+        self.t.append(now); return True
+
+def make_limiter(fg, clock=time.monotonic, sleep=time.sleep):
+    rl = (fg or {}).get("rate_limit")
+    return None if rl is None else RateLimiter(rl["max_per_second"], rl["max_per_hour"], clock, sleep)

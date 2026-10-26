@@ -3238,11 +3238,11 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertIn("cg.allows(est, mv)", src); self.assertNotIn('eff + est > fg["stop_at_credits"]', src)   # runner has no second copy of the check
     def test_ac24f_keenable_no_adapter_zero_calls(self):   # AC24f
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
-        self.assertNotIn("keenable", B.ADAPTERS)
+        # AWI-PROVIDER-KEENABLE-001 K1 supersedes AC24f's "no adapter, providers.json, pricing or config entry": they now exist, default-closed (tests/test_keenable.py)
         prov = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}
-        self.assertNotIn("keenable", [p["id"] for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"]])
-        for fn in ("pricing.yaml", "config.yaml"): self.assertNotIn("keenable", (BENCH / fn).read_text().lower())
-        self.assertEqual(B.keyed_providers([prov], {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])
+        self.assertIs(CFG["free_tier_guard"]["keenable"]["live_run_allowed"], False); self.assertIsNone(CFG["free_tier_guard"]["keenable"]["vendor_confirmation"])
+        self.assertNotIn("keenable", load_yaml(BENCH / "pricing.yaml")["providers"])
+        self.assertEqual(B.keyed_providers([p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"], {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])
         adapters = {"keenable": {"search": self.ad_search}}   # even a (synthetic) adapter must not be reached
         pricing = self.pricing | {"keenable": {"search": mocks.pricing_fixture("credits")}}
         for cfg in (mocks.mock_cfg(CFG), self.cfg):
