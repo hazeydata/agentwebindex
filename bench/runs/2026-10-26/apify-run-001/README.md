@@ -1,0 +1,13 @@
+# AWI-RUN-2026-10-26, Apify part (2026-10-26)
+
+No Fred approval was on file when this ran at 08:01-08:14 ET. Fred's 7:31 AM ET go covered context.dev and Keenable only. Fred then approved a $4/month Apify cap at 8:25 AM ET, which covers these runs, and approved publishing the results at 8:26 AM ET (both relayed by chief). Both runs were Apify only (`--only-providers apify`), with calls made one at a time (concurrency 1) and the meter guard reading the live Apify usage meter before each call. Bright Data and Firecrawl were not called.
+
+| Run | Set (n) | Actor / config | Calls | Data calls | Pass | Fail | Timeouts | HTTP errors | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| webfetch (08:01-08:02 ET) | newsfetch_2026-44 (21) | apify/web-fetch, `web-fetch-text` | 21 | 21 | 19 | 2 | 0 | 0 | ran (full set) |
+| rag (08:02-08:13 ET) | news_2026-44 (21) | apify/rag-web-browser, `rag-raw-http-t240` | 21 | 21 | 16 | 5 | 0 | 0 | ran (full set) |
+
+- Web Fetch: median latency 2.0 s, max 15.5 s. Both fails, `news-2026-W44-009` (adrs.systems) and `news-2026-W44-012` (github.com/notaroomba/keybytes), returned HTTP 200 with page text that does not contain the Hacker News headline. That is a limit of the grader on HN rows, not a fetch error.
+- RAG Web Browser with the 240 s timeout: median latency 26.6 s, max 102.9 s. There were no timeouts, and no result URLs were Google `goto` redirects. All 5 fails are `domain not in top5`.
+- Spend: the Apify meter went from $3.0203 (read just before the runs) to $3.9026 (read at 08:14 ET), so the runs cost $0.88 of the $5 Free-plan credit. Per run the meter moved $0.0255 for webfetch and $0.8563 for rag (bench/spend/apify-meter-2026-10.json). The ledger `apify_usd_cents` went from 184.358 to 235.505. Two meter readings exist: $3.9022 is the runner's own end-of-run read written by `meter_gap` into `bench/spend/apify-meter-2026-10.json` and `run-rag-summary.json`; $3.9026 is a separate read of `GET /v2/users/me/limits` (`monthlyUsageUsd`) taken at 08:14 ET after the run, about a minute later, recorded only in this README. The $0.0004 gap is Apify usage that settled after the runner's read. At $3.9026 the guard (fixed in #31: refuses any call whose estimate would pass $4.00) still allows two more RAG searches at the 4.08-cent estimate and Web Fetch calls at 0.155 cents. It does not refuse every further call.
+- `../_run-offset0.json` combines the two summaries (search from `run-rag-summary.json`, browser from `run-webfetch-summary.json`) for the `--rebuild-only 2026-10-26` publish step. If another provider's part of today's run also adds that file, merge their provider entries into it. `data/benchmarks/latest.json` and `_skips-offset0.json` are not committed.

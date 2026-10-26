@@ -90,7 +90,8 @@
    "name": "Apify",
    "categories": [
     "search",
-    "scrape"
+    "scrape",
+    "browser"
    ],
    "pricing_url": "https://apify.com/pricing",
    "key_env": "APIFY_API_TOKEN"
