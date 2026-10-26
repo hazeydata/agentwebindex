@@ -2356,6 +2356,22 @@ class ContextDevLiveGate(ContextDevBase):
             self.assertEqual((self.prov(s)["status"], search.call_count), ("skipped_no_vendor_confirmation", 0), name); net.assert_not_called()
             self.assertFalse(list(self.spend.glob("contextdev-*")), name); self.assertFalse((self.tmp / "runs").exists(), name)
             self.assertFalse(guard_mod.live_allowed(cfg, valid_tos), name)
+    def test_r26_c07_each_gate_term_alone_fails_closed(self):   # R26 (1) / C07: each term of the runner's live-gate condition is load-bearing on its own
+        # (a) LIVE_GATED alone: contextdev with no guard block and a tos entry that lacks the required flag is still skipped
+        no_block = json.loads(json.dumps(self.cfg)); del no_block["free_tier_guard"]["contextdev"]
+        no_flag = {"contextdev": {k: v for k, v in self.tos["contextdev"].items() if k != gates_mod.REQUIRED_FLAG}}
+        search = mock.Mock(side_effect=self.ad_search)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+            s = self.go(n=2, cfg=no_block, tos=no_flag, adapters={"contextdev": {"search": search}})
+        self.assertEqual((self.prov(s)["status"], search.call_count), ("skipped_no_vendor_confirmation", 0)); net.assert_not_called()
+        self.assertIn("config free_tier_guard.contextdev", self.prov(s)["reason"])
+        # (b) tos required flag alone: a provider outside LIVE_GATED, valid tos record, no guard block, is skipped by the config-side gate
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        tos = self.tos | {"mockp": self.tos["contextdev"] | {gates_mod.REQUIRED_FLAG: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}
+        mp = mocks.MockAdapters(); s = self.go(providers=[other], cfg=self.cfg, tos=tos, pricing=pricing, env={"K": "x"}, adapters=mp.table("mockp", ["search"]))
+        self.assertEqual(self.prov(s, "mockp")["status"], "skipped_no_vendor_confirmation"); self.assertIn("config free_tier_guard.mockp", self.prov(s, "mockp")["reason"])
+        s = self.go(providers=[other], cfg=self.cfg, tos=self.tos | {"mockp": tos["mockp"] | {gates_mod.REQUIRED_FLAG: False}}, pricing=pricing, env={"K": "x"}, adapters=mp.table("mockp", ["search"]))
+        self.assertEqual(self.prov(s, "mockp")["status"], "ran")   # positive control: without the flag the same provider runs
     def test_r22_bad_config_record_zero_live_calls(self):   # R21 (1) / R22: "yes", {} or a partial config record -> live_allowed False and the provider/http client is never invoked
         for bad in ("yes", {}, {"date": "2026-11-01", "sender": "x@context.dev"}, {k: v for k, v in MOCK_CONFIRMATION.items() if k != "recorded_pr"}):
             cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=bad)
