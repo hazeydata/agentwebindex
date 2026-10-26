@@ -44,8 +44,8 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 
 ## Flip re-land (R7)
 - #30 (the K2 flip) was squash-merged as 8173d1a5 into the stacked branch `feat/awi-provider-keenable-001` (#29), not a merged base. Per R7 option (b) it was removed from #29 with a normal revert commit, 7804f749, so #29 landed as code, tests and config only (squash 24dcf9a9 into `feat/awi-provider-contextdev-001`).
-- The flip is re-landed unchanged as its own data/docs-only PR against the merged base `feat/awi-provider-contextdev-001`, and must pass confirmation_diff flip-only (R13) with rc=0 and get its own SHIP.
+- The flip is re-landed with recorded_pr -> #36 (R8.2), as its own data/docs-only PR against the merged base `feat/awi-provider-contextdev-001`, and must pass confirmation_diff flip-only (R13) with rc=0 and get its own SHIP.
 - Prevention: from now on, a flip PR targets a merged base, never a stacked feature branch.
 
 ## README split (Spec R9, option a)
-- README.md:73-74 (the Keenable bullet and the vendor-confirmation gate bullet) stays stale in #36. It is fixed in a follow-up docs-only PR against `feat/awi-provider-contextdev-001`, opened after #36 merges. The split is forced by R13's flip-only allowlist, which rejects README in a flip PR (Spec R9). That README PR must merge before the chain merges to main.
+- README.md:73-74 (the Keenable bullet and the vendor-confirmation gate bullet) stays stale in #36. It is fixed in a follow-up PR (number TBD, owner implement), docs-only, against `feat/awi-provider-contextdev-001`, opened after #36 merges. Split forced by R13: its flip-only allowlist rejects README in a flip PR (Spec R9). That README PR must merge before the chain merges to main.
