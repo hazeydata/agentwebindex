@@ -173,7 +173,7 @@ def keyed_providers(provs, env):
     return [p["id"] for p in provs if p.get("key_env") and env.get(p["key_env"]) and ADAPTERS.get(p["id"])]
 
 def keep_previous_rows(doc, prev_path, stale):
-    """CEO ruling 2026-10-19: a stale_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
+    """CEO ruling 2026-10-19: a stale_<reason> or stopped_<reason> provider (incomplete run) is not published. Its rows in tables and freshness
     are the previous latest.json rows, unchanged; with no previous row it has none. Returns the stale providers with a previous row."""
     if not stale: return set()
     prev = json.loads(Path(prev_path).read_text()) if Path(prev_path).exists() else {}

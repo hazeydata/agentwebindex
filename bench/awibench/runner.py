@@ -29,8 +29,10 @@ def set_kind(name):
     if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
     return "search" if name.startswith("news_") else SET_KIND[name]
 
-STALE_REASONS = ("quota", "timeout", "auth_error", "error", "budget", "paid_usage")
-STOP_STATUS = {"paid_usage": "stopped_paid_usage"}   # spec AWI-RUN-2026-10-26-APIFY-001 AC5 name; every other reason is stale_<reason>
+STALE_REASONS = ("quota", "timeout", "auth_error", "error", "budget", "paid_usage", "metered_budget", "rate_limited")
+# spec AWI-RUN-2026-10-26-APIFY-001 names (AC2, AC5, AC6; R4): the metered (Apify) spend guard is stopped_budget, a 429 storm is
+# stopped_rate_limited. Every other reason keeps stale_<reason> (e.g. the Bright Data spend_budget guard stays stale_budget).
+STOP_STATUS = {"paid_usage": "stopped_paid_usage", "metered_budget": "stopped_budget", "rate_limited": "stopped_rate_limited"}
 STOPPED_PREFIXES = ("stale_", "stopped_")   # an incomplete run: never published
 PROVIDER_STOPS = ("stale_auth_error", "stopped_paid_usage")   # stop every category of the provider for the rest of the run
 # Apify error codes that mean out of credit / plan limit even when the HTTP status is 200 (AC5)
@@ -79,10 +81,14 @@ def stale(reason, status, why):
 
 class CapViolation(RuntimeError): pass
 
+class LedgerError(RuntimeError): pass
+
 class QuotaLedger:
     def __init__(self, path, month):
         self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else None
-        if not isinstance(self.d, dict) or self.d.get("month") != month:   # calendar-month ledger: a new month starts at zero on the 1st
+        if self.path.exists() and not isinstance(self.d, dict):   # null, [], "x": unreadable counter, fail closed (AC2), never overwrite
+            raise LedgerError(f"quota ledger {self.path.name} is not a JSON object ({type(self.d).__name__}); failing closed, no call made")
+        if self.d is None or self.d.get("month") != month:   # calendar-month ledger: a new month starts at zero on the 1st
             self.d = {"month": month, "used": {}, "over_free_units": 0}
     def used(self, pool): return self.d["used"].get(pool, 0)
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
@@ -263,20 +269,20 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                             continue
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
                     try:
-                        if mb and pr.get("model") == "credits" and kind not in (pr.get("credits_per_call") or {}):   # USD-metered pool: 1 is not a cost
-                            raise UnknownCost(f"credits model with no credits_per_call.{kind} on metered pool {pool}")
+                        if mb and pr.get("model") in ("credits", "per_request", "tier") and kind not in (pr.get("credits_per_call") or {}):   # USD-metered pool: 1 is not a cost
+                            raise UnknownCost(f"{pr.get('model')} model with no credits_per_call.{kind} on metered pool {pool}")
                         est = estimate_units(pr, kind, item, pid, cfg)
                     except UnknownCost as e:
-                        if wc is None: status = stale("budget", status, f"unknown per-call cost ({e}); failing closed"); break
+                        if wc is None: status = stale("metered_budget" if mb else "budget", status, f"unknown per-call cost ({e}); failing closed"); break
                         est = wc
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
                     if mb:
                         mv = read_meter(meters, pid)
                         if mv is None:
-                            status = stale("budget", status, "usage meter unreadable; failing closed (rule 6)"); break
+                            status = stale("metered_budget", status, "usage meter unreadable; failing closed (rule 6)"); break
                         lv = ledger.used(pool) * mb["ledger_unit_usd"]; m0 = m0 or (mv, lv); g = max(mv, lv)
                         if g >= mb["stop_usd"] or g + est * mb["ledger_unit_usd"] > mb["stop_usd"]:
-                            status = stale("budget", status, f"max(meter ${mv:.4f}, ledger ${lv:.4f}) + next call would reach the ${mb['stop_usd']:.2f} stop (cap ${mb['cap_usd']:.2f})"); break
+                            status = stale("metered_budget", status, f"max(meter ${mv:.4f}, ledger ${lv:.4f}) + next call would reach the ${mb['stop_usd']:.2f} stop (cap ${mb['cap_usd']:.2f})"); break
                     sb = (cfg.get("spend_budget") or {}).get(pid); sf = None
                     if sb:
                         try: sf = SpendFile(spend_dir, pid, spend_month(line["ts"]), sb["usd_per_1k"])
@@ -337,7 +343,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         break
                     if not tmo: run429 = run429 + 1 if is_rate_limited(rec) else 0   # AC6: a timeout neither resets nor advances the streak
                     if soh.get("429_consecutive") and run429 >= soh["429_consecutive"]:   # 429 storm: stop now
-                        status = stale("quota", status, f"{run429} consecutive HTTP 429 answers, last on {item['id']} ({set_name})")
+                        status = stale("rate_limited", status, f"{run429} consecutive HTTP 429 answers, last on {item['id']} ({set_name})")
                         break
                     if is_rate_limited(rec) and soh.get("429_consecutive"):   # AC6: wait Retry-After (bounded) before the next call
                         ra = RETRY_AFTER.search(err); wait = float(ra.group(1)) if ra else soh.get("retry_after_default_s", 0)

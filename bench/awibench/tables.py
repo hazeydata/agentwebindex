@@ -33,7 +33,7 @@ def week_labels(n, cfg=None):
 
 def not_run_yet(summary, cfg, doc):
     """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'.
-    A provider that ran (status ran or stale_<reason>) is never 'not run yet', even when collect dropped its log."""
+    A provider that ran (status ran, stale_<reason> or stopped_<reason>) is never 'not run yet', even when collect dropped its log."""
     shown = {r["provider"] for t in doc["tables"].values() for r in t}; out = []
     shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith(("stale_", "stopped_"))}
     for p in (summary or {}).get("providers", []):
@@ -46,7 +46,7 @@ def not_run_yet(summary, cfg, doc):
 def collect(runs_dir):
     """Latest dated log per (provider, set). Returns {(pid,set): (rel, [(lineno, rec)])}.
     CEO ruling 2026-10-19: a log that did not cover the full set (fewer pass/fail/skipped_tos items at offset 0 than set_rows,
-    any auth_error line, any line the runner stamped run_status=stale_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
+    any auth_error line, any line the runner stamped run_status=stale_<reason> or stopped_<reason>, or more than 20% of calls answered HTTP 429 (CEO rule 3, also for old logs)) is never used; the earlier complete log stays in force."""
     runs_dir = Path(runs_dir); out = {}
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
