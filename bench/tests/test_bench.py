@@ -2159,6 +2159,18 @@ class RegradeFromStoredResults(unittest.TestCase):
         self.assertEqual((want["old_pass"], want["new_pass"]), (5, 8))
     def test_non_search_rows_keep_stored_grade(self):
         self.assertEqual(tables.regrade("newsfetch_2026-43", [(1, {"status": "fail"})], BENCH / "sets"), ([(1, {"status": "fail"})], None))
+    def test_graded_non_search_row_comes_back_byte_for_byte(self):
+        # A fully graded scrape/browser row whose item exists in the sets dir and whose stored results would fail
+        # the search grader: regrade() must leave it exactly as logged (search-only scope, R1).
+        import tempfile
+        for set_name in ("scrape_urls", "browser_tasks"):
+            with tempfile.TemporaryDirectory() as sd:
+                Path(sd, f"{set_name}.jsonl").write_text(json.dumps({"id": "x-001", "check": {"type": "url_exact", "value": "https://a.example/"}}) + "\n")
+                row = {"status": "pass", "pass": True, "item_id": "x-001", "reason": "url_exact in top10", "results": [{"url": "https://b.example/"}], "latency_ms": 5}
+                raw = json.dumps(row, sort_keys=True).encode()
+                lines, gv = tables.regrade(set_name, [(1, row)], sd)
+                self.assertEqual(json.dumps(lines[0][1], sort_keys=True).encode(), raw)
+                self.assertEqual((lines, gv), ([(1, row)], None))
     def test_error_lines_are_not_regraded(self):
         e = [(1, {"status": "fail", "item_id": "news-2026-W43-001", "results": [], "reason": "RuntimeError: HTTP 500: x"})]
         self.assertEqual(tables.regrade("news_2026-43", e, BENCH / "sets")[0], e)
