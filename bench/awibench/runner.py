@@ -226,8 +226,11 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             if m1 is not None and pid not in m1:
                 summary["providers"].append(base | {"status": "skipped_not_month1", "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"}); continue
             fg = (cfg.get("free_tier_guard") or {}).get(pid)
-            if fg and "live_run_allowed" in fg and not guard.live_allowed(cfg, tos, pid):   # R9: no live call before written vendor confirmation is recorded
+            # R9/R26 (C07): a live-gated provider (guard.LIVE_GATED, or any tos entry that requires vendor confirmation, or any guard block
+            # with a live_run_allowed key) is called only if guard.live_allowed() is True. A missing key, null record or missing block fails closed.
+            if (pid in guard.LIVE_GATED or t_e.get(gates.REQUIRED_FLAG) is True or (fg and "live_run_allowed" in fg)) and not guard.live_allowed(cfg, tos, pid):
                 summary["providers"].append(base | {"status": "skipped_no_vendor_confirmation", "reason": f"live_run_allowed is not true or vendor_confirmation is not recorded (config free_tier_guard.{pid}); no call made"}); continue
+            if pid in guard.LIVE_GATED and not fg: raise CapViolation(f"{pid}: free_tier_guard.{pid} missing; the credit guard must always apply")   # unreachable: live_allowed needs the block
             key = env.get(p["key_env"])
             fn = (adapters.get(pid) or {}).get(kind)
             if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": "not run (no key)"}); continue
