@@ -2291,6 +2291,19 @@ class StopOnHttp(unittest.TestCase):
         self.assertEqual((p["status"], p["calls"]), ("stopped_rate_limited", 6)); self.assertIn("3 consecutive HTTP 429 answers, last on t5", p["reason"])
         self.called = []; p = self._run([r(), r(), r(), None, None, None], n=6)
         self.assertEqual((p["status"], self.called), ("stopped_rate_limited", ["t0", "t1", "t2"]))
+    def test_429_storm_stops_non_apify_provider(self):
+        """Spec R5: stop_on_http applies to every provider, not only Apify."""
+        prov = [{"id": "hyperbrowser", "categories": ["browser"], "key_env": "HB_KEY"}]
+        pricing = {"hyperbrowser": {"browser": {"model": "credits", "credits_per_call": {"browser": 1}, "free_tier": {"units_per_month": 500, "needs_card": False}}}}
+        called = []
+        def fn(key, item):
+            called.append(item["id"]); raise RuntimeError("HTTP 429: slow down")
+        rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(5)]
+        s = runner.run(providers=prov, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={}, adapters={"hyperbrowser": {"browser": fn}},
+                       cfg={"stop_on_http": CFG["stop_on_http"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
+                       env={"HB_KEY": "mock"}, mock=True, spend_dir=self.tmp / "spend")
+        p = s["providers"][0]
+        self.assertEqual((p["status"], called), ("stopped_rate_limited", ["t0", "t1", "t2"]))
     def test_no_config_keeps_old_behaviour(self):
         p = self._run([RuntimeError("HTTP 402: x")] + [RuntimeError("HTTP 429: x")] * 5, cfg={})
         self.assertEqual(p["calls"], 6)
