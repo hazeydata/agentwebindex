@@ -3707,6 +3707,7 @@ class K3KeylessEligibility(Base):   # AWI-PROVIDER-KEENABLE-001 AC24: keyless = 
             self.calls.clear(); s = self.go(n=3, cfg=cfg)
             self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
         self.assertEqual(B.keyed_providers(self.PROVS, {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])   # no cfg/tos -> fail closed
-        null_tos = copy.deepcopy(self.tos); null_tos["keenable"]["vendor_confirmation"] = None
-        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, null_tos), [])   # tos record null -> closed
+        req_off = copy.deepcopy(self.tos); req_off["keenable"]["vendor_confirmation_required"] = False
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, req_off), [])   # tos entry not requiring confirmation -> closed (R26)
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, {}), [])   # no tos entry -> closed
         self.assertEqual(B.keyed_providers(self.PROVS, {}, CFG, TOS), ["keenable"] if guard.live_allowed(CFG, TOS, "keenable") else [])   # committed state, whichever it is
