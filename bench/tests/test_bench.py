@@ -428,7 +428,7 @@ class T(unittest.TestCase):
         # even a stray brave log never reaches a table
         f = self.tmp / "rruns" / "2026-10-19" / "brave" / "search_evergreen.jsonl"; f.parent.mkdir(parents=True)
         f.write_text(json.dumps({"ts": "2026-10-19T11:23:00+00:00", "status": "pass", "set_sha": "x", "latency_ms": 1, "billed_units": 1, "mock": True}) + "\n")
-        doc = tables.build(self.tmp / "rruns", pricing, None, tos)
+        doc = tables.build(self.tmp / "rruns", pricing, None, mocks.keenable_closed(None, tos)[1])   # R25: keenable closed fixture, so a K2 flip can't add its exclusion here
         self.assertNotIn("brave", [r["provider"] for t in doc["tables"].values() for r in t])
         self.assertEqual([e["provider"] for e in doc["exclusions"]], ["brave"]); self.assertIn("brave.com", doc["exclusions"][0]["terms_url"])
     def test_d2_steel_browserless_skip_anti_bot(self):
@@ -2812,7 +2812,9 @@ class VendorConfirmationGate(ContextDevBase):
     def test_ac24b_committed_files_closed(self):   # AC24b: the real committed files
         tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
         for pid in ("keenable", "contextdev"):
-            self.assertIs(tos[pid]["vendor_confirmation_required"], True); self.assertIsNone(tos[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(tos[pid]), pid)
+            t = mocks.keenable_closed(None, tos)[1] if pid == "keenable" else tos   # R25: keenable closed fixture + committed consistency check
+            self.assertIs(t[pid]["vendor_confirmation_required"], True); self.assertIsNone(t[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(t[pid]), pid)
+        mocks.keenable_committed_check(self, CFG, tos)
         k = tos["keenable"]
         self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "forbidden"))
         self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
@@ -2825,7 +2827,7 @@ class VendorConfirmationGate(ContextDevBase):
                 f = runs / "2026-10-26" / ps / f"{sname}.jsonl"; f.parent.mkdir(parents=True, exist_ok=True)
                 f.write_text(json.dumps({"ts": "2026-10-26T11:00:00+00:00", "status": st, "item_id": "i1", "set_sha": "x", "set_rows": 1, "latency_ms": 5, "billed_units": 1, "mock": True, "results": []}) + "\n")
         pricing = {"keenable": {"search": mocks.pricing_fixture("credits")}, "mockp": {"search": mocks.pricing_fixture("credits")}}
-        tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        tos = mocks.keenable_closed(None, load_yaml(BENCH / "tos_matrix.yaml")["providers"])[1]   # R25: closed fixture
         cfg = {"month1_free_tier_providers": ["keenable", "mockp"], "publish_hold": [], "publish_gate": []}
         summary = {"providers": [{"provider": "keenable", "category": "search", "status": "skipped_no_vendor_confirmation"}, {"provider": "mockp", "category": "search", "status": "ran"}]}
         for t in (tos, tos | {"keenable": tos["keenable"] | {"benchmarking": {"status": "allowed", "quote": "q"}, "allowed": "yes"}}):   # forbidden or not: still hidden
@@ -2974,8 +2976,11 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertTrue(cd.head_confirmed({T: None, C: {}}))
         # committed repo files: nothing confirmed, values null
         committed = {T: load_yaml(BENCH / "tos_matrix.yaml"), C: load_yaml(BENCH / "config.yaml")}
-        self.assertFalse(cd.head_confirmed(committed))
-        for pid in ("keenable", "contextdev"): self.assertIsNone(committed[T]["providers"][pid]["vendor_confirmation"])
+        closed = {T: dict(committed[T], providers=mocks.keenable_closed(None, committed[T]["providers"])[1]), C: mocks.keenable_closed(committed[C])[0]}
+        self.assertFalse(cd.head_confirmed(closed))   # R25: closed fixture; committed state: consistency check
+        for pid in ("keenable", "contextdev"): self.assertIsNone(closed[T]["providers"][pid]["vendor_confirmation"])
+        self.assertIs(cd.head_confirmed(committed), mocks.keenable_committed_check(self, committed[C], committed[T]["providers"]))
+        self.assertIsNone(committed[T]["providers"]["contextdev"]["vendor_confirmation"])
         self.assertIsNone(committed[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"])
     def test_ac24e_cli_over_git_repo(self):   # AC24e: CLI parses base (merge-base) and HEAD yaml from git, no network
         r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True)
@@ -3259,13 +3264,14 @@ class VendorConfirmationGate(ContextDevBase):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         # AWI-PROVIDER-KEENABLE-001 K1 supersedes AC24f's "no adapter, providers.json, pricing or config entry": they now exist, default-closed (tests/test_keenable.py)
         prov = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}
-        self.assertIs(CFG["free_tier_guard"]["keenable"]["live_run_allowed"], False); self.assertIsNone(CFG["free_tier_guard"]["keenable"]["vendor_confirmation"])
+        ccfg = mocks.keenable_closed(CFG)[0]; mocks.keenable_committed_check(self, CFG, load_yaml(BENCH / "tos_matrix.yaml")["providers"])   # R25
+        self.assertIs(ccfg["free_tier_guard"]["keenable"]["live_run_allowed"], False); self.assertIsNone(ccfg["free_tier_guard"]["keenable"]["vendor_confirmation"])
         self.assertNotIn("keenable", load_yaml(BENCH / "pricing.yaml")["providers"])
         self.assertEqual(B.keyed_providers([p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"], {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])
         adapters = {"keenable": {"search": self.ad_search}}   # even a (synthetic) adapter must not be reached
         pricing = self.pricing | {"keenable": {"search": mocks.pricing_fixture("credits")}}
-        for cfg in (mocks.mock_cfg(CFG), self.cfg):
-            s = self.go(providers=[prov], adapters=adapters, pricing=pricing, cfg=cfg, env={"KEENABLE_API_KEY": "dummy-not-a-key"})
+        for cfg in (mocks.mock_cfg(ccfg), mocks.keenable_closed(self.cfg)[0]):
+            s = self.go(providers=[prov], adapters=adapters, pricing=pricing, cfg=cfg, tos=mocks.keenable_closed(None, self.tos)[1], env={"KEENABLE_API_KEY": "dummy-not-a-key"})
             self.assertEqual((self.prov(s, "keenable")["status"], self.calls), ("skipped_no_vendor_confirmation", []))
         self.assertFalse(guard_mod.live_allowed({"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": "x"}}}, self.tos, "keenable"))
         self.assertFalse((self.tmp / "runs").exists())
