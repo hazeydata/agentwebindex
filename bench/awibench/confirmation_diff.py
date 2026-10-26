@@ -29,8 +29,11 @@ check(changed_files, base, head) -> list of problems (empty = fine); base/head =
 CLI: python -m awibench.confirmation_diff [BASE [HEAD]]    (defaults origin/main and HEAD; compares merge-base(BASE, HEAD) with HEAD; exit 1 on problems).
 AWI_REPO_ROOT sets the repo root, so CI can run the BASE copies of this file and gates.py from a temp dir against the PR head
 (R15, .github/workflows/confirmation-diff-base.yml). That base-judged job is authoritative; the advisory runs
-(confirmation-diff.yml and run_tests.sh) use the PR's own copy of this file. All three use the same base (origin/<base branch>, the
-base sha in the base-judged job) and diff from merge-base(BASE, HEAD), so commits that moved the base branch ahead are not counted.
+(confirmation-diff.yml and run_tests.sh) use the PR's own copy of this file. Bases: both CI jobs pass the event's base and head SHAs
+(github.event.pull_request.base.sha / head.sha, R21 (3)); run_tests.sh uses AWI_CONFIRMATION_BASE (default origin/main; local, advisory).
+All diff from merge-base(BASE, HEAD), so commits that moved the base branch ahead are not counted.
+R26 (C07): on every PR, deleting free_tier_guard.<pid>.live_run_allowed or .vendor_confirmation, or the whole free_tier_guard.<pid>
+block that held them at the base, fails (the runner would read a missing key as closed, but the gate fields may not disappear).
 """
 import json, os, re, subprocess, sys
 from pathlib import Path
@@ -90,8 +93,22 @@ def gate_lowered(base, head):
         elif not same(e[REQUIRED_FLAG], h[REQUIRED_FLAG]) and h[REQUIRED_FLAG] is not True: out.append(f"{pid}: {REQUIRED_FLAG} changed ({e[REQUIRED_FLAG]!r} -> {h[REQUIRED_FLAG]!r}; strict, SQ3)")
     return [f"AC24h: the vendor-confirmation gate may not be lowered ({'; '.join(out)}); that needs a separate Fred or CEO ruling"] if out else []
 
+def guard_field_deleted(base, head):
+    """R26 (C07): problems for every config free_tier_guard entry whose live_run_allowed / vendor_confirmation key, or whole block, is gone at the head."""
+    bg = ((base.get(CFG) or {}).get("free_tier_guard") or {}) if isinstance(base.get(CFG), dict) else {}
+    hg = ((head.get(CFG) or {}).get("free_tier_guard") or {}) if isinstance(head.get(CFG), dict) else {}
+    out = []
+    for pid, e in sorted(bg.items()):
+        keys = [k for k in ("live_run_allowed", "vendor_confirmation") if isinstance(e, dict) and k in e]
+        if not keys: continue
+        h = hg.get(pid) if isinstance(hg, dict) else None
+        if not isinstance(h, dict): out.append(f"free_tier_guard.{pid} deleted or renamed"); continue
+        out += [f"free_tier_guard.{pid}.{k} deleted" for k in keys if k not in h]
+    return [f"R26: live-gate config fields may not be deleted ({'; '.join(out)})"] if out else []
+
 PROTECTED = ("bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
-             ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml")
+             ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml",
+             ".github/workflows/benchmark.yml")   # Keenable R5 (1): the live-run workflow too (run_tests.sh is deliberately not protected)
 
 def protected_touched(changed_files, base_has):
     """SQ2 (R16): the checker, gates.py and the confirmation workflows may not change once they exist at the base.
@@ -124,7 +141,7 @@ def schema_errors(head):
     return [f"SQ-C (R17) schema: {b}" for b in bad]
 
 def check(changed_files, base, head, base_has=None):
-    lowered = gate_lowered(base, head) + protected_touched(changed_files, base_has) + schema_errors(head)
+    lowered = gate_lowered(base, head) + guard_field_deleted(base, head) + protected_touched(changed_files, base_has) + schema_errors(head)
     confirmed = head_confirmed(head)
     flips, other = set(), []
     for f in sorted(DATA_FILES):

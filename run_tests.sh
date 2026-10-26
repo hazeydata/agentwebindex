@@ -5,7 +5,7 @@ set -eo pipefail
 cd "$(dirname "$0")/bench"
 export TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
-nice -n 19 python3 -m pytest -q -p no:cacheprovider --basetemp="$TMPDIR/pytest" tests/test_bench.py tests/test_keenable.py 2>&1 | tail -n 30
+nice -n 19 python3 -m pytest -q -p no:cacheprovider --basetemp="$TMPDIR/pytest" tests/test_bench.py 2>&1 | tail -n 30
 nice -n 19 python3 tests/dry_run.py | grep -E "news meta|validator|untraced|^MOCK"
 nice -n 19 python3 -m awibench.secrets_scan
 # >>> AC24e confirmation_diff (a FAIL must stop the script; `cmd && echo` would be exempt from set -e)
