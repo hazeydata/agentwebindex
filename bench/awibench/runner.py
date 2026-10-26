@@ -139,6 +139,10 @@ def eligibility(pid, pricing, cfg):
     """Returns (ok, reason). Needs a known free quota, and no card requirement unless the CEO lists the provider."""
     ft = (pricing or {}).get("free_tier") or {}
     q = ft.get("units_per_month")
+    if ft.get("metered") is False and pid in guard.KEYLESS:   # AC24: keyless, unmetered public pool (no monthly figure); quota = units_per_hour
+        q = ft.get("units_per_hour")
+        if not_captured(q) or not isinstance(q, int) or q <= 0: return False, "keyless free tier units_per_hour NOT CAPTURED or zero"
+        return (True, "free tier (keyless, unmetered)") if ft.get("needs_card") is False else (False, "free tier needs a card (or unknown)")
     if not_captured(q) or q <= 0: return False, "free tier quota NOT CAPTURED or zero"
     if ft.get("needs_card") is not False and pid not in cfg.get("ceo_free_tier_allowlist", []):
         return False, "free tier needs a card (or unknown) and provider not on CEO list"
@@ -243,7 +247,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             if fn is None: summary["providers"].append(base | {"status": "not_implemented"}); continue
             ok, why = eligibility(pid, pr, cfg)
             if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
-            pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"]
+            pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"] if pr["free_tier"].get("units_per_month") is not None else pr["free_tier"]["units_per_hour"]   # AC24 keyless
             sem = None; gmeta = {}; last_read = None
             if fg:   # AWI-PROVIDER-CONTEXTDEV-001: attempts guard per grant-anchor window, max(meter, counter), max_concurrent semaphore; free tier only
                 if fg.get("paid_tier") is not False: raise CapViolation(f"{pid}: free_tier_guard.paid_tier must be false (no paid path)")

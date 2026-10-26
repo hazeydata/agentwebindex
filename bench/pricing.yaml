@@ -11,7 +11,19 @@
   "checked_at": "2026-10-26",
   "quote": "$4 / 1000 requests Pay as you go Cloud-only access",
   "free_allowance_quote": "100,000 requests a month, free. The allowance resets each month (https://docs.keenable.ai/credits.md; authenticated usage only)",
-  "evidence": "agentwebindex-meta cycles/2026-10-26-provider-keenable/evidence/AWI-KEENABLE-SRC-001.md (SHA256SUMS.txt)"
+  "evidence": "agentwebindex-meta cycles/2026-10-26-provider-keenable/evidence/AWI-KEENABLE-SRC-001.md (SHA256SUMS.txt)",
+  "free_tier": {
+   "endpoint": "/v1/search/public",
+   "units_per_hour": 1000,
+   "max_rps_per_ip": 10,
+   "metered": false,
+   "units_per_month": null,
+   "needs_card": false,
+   "pool": "keenable",
+   "source_url": "https://docs.keenable.ai/rate-limits.md",
+   "quote": "Unauthenticated | 1,000 requests per hour, max 10 requests per second (per IP)",
+   "note": "AC24 (K3): keyless public endpoint, unmetered: 'Keyless calls are rate limited per IP and consume no credits' (evidence docs_api-reference_search.md; limits from docs_rate-limits.md, agentwebindex-meta cycles/2026-10-26-provider-keenable/evidence). No monthly figure is stated, so units_per_month is null; runner.eligibility accepts metered=false with units_per_hour > 0 and caps a run at units_per_hour calls. Used only for run eligibility (collectors/benchmark.py run_pricing); kept outside providers so AC21 still holds."
+  }
  },
  "providers": {
   "exa": {
