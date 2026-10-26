@@ -58,7 +58,7 @@
    "live_run_ruling": "R9 (Fred, 2026-10-25 00:52 ET): no live calls until written vendor confirmation is recorded; set true only together with a vendor_confirmation record here that passes gates.record_error (bench/awibench/gates.py; spec awi-provider-contextdev-001 R19, record shape at line 95), never a bare link.",
    "vendor_confirmation": null,
    "meter": "https://api.context.dev/v1/org/usage",
-   "meter_note": "AC26: GET only, 0 credits, period.credits_used; docs https://docs.context.dev/api-reference/usage/retrieve. The guard compares max(meter, counter) to stop_at_credits before each attempt; an unreadable meter fails closed (stale_budget).",
+   "meter_note": "AC26: GET only, 0 credits, period.credits_used; docs https://docs.context.dev/api-reference/usage/retrieve. The guard compares max(meter, counter) to stop_at_credits before each attempt; an unreadable context.dev meter fails closed as stale_budget (contextdev keeps the stale_ name; the Apify metered guard uses stopped_budget).",
    "max_concurrent": 1, "max_concurrent_note": "F2: pricing page says 2, billing doc says 1; conservative 1 (lowers R5's 2)",
    "count": "attempts", "count_unit": "credits per call (F4)",
    "retry_after_429_s": 1,
