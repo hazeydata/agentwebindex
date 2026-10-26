@@ -1,6 +1,7 @@
 """context.dev free-tier credit guard (AWI-PROVIDER-CONTEXTDEV-001 spec rev 4; Side Hustle CEO R1-R9, fact desk F1-F7, 2026-10-25).
 
-- live_allowed: R9 + R22 gate. No call unless config live_run_allowed is True AND the config vendor_confirmation passes gates.record_error AND the tos_matrix entry exists with vendor_confirmation_required True AND its own record, if set, passes gates.record_error.
+- live_allowed: R9 + R22 gate (R22 extends R21 (1); follows R9; R26: the runner calls it for every live-gated provider whatever the
+  config holds, so a missing live_run_allowed key, a null record or a missing free_tier_guard block means no live call). No call unless config live_run_allowed is True AND the config vendor_confirmation passes gates.record_error AND the tos_matrix entry exists with vendor_confirmation_required True AND its own record, if set, passes gates.record_error.
 - anchor_window_start: the free tier refills on the org's grant-anchor day (F1), not on the 1st. The counter file is keyed by the
   window-start date; an unknown anchor day (null) raises AnchorNotConfigured and the runner uses one counter that never resets.
 - CreditGuard: attempts counter in <dir>/contextdev-<window-start>.json. EVERY attempt adds its credit cost (F4), billed or not (R1);
@@ -23,8 +24,10 @@ class GuardUnreadable(RuntimeError):
 class AnchorNotConfigured(ValueError):
     """grant_anchor_day is null: the window start is unknown, so the counter must never reset."""
 
+LIVE_GATED = ("contextdev",)   # R26 (C07): the runner consults live_allowed for these unconditionally
+
 def live_allowed(cfg, tos, pid="contextdev"):
-    """R9 + R22 (supersedes R21 (1)): live calls only when ALL hold, else fail closed: config live_run_allowed is bool True; the config
+    """R9 + R22 (R22 extends R21 (1); follows R9). R26: called unconditionally for live-gated providers; a missing key or block is False: live calls only when ALL hold, else fail closed: config live_run_allowed is bool True; the config
     vendor_confirmation passes gates.record_error (gates.py:12, the one record validator; no truthiness check); the tos_matrix entry
     exists; its vendor_confirmation_required is True; and its own vendor_confirmation, if set, passes gates.record_error.
     Both record checks go through gates.vendor_confirmed, which only wraps gates.record_error."""

@@ -14,7 +14,7 @@ def record_error(c):
     None if `c` is a valid record, else the reason. A valid record is a mapping with exactly the keys date, sender, quote,
     evidence_path and recorded_pr (no extra keys); date is a quoted YYYY-MM-DD string that is a real calendar date (an unquoted
     YAML date fails); sender is a non-empty string; recorded_pr is a non-empty https:// URL; quote and evidence_path are each a
-    string or null, and at least one is a non-empty string. Any other type fails."""
+    string, and BOTH are non-empty (R26, superseding R19's at-least-one; resolves AC27d). Any other type, null included, fails."""
     if type(c) is not dict: return f"must be a record mapping, got {type(c).__name__}"
     keys = set(c)
     if keys != set(RECORD_KEYS):
@@ -30,9 +30,8 @@ def record_error(c):
     pr = c["recorded_pr"]
     if not (type(pr) is str and pr.startswith("https://") and len(pr) > len("https://") and not any(ch.isspace() for ch in pr)):
         errs.append("recorded_pr must be a non-empty https:// URL")
-    for k in ("quote", "evidence_path"):
-        if c[k] is not None and type(c[k]) is not str: errs.append(f"{k} must be a string or null")
-    if not (_text(c["quote"]) or _text(c["evidence_path"])): errs.append("quote and/or evidence_path must be a non-empty string")
+    for k in ("quote", "evidence_path"):   # R26: both required, each a non-empty string
+        if not _text(c[k]): errs.append(f"{k} must be a non-empty string")
     return "; ".join(errs) or None
 
 def vendor_confirmed(tos_entry):
