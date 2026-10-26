@@ -26,7 +26,8 @@ def _post(url, headers, body):
     try:
         with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:   # message carries status + short vendor text only, never the key
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _exa_search(key, item):
     st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto"})
@@ -55,7 +56,8 @@ def _get_json(url, headers, timeout=150):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _apify_search(key, item):
     """Ranked results from the Actor's searchResult.rank; result URL = the fetched page's metadata.url (Google returns
@@ -64,6 +66,9 @@ def _apify_search(key, item):
     cfg = load_yaml(BENCH / "config.yaml"); name = cfg["apify_search_config"]; conf = cfg["apify_search_configs"][name]
     q = urllib.parse.urlencode({"query": item["query"], "maxResults": 10, "outputFormats": "markdown"} | conf)
     st, d = _get_json(f"{APIFY_RAG_URL}?{q}", {"Authorization": f"Bearer {key}"}, timeout=conf["requestTimeoutSecs"] + 60)
+    if isinstance(d, dict) and (d.get("error") or d.get("code")):   # AC5: Apify error object in a 2xx body (e.g. payment-required)
+        e = d.get("error"); code = d.get("code") or (e.get("type") if isinstance(e, dict) else e)
+        raise RuntimeError(f"HTTP {st}: rag-web-browser error ({str(code)[:60]})")
     d = sorted(d if isinstance(d, list) else [], key=lambda x: (x.get("searchResult") or {}).get("rank") or 99)
     res = []
     for x in d:
@@ -87,7 +92,8 @@ def _post_json(url, headers, body, timeout):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r: return r.status, json.loads(_body(r))
     except urllib.error.HTTPError as e:   # status + short vendor text only, never the key
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _apify_web_fetch(key, item):
     """browser task: POST {url, formats: [text]} -> dom_text = the Actor's text, final_url = fetch.loadedUrl.
@@ -129,7 +135,8 @@ def _browserless_fetch(key, item):
     try:
         with urllib.request.urlopen(req, timeout=int(item.get("timeout_s", 30)) + 30) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:   # never echo the request URL (it carries the token)
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
     except Exception as e:
         raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
     return {"http_status": st, "billed_units": (time.perf_counter() - t0) / 60, "dom_text": _html_text(h), "html_chars": len(h)}
@@ -152,7 +159,8 @@ def _brightdata_scrape(key, item):
     try:
         with urllib.request.urlopen(req, timeout=90) as r: st, h = r.status, _body(r).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}") from None
+        ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
+        raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
     return {"http_status": st, "billed_units": 1, "text": _html_text(h), "html": h}
 
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
@@ -176,7 +184,7 @@ def keep_previous_rows(doc, prev_path, stale):
     doc["has_results"] = any(r["attempted"]["v"] for t in doc["tables"].values() for r in t)
     return {r["provider"] for t in doc["tables"].values() for r in t if r["provider"] in stale}
 
-def is_stale(p): return p["status"].startswith("stale_")
+def is_stale(p): return p["status"].startswith(("stale_", "stopped_"))
 def stale_providers(s): return {p["provider"] for p in s["providers"] if is_stale(p)}
 
 def fresh_data(s):

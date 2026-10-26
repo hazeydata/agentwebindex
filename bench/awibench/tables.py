@@ -35,7 +35,7 @@ def not_run_yet(summary, cfg, doc):
     """Owner ruling 3: month-one providers with no table row (no adapter/set yet) show as 'not run yet'.
     A provider that ran (status ran or stale_<reason>) is never 'not run yet', even when collect dropped its log."""
     shown = {r["provider"] for t in doc["tables"].values() for r in t}; out = []
-    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith("stale_")}
+    shown |= {p["provider"] for p in (summary or {}).get("providers", []) if p["status"] == "ran" or p["status"].startswith(("stale_", "stopped_"))}
     for p in (summary or {}).get("providers", []):
         pid = p["provider"]
         if pid in (cfg.get("month1_free_tier_providers") or []) and pid not in shown and pid not in {o["provider"] for o in out}:
@@ -51,7 +51,7 @@ def collect(runs_dir):
     for f in sorted(runs_dir.glob("*/*/*.jsonl")):
         rel = str(f.relative_to(runs_dir.parent)); key = (f.parent.name, f.stem)
         lines = [(i, r) for i, r in enumerate(read_jsonl(f), 1)]
-        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith("stale_") for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
+        if any(r.get("status") == "auth_error" or str(r.get("run_status", "")).startswith(("stale_", "stopped_")) for _, r in lines) or is_partial([x for x in lines if x[1].get("offset_h", 0) == 0]) or quota_degraded([r for _, r in lines if r.get("offset_h", 0) == 0]): continue
         out[key] = (rel, lines)   # sorted() => later dates win
     return out
 
@@ -113,6 +113,8 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
                "free_quota_note": cc["free_quota_note"],
                "cost_units_note": (f"cost uses {ver[kind]} credit(s) per call as documented at {ver.get('source_url')} (checked {ver.get('checked_at')}); "
                                    "the run log's billed_units held the runner's unverified guard") if isinstance(ver.get(kind), (int, float)) else None}
+        note = (((cfg or {}).get("run_notes") or {}).get(pid) or {}).get(run_date, {}).get(kind)
+        if note: row["run_note"] = note   # owner-set label, e.g. a preliminary retest (config run_notes)
         for k in ("entry", "volume"):
             for col in (f"{k}_tier_cost_per_1k", f"{k}_tier_cost_per_successful_1k"):
                 v = cc[col]; row[col] = _cell(None if v is None else ("inf" if v == float("inf") else v), _refs(rel, alln) + pref if v is not None else [],

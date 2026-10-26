@@ -362,7 +362,7 @@
     "checked_at": "2026-10-19",
     "verified_date": "2026-10-19",
     "model": "per_request",
-    "credits_per_call": {},
+    "credits_per_call": {"search": 4.08}, "credits_per_call_source": "guard estimate in US cents: measured 2026-10-26, live Apify meter moved $0.8563 over 21 RAG calls (run_meter_usd, bench/spend/apify-meter-2026-10.json) = 4.078 cents/call, rounded up",
     "proxy_per_gb": "NOT CAPTURED",
     "free_tier": {
      "units_per_month": 500,

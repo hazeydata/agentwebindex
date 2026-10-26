@@ -29,7 +29,24 @@ def set_kind(name):
     if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
     return "search" if name.startswith("news_") else SET_KIND[name]
 
-STALE_REASONS = ("quota", "timeout", "auth_error", "error", "budget")
+STALE_REASONS = ("quota", "timeout", "auth_error", "error", "budget", "paid_usage")
+STOP_STATUS = {"paid_usage": "stopped_paid_usage"}   # spec AWI-RUN-2026-10-26-APIFY-001 AC5 name; every other reason is stale_<reason>
+STOPPED_PREFIXES = ("stale_", "stopped_")   # an incomplete run: never published
+PROVIDER_STOPS = ("stale_auth_error", "stopped_paid_usage")   # stop every category of the provider for the rest of the run
+# Apify error codes that mean out of credit / plan limit even when the HTTP status is 200 (AC5)
+PAID_BODY = re.compile(r"\b(payment-required|usage-limit-exceeded|platform-feature-disabled|not-enough-usage-to-run-paid-actor)\b")
+RETRY_AFTER = re.compile(r"Retry-After: ?(\d+(?:\.\d+)?)")
+
+def is_timeout_error(e):
+    """A client-side timeout (socket.timeout / TimeoutError, or urllib's URLError wrapping one). AC4: counted as a fail, still logged."""
+    import socket, urllib.error
+    return isinstance(e, (TimeoutError, socket.timeout)) or (isinstance(e, urllib.error.URLError) and isinstance(e.reason, (TimeoutError, socket.timeout)))
+
+def _atomic_write(path, text):
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True); t = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    t.write_text(text); os.replace(t, path)
+
+class UnknownCost(ValueError): pass
 REACHED = ("pass", "fail", "skipped_tos")   # line statuses that count as a reached set item
 
 _HTTP_ANSWER = re.compile(r"\bHTTP [1-5]\d\d\b")
@@ -58,16 +75,18 @@ def quota_degraded(recs):
 
 def stale(reason, status, why):
     assert reason in STALE_REASONS, reason
-    return {"status": f"stale_{reason}", "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"{why}; not published"}
+    return {"status": STOP_STATUS.get(reason, f"stale_{reason}"), "calls": status["calls"], "data_calls": status["data_calls"], "reason": f"{why}; not published"} | ({"cap_overrun": status["cap_overrun"]} if status.get("cap_overrun") else {})
 
 class CapViolation(RuntimeError): pass
 
 class QuotaLedger:
     def __init__(self, path, month):
-        self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else {"month": month, "used": {}, "over_free_units": 0}
+        self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else None
+        if not isinstance(self.d, dict) or self.d.get("month") != month:   # calendar-month ledger: a new month starts at zero on the 1st
+            self.d = {"month": month, "used": {}, "over_free_units": 0}
     def used(self, pool): return self.d["used"].get(pool, 0)
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
-    def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); self.path.write_text(json.dumps(self.d, indent=1, sort_keys=True))
+    def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); t = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp"); t.write_text(json.dumps(self.d, indent=1, sort_keys=True)); os.replace(t, self.path)   # atomic
 
 class SpendError(RuntimeError): pass
 
@@ -151,7 +170,7 @@ def meter_gap(meters, pid, m0, ledger_usd, spend_dir, run_date):
          "run_meter_usd": round(mv - m0[0], 4), "run_ledger_usd": round(ledger_usd - m0[1], 4), "run_meter_minus_ledger_usd": round((mv - m0[0]) - (ledger_usd - m0[1]), 4)}
     f = Path(spend_dir) / f"{pid}-meter-{run_date[:7]}.json"; f.parent.mkdir(parents=True, exist_ok=True)
     log = json.loads(f.read_text()) if f.exists() else {"provider": pid, "month": run_date[:7], "runs": []}
-    log["runs"].append({"run_date": run_date} | d); f.write_text(json.dumps(log, indent=1, sort_keys=True))
+    log["runs"].append({"run_date": run_date} | d); _atomic_write(f, json.dumps(log, indent=1, sort_keys=True))
     return d
 
 def benchmark_forbidden(tos_entry):
@@ -173,13 +192,14 @@ def estimate_units(pricing, kind, item, pid=None, cfg=None):
     if kind == "browser" and (m == "per_hour_browser" or ((cfg or {}).get("browser_unit_seconds") or {}).get(pid)):
         return browser_units(item.get("timeout_s", 60) / 60, pid, pricing, cfg or {})
     if kind in cpc: return cpc[kind]          # e.g. Firecrawl search = 2 credits, under any model
-    if m == "credits": return 1
+    if m == "credits": return 1   # a credits row without credits_per_call: 1 credit; metered USD pools refuse this in run() (AC2)
     if m == "per_hour_browser":
         t = (pricing.get("tiers") or {}).get("entry") or {}
         mm = 0 if not_captured(t.get("min_minutes")) else t["min_minutes"]; rr = 0 if not_captured(t.get("rounding_minutes")) else t["rounding_minutes"]
         return cost.billed_minutes(item.get("timeout_s", 60) / 60, mm, rr)
     if m == "per_gb": return (pricing.get("est_gb_per_call") or {}).get(kind, 0.01)
-    return 1
+    if m in ("per_request", "tier"): return 1   # one request = one unit
+    raise UnknownCost(f"unknown pricing model {m!r}")
 
 def _request(kind, item):
     return {"search": lambda: {"query": item["query"]}, "scrape": lambda: {"url": item["url"]},
@@ -204,10 +224,12 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
         raise RuntimeError("mock run spend files must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
     for p in providers:
-        pid = p["id"]; pp = pricing.get(pid, {})
+        pid = p["id"]; pp = pricing.get(pid, {}); pstop = None
         for kind in p["categories"]:
             pr = pp.get(kind) or {}
             base = {"provider": pid, "category": kind}
+            if pstop:   # AC5: a 401/403/402 (or Apify payment/usage-limit error) stops the whole provider, every category
+                summary["providers"].append(base | {"status": pstop["status"], "calls": 0, "data_calls": 0, "reason": f"provider stopped earlier this run: {pstop['reason']}"}); continue
             t_e = tos.get(pid) or {}
             if benchmark_forbidden(t_e):
                 summary["providers"].append(base | {"status": "excluded_tos_benchmarking", "reason": f"terms forbid benchmarking: {t_e['benchmarking'].get('quote')} ({t_e.get('terms_url')}, checked {t_e.get('checked_at')})"}); continue
@@ -239,8 +261,14 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                             fh.append(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
                                                         "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
                             continue
-                    est = estimate_units(pr, kind, item, pid, cfg)
                     wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
+                    try:
+                        if mb and pr.get("model") == "credits" and kind not in (pr.get("credits_per_call") or {}):   # USD-metered pool: 1 is not a cost
+                            raise UnknownCost(f"credits model with no credits_per_call.{kind} on metered pool {pool}")
+                        est = estimate_units(pr, kind, item, pid, cfg)
+                    except UnknownCost as e:
+                        if wc is None: status = stale("budget", status, f"unknown per-call cost ({e}); failing closed"); break
+                        est = wc
                     if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
                     if mb:
                         mv = read_meter(meters, pid)
@@ -265,12 +293,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break
                     t0 = clock()
-                    net = False
+                    net = False; tmo = False
                     try: out = fn(key, item)
-                    except Exception as e: out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; net = is_network_error(e)
+                    except Exception as e:
+                        out = {"error": f"{type(e).__name__}: {_http_code(e)}{e}"}; tmo = bool(mb) and is_timeout_error(e); net = is_network_error(e) and not tmo   # metered (Apify) timeouts: a fail (AC4)
                     lat = (clock() - t0) * 1000
                     auth = re.match(r"\S+: HTTP 40([13])\b", str(out.get("error", "")))   # bad or unauthorised key
-                    units = 0 if net or (auth and auth.group(1) == "1") else out.get("billed_units", est)
+                    units = 0 if net or (auth and auth.group(1) == "1") or (tmo and not mb) else out.get("billed_units", est)   # metered timeout: assume billed (est)
                     if kind == "browser" and "billed_units" in out: units = browser_units(out["billed_units"], pid, pr, cfg)
                     if sf:
                         try:
@@ -282,6 +311,17 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
                                   "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
                                   "response_hash": hashlib.sha256(body.encode()).hexdigest()}
+                    rec["cost_estimate_units"] = est; rec["cumulative_spend"] = ledger.used(pool)   # AC8: units this month after this call
+                    if mb: rec["cumulative_usd"] = round(ledger.used(pool) * mb["ledger_unit_usd"], 6)
+                    if tmo: rec["timeout"] = True   # AC4: a fail, scored; reason carries "TimeoutError"
+                    cum_usd = max(g + units * mb["ledger_unit_usd"], ledger.used(pool) * mb["ledger_unit_usd"]) if mb else None   # pre-call max(meter, ledger) + this bill
+                    if mb and (units > est or cum_usd > mb["stop_usd"]):   # billed more than the guard assumed, or past the stop
+                        ov = {"provider": pid, "item_id": item["id"], "set": set_name, "ts": line["ts"], "billed_units": units, "estimate_units": est,
+                              "cumulative_usd": round(cum_usd, 6), "stop_usd": mb["stop_usd"], "over_cap": cum_usd > mb["stop_usd"], "alert": "chief"}
+                        rec["cap_overrun"] = ov; status.setdefault("cap_overrun", []).append(ov)
+                        of = Path(spend_dir) / f"{pid}-cap-overrun-{run_date[:7]}.json"
+                        olog = json.loads(of.read_text()) if of.exists() else {"provider": pid, "month": run_date[:7], "records": []}
+                        olog["records"].append(ov); _atomic_write(of, json.dumps(olog, indent=1, sort_keys=True))
                     if "config" in out: rec["config"] = out["config"]
                     if kind == "search": rec["results"] = [{k: r.get(k) for k in ("url", "title", "snippet", "published_at")} for r in out.get("results", [])[:10]]
                     if auth: rec |= {"status": "auth_error", "pass": None}   # recorded, never scored or counted as attempted
@@ -292,13 +332,16 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         break
                     soh = cfg.get("stop_on_http") or {}
                     err = str(out.get("error", ""))
-                    if soh.get("402") and re.match(r"\S+: HTTP 402\b", err):   # out of credit / plan limit: stop now
-                        status = stale(soh["402"], status, f"HTTP 402 on {item['id']} ({set_name})")
+                    if soh.get("402") and (re.match(r"\S+: HTTP 402\b", err) or PAID_BODY.search(err)):   # out of credit / plan limit: stop now
+                        status = stale(soh["402"], status, f"HTTP 402 on {item['id']} ({set_name})" if "HTTP 402" in err else f"payment/usage-limit error on {item['id']} ({set_name}): {PAID_BODY.search(err).group(1)}")
                         break
-                    run429 = run429 + 1 if is_rate_limited(rec) else 0
+                    if not tmo: run429 = run429 + 1 if is_rate_limited(rec) else 0   # AC6: a timeout neither resets nor advances the streak
                     if soh.get("429_consecutive") and run429 >= soh["429_consecutive"]:   # 429 storm: stop now
                         status = stale("quota", status, f"{run429} consecutive HTTP 429 answers, last on {item['id']} ({set_name})")
                         break
+                    if is_rate_limited(rec) and soh.get("429_consecutive"):   # AC6: wait Retry-After (bounded) before the next call
+                        ra = RETRY_AFTER.search(err); wait = float(ra.group(1)) if ra else soh.get("retry_after_default_s", 0)
+                        time.sleep(min(wait, soh.get("retry_after_max_s", 60)))
                     if ledger.used(pool) > quota:
                         over = ledger.used(pool) - quota
                         ledger.d["over_free_units"] = ledger.d.get("over_free_units", 0) + over  # any unit past the free tier is billable
@@ -312,20 +355,23 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             elif status["status"] == "ran" and quota_degraded(recs):
                 n429 = sum(map(is_rate_limited, recs))
                 status = stale("quota", status, f"quota-degraded: {n429}/{status['calls']} calls answered HTTP 429 (more than 20%)")
-            if not status["data_calls"] and not billed:   # nothing returned and nothing billed: no run lines, no ledger entry
+            if not status["data_calls"] and not billed and not any(r.get("timeout") for r in recs):   # nothing returned, billed or timed out: no run lines, no ledger entry
                 if not ledger.used(pool): ledger.d["used"].pop(pool, None)
                 pending = {}
             for out_f, lines in pending.items():
                 if lines:
                     out_f.parent.mkdir(parents=True, exist_ok=True)
-                    if status["status"].startswith("stale_"):   # stamp the stale run's lines so tables.collect never publishes them
+                    if status["status"].startswith(STOPPED_PREFIXES):   # stamp the stale run's lines so tables.collect never publishes them
                         lines = [json.dumps(json.loads(l) | {"run_status": status["status"]}) + "\n" for l in lines]
                     with open(out_f, "a") as fh: fh.write("".join(lines))
             gap = meter_gap(meters, pid, m0, ledger.used(pool) * mb["ledger_unit_usd"], spend_dir, run_date) if mb and m0 else {}
-            summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota} | gap)
+            spend = {"run_spend_units": round(billed, 6), "cumulative_spend_units": round(ledger.used(pool), 6)}   # AC8
+            if mb: spend |= {"run_spend_usd": round(billed * mb["ledger_unit_usd"], 6), "cumulative_spend_usd": round(ledger.used(pool) * mb["ledger_unit_usd"], 6)}
+            summary["providers"].append(base | status | {"quota_used": ledger.used(pool), "quota": quota} | spend | gap)
+            if status["status"] in PROVIDER_STOPS: pstop = status
     if not any(p.get("data_calls") for p in summary["providers"]) and json.dumps(ledger.d, sort_keys=True) == used_start:
         return summary   # nothing returned data and nothing billed: leave ledger and runs untouched
     ledger.save()
     if ledger.d.get("over_free_units", 0) > 0: raise CapViolation("ledger shows usage past the free tier (billed $ > 0)")
     sp = Path(runs_dir) / run_date / f"_run-offset{offset_h}.json"; sp.parent.mkdir(parents=True, exist_ok=True)
-    sp.write_text(json.dumps(summary, indent=1)); return summary
+    _atomic_write(sp, json.dumps(summary, indent=1)); return summary
