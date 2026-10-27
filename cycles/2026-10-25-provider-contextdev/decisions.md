@@ -58,3 +58,6 @@ This PR records the vendor's written request and opens the context.dev live gate
 ## Spec R41 wording fix (2026-10-27)
 - The R40 entry above says "Any run over a cap or adding a new provider stops and goes back to Lucille 2." as current behaviour. It is a requirement (spec R40.3), detailed in spec R41 (R41.1 pre-run over-cap projection; R41.2 unknown or uncapped provider stop), built in hazeydata/agentwebindex#45 and not on main until #45 merges. Spec R41.3: the workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP. The entry above stays as written (append-only); README.md, bench/README.md, guard.py and both summaries are reworded to match.
 - The README fixes Kitty t1 found (5 crons, `MONTHLY_CAP_USD` hardcoded `"0"`, push to main / manual trigger / test step, 8 adapters) are owned by #45, not this PR.
+
+## Kitty t1 (A7): branch protection not visible (2026-10-27)
+- Kitty t1 (Oct 27 2026) found that neither cycle summary's Still broken list named the branch-protection gap (agentwebindex-meta#34 has it as item 9). Added to Still broken in both cycle summaries (contextdev and keenable): the branch protection API returns 403 for AWI's token and the rulesets list is `[]` on agentwebindex and agentwebindex-meta (re-checked 2026-10-27 3:05 AM ET), so protection on `main` is unverified. Owner: Fred (repo admin).

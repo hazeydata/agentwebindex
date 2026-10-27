@@ -24,6 +24,7 @@ State on main:
 - (Resolved) Keenable docs follow-up #43 merged as `716e2ed4` (2026-10-27 1:14 AM ET).
 - Wayback backfill for the vendor post (R27(5)). Owner: implement.
 - AWI-GATES-RECORDED-PR-001 (R37.2, recorded_pr must equal the PR's own URL in CI) is not built. Until then Kitty and Weatherman check by hand. Owner: implement.
+- Branch protection on `main` is not visible to AWI's token: `GET repos/hazeydata/agentwebindex/branches/main/protection` returns HTTP 403 ("Resource not accessible by personal access token") and `GET .../rulesets` returns `[]` (same for agentwebindex-meta; re-checked 2026-10-27 3:05 AM ET). Whether `main` requires reviews or status checks cannot be confirmed from here; "never push to main" is a working rule, not a verified protection. Owner: Fred (repo admin) to confirm or add protection.
 
 **Docs match code:** yes for contextdev after #42. Keenable: yes after #43 (open, keyless, publishable since #36 squash-merged as `ad262f1c`); the keenable terms line in README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden` (wrong since the committed status is `permitted_by_ruling`, already on main before #42) and is fixed in #42.
 
