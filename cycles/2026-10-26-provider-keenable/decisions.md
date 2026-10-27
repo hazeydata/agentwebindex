@@ -79,6 +79,12 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
   - It replaces "mocks only" and "ships default-closed" in README.md, bench/README.md and SPEC-bench.md with the post-flip wording.
 
 ## Stale K1 code comments fixed (2026-10-27)
-- Kitty and Weatherman flagged on #43 that `bench/awibench/guard.py:13` still said keenable is "mocks only, never called live in K1". The same pre-flip wording was also in `collectors/benchmark.py:210`. Both are rewritten to the post-flip state: open since #36, keyless and publishable, with scheduled runs stopped only by the benchmark workflow being `disabled_manually` in the repo's Actions settings (not in code), and no live keenable call yet. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+- Kitty and Weatherman flagged on #43 that `bench/awibench/guard.py:13` still said keenable is "mocks only, never called live in K1". The same pre-flip wording was also in `collectors/benchmark.py:210`. Both are rewritten to the post-flip state: open since #36, keyless and publishable, with scheduled runs stopped only by the benchmark workflow being `disabled_manually` in the repo's Actions settings (not in code), and no live keenable call yet. Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go.
 - Comments and docstrings only. No code behaviour, tests or gate values change. Neither file is in `confirmation_diff.PROTECTED`.
 - Test-file comments that describe K1-era fixtures (`bench/tests/test_bench.py`, the K1 classes) are left as written: they describe what those tests check, and a test edit is out of scope here.
+
+## Spec R39: live runs covered by Fred's Oct 26 go (2026-10-27)
+- Source: Fred, Oct 27 2026 1:32 AM ET, relayed by chief: "No, my Oct 26 go covers AWI live runs within the spend caps."
+- Live runs: covered by Fred's Oct 26 go within spend caps (R24, R39). No per-run go. R39 supersedes R38 and the earlier wording "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)" above (lines kept as written, append-only), and the "until a per-run go" part of the Lucille 2 entry above.
+- The `benchmark` workflow stays disabled (`disabled_manually` in the repo's Actions settings), and keenable's publish status is pending a Side Hustle CEO ruling. In code keenable is not in `publish_hold`.
+- The per-run lines in README.md, bench/README.md, SPEC-bench.md, config `live_run_ruling` (contextdev and keenable), both cycle summary.md files, the `guard.py` docstring and the `collectors/benchmark.py` comment now use the R39 wording (same PR, docs, comments and config note strings only).

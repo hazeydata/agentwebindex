@@ -42,3 +42,7 @@ This PR records the vendor's written request and opens the context.dev live gate
 - The line "Gate re-closed for #27 per R33; contextdev re-opens only in its flip PR (number TBD)." under "R33/R34" is superseded: the flip PRs are #41 (contextdev, merged as `9dd16aac`) and #36 (keenable, open). The old line stays as written (append-only).
 - Keenable terms wording: README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden`; the committed `providers.keenable.benchmarking.status` is `permitted_by_ruling` (as bench/README.md's terms-clause line already said). Fixed to match the code.
 - Fred's-go wording, used everywhere from now: "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)." It replaces earlier wordings in this folder (such as "Live runs still need Fred's go" in the #41 entry), which read as both pending and already given.
+
+## Spec R39: live runs covered by Fred's Oct 26 go (2026-10-27)
+- Source: Fred, Oct 27 2026 1:32 AM ET, relayed by chief: "No, my Oct 26 go covers AWI live runs within the spend caps."
+- Live runs: covered by Fred's Oct 26 go within spend caps (R24, R39). No per-run go. This supersedes the per-run Fred's-go wording above (kept as written, append-only). The `benchmark` workflow stays disabled, and keenable's publish status is pending a Side Hustle CEO ruling.

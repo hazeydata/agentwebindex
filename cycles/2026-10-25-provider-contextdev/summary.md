@@ -9,11 +9,11 @@ State on main:
 - bench/tos_matrix.yaml: `providers.contextdev.vendor_confirmation_required` stays `true` and `vendor_confirmation` holds the same record.
 - Record: date 2026-10-25; sender "@mynameisyahia (Yahia Bakour, Founder and CEO, Context.dev)"; quote "@HazeyDataFred Hello! Can you add https://t.co/TjSwtUVs0K as well?"; evidence_path `cycles/2026-10-25-provider-contextdev/evidence/posts-api.json.txt`; recorded_pr https://github.com/hazeydata/agentwebindex/pull/41.
 - `guard.live_allowed` is true for contextdev. It still makes zero calls without `CONTEXT_DEV_API_KEY` (the scheduled workflows set none). It stays unpublished: `publish_hold` lists it and the AC23 gate (P0, P1) fails.
-- Keenable is open on main: #36 (R33 2c / R36) squash-merged as `ad262f1c08cfc6909d19f813f3d315a1353db9e0` (2026-10-27 12:52 AM ET), with `live_run_allowed: true` and the record with `recorded_pr` #36. Keenable is keyless and publishable (not in `publish_hold`; AC23 does not apply). The `benchmark` workflow is `disabled_manually` in the repo's Actions settings, so no scheduled run calls it; Lucille 2 (AWI owner) ruled it stays disabled until a per-run go (agent-asserted). Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+- Keenable is open on main: #36 (R33 2c / R36) squash-merged as `ad262f1c08cfc6909d19f813f3d315a1353db9e0` (2026-10-27 12:52 AM ET), with `live_run_allowed: true` and the record with `recorded_pr` #36. Keenable is keyless and publishable (not in `publish_hold`; AC23 does not apply). The `benchmark` workflow is `disabled_manually` in the repo's Actions settings, so no scheduled run calls it; It stays disabled, and keenable's publish status is pending a Side Hustle CEO ruling (R39). Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go.
 
 **Next action:** #42 merged (`fe369f6c`), and #36 merged after its re-sync (squash `ad262f1c`). Next: Kitty, then a Weatherman SHIP on the keenable docs follow-up #43 at its exact head. Nothing else lands on main until #43 merges (R37.1).
 
-**Blockers:** Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+**Blockers:** none from Fred's go: live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go. The `benchmark` workflow stays disabled, and keenable's publish status is pending a Side Hustle CEO ruling (R39).
 
 **Fixed:** README.md, bench/README.md and SPEC-bench.md describe contextdev as open, with the record summary; tos_matrix `providers.contextdev.note` and config `live_run_ruling` match (#42). The follow-up named in #41's docs as TBD is #42.
 

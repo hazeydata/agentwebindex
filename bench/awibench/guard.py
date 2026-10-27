@@ -12,9 +12,10 @@
 
 Keenable (AWI-PROVIDER-KEENABLE-001 K1, R1-R3; built with mocks in K1, open since the K2 flip PR #36, squash-merged 2026-10-27):
 the committed config and tos_matrix carry live_run_allowed True and the #36 vendor record, so live_allowed is True for keenable.
-It is keyless (KEYLESS) and publishable (not in publish_hold), so any harness run calls it; the only thing stopping scheduled
-live calls is the benchmark workflow being disabled_manually in the repo's Actions settings (not in code). No live keenable call
-has been made yet. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+It is keyless (KEYLESS) and publishable in code (not in publish_hold; its publish status is pending a Side Hustle CEO
+ruling, R39), so any harness run calls it; the only thing stopping scheduled live calls is the benchmark workflow being
+disabled_manually in the repo's Actions settings (not in code). No live keenable call has been made yet. Live runs are
+covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go.
 - live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
   free_tier_guard.<pid>.paid_usage_allowed to be bool False (missing or non-bool fails closed, R1).
 - request_opts / credits / billed dispatch per provider id (contextdev keeps its F4/F5 rules; keenable: 1 attempt per call, 0 billed:
