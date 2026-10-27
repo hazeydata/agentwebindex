@@ -24,6 +24,7 @@ Quota ledger (units in the provider's billing unit; browser = billed minutes) li
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
 import datetime as dt, fcntl, hashlib, json, math, os, re, time
+from decimal import Decimal
 from pathlib import Path
 from .util import PUBLISHED_DIRS, is_under, not_captured
 from . import checks, cost, guard, gates
@@ -230,9 +231,212 @@ def _grade(kind, set_name, item, out, cfg):
     if kind == "scrape": return checks.scrape_check(item, out, cfg["challenge_signatures"], cfg.get("challenge_html_signatures", ()))
     return checks.browser_check(item, out)
 
+def live_gated(pid, t_e, fg):
+    """R9/R26 (C07): guard.LIVE_GATED or guard.KEYLESS ids, any tos entry that requires vendor confirmation, or any guard block with a
+    live_run_allowed key: such a provider is called only if guard.live_allowed() is True."""
+    return pid in guard.LIVE_GATED or pid in guard.KEYLESS or t_e.get(gates.REQUIRED_FLAG) is True or bool(fg and "live_run_allowed" in fg)
+
+def gate(p, kind, pr, tos, cfg, env, adapters):
+    """The skip checks for one (provider, category), in run order. None = it will be called; else the summary status/reason.
+    run() and check_run() both use it, so the R41 projection plans exactly the providers the run calls."""
+    pid = p["id"]; t_e = tos.get(pid) or {}
+    if not gates.vendor_confirmed(t_e):   # R10: gated and unconfirmed -> never called, whatever the key/config say
+        return {"status": "skipped_no_vendor_confirmation", "reason": "tos_matrix vendor confirmation required and not recorded; no call made"}
+    fc = forbidden_clause(t_e)
+    if fc: return {"status": "excluded_tos_benchmarking", "reason": f"terms forbid {fc.replace('_', ' ')}: {t_e[fc].get('quote')} ({t_e.get('terms_url')}, checked {t_e.get('checked_at')})"}
+    m1 = cfg.get("month1_free_tier_providers")
+    if m1 is not None and pid not in m1:
+        return {"status": "skipped_not_month1", "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"}
+    fg = (cfg.get("free_tier_guard") or {}).get(pid)
+    if fg and pid in guard.FREE_ONLY and fg.get("paid_usage_allowed") is not False:   # Keenable R1: missing or non-bool fails closed
+        return {"status": "stopped_paid_usage", "reason": f"config free_tier_guard.{pid}.paid_usage_allowed must be bool false; no call made"}
+    # Keenable R5: the keyless placeholder never bypasses the live gate. A missing key, null record or missing block fails closed.
+    if live_gated(pid, t_e, fg) and not guard.live_allowed(cfg, tos, pid):
+        return {"status": "skipped_no_vendor_confirmation", "reason": f"live_run_allowed is not true or vendor_confirmation is not recorded (config free_tier_guard.{pid}); no call made"}
+    if pid in guard.LIVE_GATED and not fg: raise CapViolation(f"{pid}: free_tier_guard.{pid} missing; the credit guard must always apply")   # unreachable: live_allowed needs the block
+    key = "keyless" if pid in guard.KEYLESS else env.get(p["key_env"])   # keenable: keyless public endpoint (AC18)
+    if not key: return {"status": "skipped_no_key", "reason": "not run (no key)"}
+    if (adapters.get(pid) or {}).get(kind) is None: return {"status": "not_implemented"}
+    ok, why = eligibility(pid, pr, cfg)
+    if not ok: return {"status": "skipped_no_free_tier", "reason": why}
+    return None
+
+def call_estimate(pid, kind, item, pr, cfg, fg, mb, pool):
+    """(estimated units of one call, guarded request opts or None). Raises UnknownCost when the per-call cost is unknown and config has
+    no worst_case_units_per_call for it. The pre-call guards and the R41 projection use this same number."""
+    wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind); req = None
+    try:
+        if mb and pr.get("model") in ("credits", "per_request", "tier") and kind not in (pr.get("credits_per_call") or {}):   # USD-metered pool: 1 is not a cost
+            raise UnknownCost(f"{pr.get('model')} model with no credits_per_call.{kind} on metered pool {pool}")
+        est = estimate_units(pr, kind, item, pid, cfg)
+    except UnknownCost:
+        if wc is None: raise
+        est = wc
+    if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
+    if fg: req = guard.request_opts(pid, kind, item); est = guard.credits(pid, kind, req, None)   # F4 credit rule, requested result count
+    return est, req
+
+class RunRefused(RuntimeError):
+    """R41: the whole run is refused before any provider call. .report is the over_cap_projected.json body."""
+    def __init__(self, report): super().__init__(report["reason"]); self.report = report
+
+OVER_CAP_FILE = "over_cap_projected.json"
+
+def _dec(v):
+    """Exact Decimal of a config/ledger number via its shortest repr (0.1 -> Decimal('0.1')), so no float edge errors; None if not a number."""
+    return Decimal(repr(v)) if type(v) in (int, float) and math.isfinite(v) else None
+
+def _posint(v): return type(v) is int and v > 0
+
+def _s(d): return None if d is None else format(d.normalize(), "f")   # exact, no trailing zeros ("0.15")
+
+def list_price_per_unit(pr):
+    """List price of one billing unit: the cost.cost_columns() entry-tier price (per 1k, at list price) for a 1-unit line, read
+    exactly (float noise below $0.000001 per 1k dropped). None when cost_columns has no price (NOT CAPTURED, no tiers)."""
+    d = _dec(cost.cost_columns(pr, [{"status": "pass", "billed_units": 1}])["entry_tier_cost_per_1k"])
+    return None if d is None else d.quantize(Decimal("0.000001")) / 1000
+
+def _counter_used(gdir, pid, fg, now):
+    """Attempts already on the credit-guard counter for the window of `now` (read-only, no lock). 0 when absent; None if unreadable."""
+    if fg.get("window") == "utc_hour": w = guard.hour_window(now)
+    else:
+        try: w = guard.anchor_window_start(now, fg.get("grant_anchor_day")).isoformat()
+        except guard.AnchorNotConfigured: w = guard.UNANCHORED
+    f = Path(gdir) / f"{pid}-{w}.json"
+    if not f.exists(): return 0
+    try: d = json.loads(f.read_text())
+    except (OSError, ValueError): return None
+    return d["attempted"] if guard._valid(d, pid, w) else None
+
+def _spend_mtd(spend_dir, pid, month):
+    """Month-to-date USD from the provider's spend file (read-only). 0 when absent; None if unreadable or invalid."""
+    f = Path(spend_dir) / f"{pid}-{month}.json"
+    if not f.exists(): return Decimal(0)
+    try: d = json.loads(f.read_text())
+    except (OSError, ValueError): return None
+    return _dec(d["est_usd"]) if valid_spend(d, pid, month) else None
+
+def provider_problems(providers, cfg, tos, mock=False):
+    """R41.2: the run stops before any call for a provider absent from config known_providers, or a provider set to live (it passes
+    guard.live_allowed) with no cap entry (free_tier_guard quota_credits and stop_at_credits; keenable also rate_limit.max_per_hour).
+    Known providers that are off for month one are not problems (skipped_not_month1). A missing or null known_providers is accepted
+    only in mock runs (mock provider ids are not real); a live run without the list fails closed."""
+    known = cfg.get("known_providers")
+    if known is None and mock: pass
+    elif not isinstance(known, list) or not known or not all(type(k) is str for k in known):
+        return ["config known_providers missing or not a list of provider ids; failing closed"]
+    out = []
+    for p in providers:
+        pid = p["id"]; fg = (cfg.get("free_tier_guard") or {}).get(pid)
+        if known is not None and pid not in known: out.append(f"{pid}: unknown provider (not in config known_providers)"); continue
+        if not live_gated(pid, tos.get(pid) or {}, fg) or not guard.live_allowed(cfg, tos, pid): continue
+        miss = [k for k in ("quota_credits", "stop_at_credits") if not _posint(fg.get(k))]
+        if (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour") and not _posint((fg.get("rate_limit") or {}).get("max_per_hour")): miss.append("rate_limit.max_per_hour")
+        if miss: out.append(f"{pid}: set to live with no cap entry (config free_tier_guard.{pid}.{', '.join(miss)} missing or not a positive int)")
+    return out
+
+def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spend_dir, guard_dir, run_date, now, mock=False, only_ids=None):
+    """R41, once per run before any provider call. Returns the over_cap_projected.json report; report["refused"] True = 0 calls.
+    1. provider_problems (R41.2).
+    2. For every provider that will make calls (gate() is None), per billing pool: planned_calls = the set items the run would call
+       (only_ids applied, ToS-skipped anti-bot items excluded, no retries), planned_units = their call_estimate() units, price = the
+       cost.cost_columns() list price, projected_usd = planned_units x unit price (exact Decimal).
+       Cap: meter_budget (stop_usd minus ledger pool x ledger_unit_usd) or spend_budget (stop_usd minus the spend file's month-to-date
+       est_usd): refuse if projected_usd > remaining_usd. Otherwise the free quota (D4: the $0 cap is spent only from free units):
+       remaining units = quota minus the ledger, and for a free_tier_guard provider also stop_at_credits minus its counter; refuse if
+       planned_units > remaining units (remaining_usd = those units at list price). Exactly at the cap runs.
+       Keenable (FREE_ONLY / utc_hour window) also: planned_calls + this UTC hour's counter must be <= rate_limit.max_per_hour (899).
+    3. A missing price, cap, unknown per-call cost or unreadable counter/spend file refuses the run (fail closed)."""
+    rep = refusal_report(run_date, now, provider_problems(providers, cfg, tos, mock))
+    if not rep["problems"]:
+        plan = {}
+        for p in providers:
+            pid = p["id"]; fg = (cfg.get("free_tier_guard") or {}).get(pid)
+            for kind in p["categories"]:
+                pr = (pricing.get(pid) or {}).get(kind) or {}
+                if gate(p, kind, pr, tos, cfg, env, adapters) is not None: continue
+                pool = pr["free_tier"].get("pool") or pid
+                mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None
+                row = plan.setdefault((pid, pool), {"pid": pid, "pool": pool, "fg": fg, "mb": mb, "kinds": {}, "unknown": None})
+                calls = []
+                for set_name, s in sets.items():
+                    if set_kind(set_name) != kind: continue
+                    for item in s["rows"]:
+                        if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
+                        if (item.get("class") == "anti_bot" or item.get("category") == "anti_bot") and not anti_bot_allowed(tos.get(pid) or {}): continue
+                        try: calls.append(call_estimate(pid, kind, item, pr, cfg, fg, mb, pool)[0])
+                        except UnknownCost as e: row["unknown"] = f"unknown per-call cost ({e})"
+                q = pr["free_tier"]["units_per_month"] if pr["free_tier"].get("units_per_month") is not None else pr["free_tier"].get("units_per_hour")
+                if calls or row["unknown"]: row["kinds"][kind] = {"calls": calls, "price": list_price_per_unit(pr), "quota": q}
+        for (pid, pool), r in plan.items():
+            if not r["kinds"]: continue
+            rep["providers"].append(_project(r, cfg, ledger, spend_dir, guard_dir, now))
+        bad = [x for x in rep["providers"] if x["reason"]]
+        rep["problems"] += [f"{x['provider']}: {x['reason']}" for x in bad]
+    return refusal_report(run_date, now, rep["problems"], rep["providers"])
+
+def refusal_report(run_date, now, problems, providers=()):
+    """The over_cap_projected.json body: refused (True when any problem), reason, problems, and per-provider projection rows
+    (planned_calls, price, projected_usd, remaining_usd, reason)."""
+    return {"artifact": OVER_CAP_FILE, "spec": "awi-provider-contextdev-001 R41", "run_date": run_date, "checked_at": now.isoformat(timespec="seconds"),
+            "refused": bool(problems), "reason": ("run refused before any provider call (R41; returns to Side Hustle CEO): " + "; ".join(problems)) if problems else None,
+            "problems": list(problems), "providers": list(providers)}
+
+def _project(r, cfg, ledger, spend_dir, gdir, now):
+    pid, pool, fg, mb = r["pid"], r["pool"], r["fg"], r["mb"]
+    calls = [u for k in r["kinds"].values() for u in k["calls"]]; n = len(calls)
+    units = sum((_dec(u) for u in calls), Decimal(0)) if all(_dec(u) is not None for u in calls) else None
+    out = {"provider": pid, "pool": pool, "categories": sorted(r["kinds"]), "planned_calls": n, "planned_units": _s(units),
+           "price": None, "price_usd_per_unit": {k: _s(v["price"]) for k, v in sorted(r["kinds"].items())},
+           "projected_usd": None, "remaining_usd": None, "cap": None, "reason": None}
+    def fail(why): out["reason"] = why; return out
+    if r["unknown"]: return fail(r["unknown"])
+    if units is None: return fail("planned units are not numbers")
+    if any(v["price"] is None for v in r["kinds"].values()):
+        return fail("list price missing (cost.cost_columns entry tier n/a for " + ", ".join(k for k, v in sorted(r["kinds"].items()) if v["price"] is None) + ")")
+    proj = sum((_dec(u) * v["price"] for v in r["kinds"].values() for u in v["calls"]), Decimal(0))
+    out["projected_usd"] = _s(proj); out["price"] = _s((proj / n).quantize(Decimal("1E-9"))) if n else "0"
+    sb = (cfg.get("spend_budget") or {}).get(pid)
+    if mb or sb:   # USD cap
+        b = mb or sb; stop = _dec(b.get("stop_usd"))
+        if stop is None: return fail(f"cap missing ({'meter_budget' if mb else 'spend_budget'}.{pid}.stop_usd)")
+        if mb:
+            lu = _dec(mb.get("ledger_unit_usd")); used = _dec(ledger.used(pool))
+            if lu is None or used is None: return fail(f"cap missing (meter_budget.{pid}.ledger_unit_usd or ledger pool {pool} not a number)")
+            mtd = used * lu
+        else:
+            mtd = _spend_mtd(spend_dir, pid, now.astimezone(dt.timezone.utc).strftime("%Y-%m"))
+            if mtd is None: return fail(f"month-to-date spend file for {pid} unreadable or invalid; failing closed")
+        usd_rem = stop - mtd; out["remaining_usd"] = _s(usd_rem); out["cap"] = {"kind": "usd", "stop_usd": _s(stop), "month_to_date_usd": _s(mtd)}
+        if proj > usd_rem: return fail(f"projected ${_s(proj)} > remaining ${_s(usd_rem)} (stop ${_s(stop)} minus month-to-date ${_s(mtd)})")
+    else: usd_rem = None   # the free quota below is the cap (and, for a USD-capped provider, a second cap the per-call quota guard also enforces)
+    qs = {v["quota"] for v in r["kinds"].values()}
+    q = qs.pop() if len(qs) == 1 else None
+    if q is None or _dec(q) is None or q <= 0: return fail(f"cap missing (free-tier quota for pool {pool})")
+    cap = _dec(q); used = _dec(ledger.used(pool))
+    if used is None: return fail(f"ledger pool {pool} not a number; failing closed")
+    rem_u = cap - used; info = {"kind": "free_quota_units", "quota_units": _s(cap), "ledger_used_units": _s(used)}
+    if fg:
+        cap = min(cap, _dec(fg["quota_credits"])); rem_u = cap - used
+        cu = _counter_used(gdir, pid, fg, now)
+        if cu is None: return fail(guard.UNREADABLE)
+        rem_u = min(rem_u, _dec(fg["stop_at_credits"]) - cu); info |= {"quota_units": _s(cap), "stop_at_credits": fg["stop_at_credits"], "counter_used": cu}
+    q_rem_usd = rem_u * proj / units if units else Decimal(0)
+    out["cap"] = info if usd_rem is None else out["cap"] | {"free_quota": info}; out["remaining_units"] = _s(rem_u)
+    out["remaining_usd"] = _s(q_rem_usd if usd_rem is None else min(usd_rem, q_rem_usd))
+    if units > rem_u: return fail(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
+    if fg and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour"):
+        mh = fg["rate_limit"]["max_per_hour"]; hu = _counter_used(gdir, pid, fg, now) if fg.get("window") == "utc_hour" else 0
+        out["cap"] = out["cap"] | {"max_per_hour": mh, "this_hour_used": hu}
+        if n + hu > mh: return fail(f"{n} planned calls + {hu} this UTC hour > {mh} per hour")
+    return out
+
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,
-        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep):
-    """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0."""
+        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep, preflight=True):
+    """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0.
+    R41: unless preflight=False (tests of the per-call backstop guards only; the live collector never passes it), check_run() runs
+    once before any provider call and raises RunRefused (0 calls, nothing written) on an unknown provider, a live provider with
+    no cap entry, or a projected cap breach."""
     if mock and (is_under(runs_dir, PUBLISHED_DIRS) or is_under(ledger_path, PUBLISHED_DIRS)):
         raise RuntimeError("mock run output must not go to published data/, dist/ or bench/runs/")
     cap = float(env.get("MONTHLY_CAP_USD", "0") or 0)
@@ -245,6 +449,10 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     if mock and is_under(gdir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
         raise RuntimeError("mock run credit counters must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
+    if preflight:   # R41.1/R41.2: once per run, before any provider call; refuses the whole run (partial runs break set comparability)
+        rep = check_run(providers=providers, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg, env=env, ledger=ledger, spend_dir=spend_dir,
+                        guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, now=(now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)))
+        if rep["refused"]: raise RunRefused(rep)
     for p in providers:
         pid = p["id"]; pp = pricing.get(pid, {}); pstop = None
         for kind in p["categories"]:
@@ -252,29 +460,10 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             base = {"provider": pid, "category": kind}
             if pstop:   # AC5: a 401/403/402 (or Apify payment/usage-limit error) stops the whole provider, every category
                 summary["providers"].append(base | {"status": pstop["status"], "calls": 0, "data_calls": 0, "reason": f"provider stopped earlier this run: {pstop['reason']}"}); continue
-            t_e = tos.get(pid) or {}
-            if not gates.vendor_confirmed(t_e):   # R10: gated and unconfirmed -> never called, whatever the key/config say
-                summary["providers"].append(base | {"status": "skipped_no_vendor_confirmation", "reason": "tos_matrix vendor confirmation required and not recorded; no call made"}); continue
-            fc = forbidden_clause(t_e)
-            if fc:
-                summary["providers"].append(base | {"status": "excluded_tos_benchmarking", "reason": f"terms forbid {fc.replace('_', ' ')}: {t_e[fc].get('quote')} ({t_e.get('terms_url')}, checked {t_e.get('checked_at')})"}); continue
-            m1 = cfg.get("month1_free_tier_providers")
-            if m1 is not None and pid not in m1:
-                summary["providers"].append(base | {"status": "skipped_not_month1", "reason": "not on the month-one free-quota list (config month1_free_tier_providers)"}); continue
-            fg = (cfg.get("free_tier_guard") or {}).get(pid)
-            if fg and pid in guard.FREE_ONLY and fg.get("paid_usage_allowed") is not False:   # Keenable R1: missing or non-bool fails closed
-                summary["providers"].append(base | {"status": "stopped_paid_usage", "reason": f"config free_tier_guard.{pid}.paid_usage_allowed must be bool false; no call made"}); continue
-            # R9/R26 (C07): a live-gated provider (guard.LIVE_GATED or guard.KEYLESS (Keenable R5: the keyless placeholder never bypasses it), or any tos entry that requires vendor confirmation, or any guard block
-            # with a live_run_allowed key) is called only if guard.live_allowed() is True. A missing key, null record or missing block fails closed.
-            if (pid in guard.LIVE_GATED or pid in guard.KEYLESS or t_e.get(gates.REQUIRED_FLAG) is True or (fg and "live_run_allowed" in fg)) and not guard.live_allowed(cfg, tos, pid):
-                summary["providers"].append(base | {"status": "skipped_no_vendor_confirmation", "reason": f"live_run_allowed is not true or vendor_confirmation is not recorded (config free_tier_guard.{pid}); no call made"}); continue
-            if pid in guard.LIVE_GATED and not fg: raise CapViolation(f"{pid}: free_tier_guard.{pid} missing; the credit guard must always apply")   # unreachable: live_allowed needs the block
-            key = "keyless" if pid in guard.KEYLESS else env.get(p["key_env"])   # keenable: keyless public endpoint (AC18)
-            fn = (adapters.get(pid) or {}).get(kind)
-            if not key: summary["providers"].append(base | {"status": "skipped_no_key", "reason": "not run (no key)"}); continue
-            if fn is None: summary["providers"].append(base | {"status": "not_implemented"}); continue
-            ok, why = eligibility(pid, pr, cfg)
-            if not ok: summary["providers"].append(base | {"status": "skipped_no_free_tier", "reason": why}); continue
+            t_e = tos.get(pid) or {}; fg = (cfg.get("free_tier_guard") or {}).get(pid)
+            skip = gate(p, kind, pr, tos, cfg, env, adapters)
+            if skip: summary["providers"].append(base | skip); continue
+            key = "keyless" if pid in guard.KEYLESS else env.get(p["key_env"]); fn = (adapters.get(pid) or {}).get(kind)
             pool = pr["free_tier"].get("pool") or pid; quota = pr["free_tier"]["units_per_month"] if pr["free_tier"].get("units_per_month") is not None else pr["free_tier"]["units_per_hour"]   # AC24 keyless
             sem = None; gmeta = {}; last_read = None
             if fg:   # AWI-PROVIDER-CONTEXTDEV-001: attempts guard per grant-anchor window, max(meter, counter), max_concurrent semaphore; free tier only
@@ -301,16 +490,9 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                             fh.append(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
                                                         "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
                             continue
-                    wc = ((cfg.get("worst_case_units_per_call") or {}).get(pid) or {}).get(kind)
-                    try:
-                        if mb and pr.get("model") in ("credits", "per_request", "tier") and kind not in (pr.get("credits_per_call") or {}):   # USD-metered pool: 1 is not a cost
-                            raise UnknownCost(f"{pr.get('model')} model with no credits_per_call.{kind} on metered pool {pool}")
-                        est = estimate_units(pr, kind, item, pid, cfg)
+                    try: est, req = call_estimate(pid, kind, item, pr, cfg, fg, mb, pool)   # the same estimate check_run() projects
                     except UnknownCost as e:
-                        if wc is None: status = stale("metered_budget" if mb else "budget", status, f"unknown per-call cost ({e}); failing closed"); break
-                        est = wc
-                    if wc is not None: est = max(est, wc)   # pre-call worst-case guard (unverified per-call cost)
-                    if fg: req = guard.request_opts(pid, kind, item); est = guard.credits(pid, kind, req, None)   # F4 credit rule, requested result count
+                        status = stale("metered_budget" if mb else "budget", status, f"unknown per-call cost ({e}); failing closed"); break
                     if mb:
                         mv = read_meter(meters, pid)
                         if mv is None:

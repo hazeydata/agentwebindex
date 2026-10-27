@@ -77,3 +77,32 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
   - It labels the Fred's-go line in this folder's summary.md.
   - It removes the K1 pre-flip wording from tos `providers.keenable.note` and config `free_tier_guard.keenable.live_run_ruling`; text only, gate values unchanged.
   - It replaces "mocks only" and "ships default-closed" in README.md, bench/README.md and SPEC-bench.md with the post-flip wording.
+
+## Stale K1 code comments fixed (2026-10-27)
+- Kitty and Weatherman flagged on #43 that `bench/awibench/guard.py:13` still said keenable is "mocks only, never called live in K1". The same pre-flip wording was also in `collectors/benchmark.py:210`. Both are rewritten to the post-flip state: open since #36, keyless and publishable, with scheduled runs stopped only by the benchmark workflow being `disabled_manually` in the repo's Actions settings (not in code), and no live keenable call yet. Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go.
+- Comments and docstrings only. No code behaviour, tests or gate values change. Neither file is in `confirmation_diff.PROTECTED`.
+- Test-file comments that describe K1-era fixtures (`bench/tests/test_bench.py`, the K1 classes) are left as written: they describe what those tests check, and a test edit is out of scope here.
+
+## Spec R39: live runs covered by Fred's Oct 26 go (2026-10-27)
+- Source: Fred, Oct 27 2026 1:32 AM ET, relayed by chief: "No, my Oct 26 go covers AWI live runs within the spend caps."
+- Live runs: covered by Fred's Oct 26 go within spend caps (R24, R39). No per-run go. R39 supersedes R38 and the earlier wording "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)" above (lines kept as written, append-only), and the "until a per-run go" part of the Lucille 2 entry above.
+- Workflow and publish status: superseded by the next entry (AWI-KEENABLE-HOLD cancelled; benchmark re-enable approved, sequenced after paper desk R25 reaches Kitty).
+- The per-run lines in README.md, bench/README.md, SPEC-bench.md, config `live_run_ruling` (contextdev and keenable), both cycle summary.md files, the `guard.py` docstring and the `collectors/benchmark.py` comment now use the R39 wording (same PR, docs, comments and config note strings only).
+
+## Keenable hold cancelled; benchmark re-enable approved (2026-10-27)
+- **Lucille 2 (Side Hustle CEO), 1:33 AM ET Oct 27, agent-asserted:** AWI-KEENABLE-HOLD is cancelled. Keenable is NOT added to `publish_hold`, and the cap guards are unchanged. This supersedes "keenable's publish status is pending a Side Hustle CEO ruling".
+- **Fred, 1:36 AM ET Oct 27 (spec R40):** "Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps." The re-enable is sequenced after paper desk R25 reaches Kitty. Until then the workflow is still `disabled_manually` in the repo's Actions settings. Any run over a cap or adding a new provider stops and goes back to Lucille 2. This supersedes "the `benchmark` workflow stays disabled" and the "until a per-run go" part of the Lucille 2 entry above.
+- Docs are written to stay true before and after the re-enable: "approved for re-enable (spec R40); state as of this PR: `disabled_manually`". This PR does not enable the workflow.
+
+## Spec R40 recorded; Kitty t1 on #44 (2026-10-27)
+- Spec recorded Fred's 1:36 AM ET answer ("Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps.") as contextdev spec R40. Every mention of that approval in this PR now cites "(spec R40)" in place of the unsourced "relayed by chief" labels Kitty t1 flagged. R40.3: re-enable is sequenced after paper-desk spec-002 R25 reaches Kitty; a run over a cap or adding a new provider stops and returns to Side Hustle CEO. State as of this PR: `disabled_manually`; this PR does not enable the workflow.
+
+## Spec R41 wording fix (2026-10-27)
+- The R40 entry above says "Any run over a cap or adding a new provider stops and goes back to Lucille 2." as current behaviour. It is a requirement (spec R40.3), detailed in spec R41 (R41.1 pre-run over-cap projection; R41.2 unknown or uncapped provider stop), built in hazeydata/agentwebindex#45 and not on main until #45 merges. Spec R41.3: the workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP. The entry above stays as written (append-only); README.md, bench/README.md, guard.py and both summaries are reworded to match.
+- The README fixes Kitty t1 found (5 crons, `MONTHLY_CAP_USD` hardcoded `"0"`, push to main / manual trigger / test step, 8 adapters) are owned by #45, not this PR.
+
+## Kitty t1 (A7): branch protection not visible (2026-10-27)
+- Kitty t1 (Oct 27 2026) found that neither cycle summary's Still broken list named the branch-protection gap (agentwebindex-meta#34 has it as item 9). Added to Still broken in both cycle summaries (contextdev and keenable): the branch protection API returns 403 for AWI's token and the rulesets list is `[]` on agentwebindex and agentwebindex-meta (re-checked 2026-10-27 3:05 AM ET), so protection on `main` is unverified. Owner: Fred (repo admin).
+
+## #44 merged into #45 (2026-10-27, Kitty t3)
+Appended; the entries above are not edited. The R41 wording above ("a requirement ... not on main until #45 merges") is superseded: #45 contains #44 via a merge commit, and with #45 merged, R41.1/R41.2 (`runner.check_run`, pre-run projection and provider stop) are on main. Keenable's pre-run check also counts planned calls plus this UTC hour's calls against 899. Merge order is fixed: #44, then #45, then #46.
