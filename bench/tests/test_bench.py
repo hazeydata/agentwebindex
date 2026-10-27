@@ -3564,6 +3564,46 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(guard_mod.live_allowed({"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": "x"}}}, self.tos, "keenable"))
         self.assertFalse((self.tmp / "runs").exists())
 
+    # R33: Kitty's three surviving mutants of #40's checker (evidence awi-r32-gate t1-20261026-2247, MUTANTS-B8.txt M10/M11/M12), one test each
+    def test_r33_m10_head_confirmed_not_forced_false(self):   # M10: head_confirmed() forced to False would grant the bootstrap allowance to a confirmed head
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; code = "bench/awibench/runner.py"
+        b, h = self._cd_docs()
+        self.assertFalse(cd.head_confirmed(h))
+        for docs in (b, h):   # keenable already confirmed at base AND head (unchanged), so the head counts as confirmed
+            docs[T]["providers"]["keenable"]["vendor_confirmation"] = dict(self.REC)
+            docs[C]["free_tier_guard"]["keenable"] = {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
+        self.assertTrue(cd.head_confirmed(h))
+        self.assertTrue(cd.head_confirmed({T: {"providers": {}}, C: {"free_tier_guard": {"x": {"live_run_allowed": True, "vendor_confirmation": None}}}}))   # live_run_allowed true alone
+        self.assertTrue(cd.head_confirmed({T: {"providers": {"x": {"vendor_confirmation": {"date": "bad"}}}}, C: {}}))   # an incomplete record still counts
+        h[T]["providers"]["exa"]["vendor_confirmation"] = None   # NEW confirmation field at the closed default, plus code
+        probs = cd.check([T, code], b, h)
+        self.assertTrue(any("flip-only" in x and code in x for x in probs), probs)   # no bootstrap allowance while anything is confirmed
+        b2, h2 = self._cd_docs(); h2[T]["providers"]["exa"]["vendor_confirmation"] = None
+        self.assertEqual(cd.check([T, code], b2, h2), [])   # control: nothing confirmed, the allowance applies
+    def test_r33_m11_sq3_strict_type_compare(self):   # M11: same() without the type check (json.dumps only) must be rejected
+        import datetime
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for a, b in (("false", False), ("true", True), (1, True), (0, False), (None, False), ("1", 1), (1, 1.0),   # string vs bool/int, int vs bool/float
+                     (["x"], ("x",)), ({"a"}, "{'a'}"), (datetime.date(2026, 10, 30), "datetime.date(2026, 10, 30)")):   # same json.dumps text, different type
+            self.assertFalse(cd.same(a, b), (a, b)); self.assertFalse(cd.same(b, a), (b, a)); self.assertTrue(cd.same(a, a)); self.assertTrue(cd.same(b, b))
+        b, h = self._cd_docs()
+        h[C]["free_tier_guard"]["contextdev"]["stop_at_credits"] = 900.0   # int -> float, same number
+        self.assertEqual([p for p, _, _ in cd.changed_paths(b[C], h[C])], [("free_tier_guard", "contextdev", "stop_at_credits")])
+        b, h = self._cd_docs()
+        b[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ["HTTP 402"]; h[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ("HTTP 402",)   # list -> tuple
+        self._flip(h)
+        probs = cd.check([T, C], b, h)
+        self.assertTrue(any("flip-only" in x and "free_tier_guard.contextdev.quota_stop_errors" in x for x in probs), probs)
+    def test_r33_m12_r26_guard_field_deletion_fails(self):   # M12: dropping the R26 guard must fail; a data-only deletion is caught by nothing else
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for drop in ("live_run_allowed", "vendor_confirmation", None):
+            b, h = self._cd_docs()
+            if drop: del h[C]["free_tier_guard"]["contextdev"][drop]
+            else: del h[C]["free_tier_guard"]["contextdev"]
+            want = f"free_tier_guard.contextdev.{drop} deleted" if drop else "free_tier_guard.contextdev deleted or renamed"
+            probs = cd.check([C], b, h)
+            self.assertTrue(any(x.startswith("R26") and want in x for x in probs), (drop, probs))
+            if drop: self.assertEqual([x for x in probs if not x.startswith("R26")], [], (drop, probs))   # a key deletion: only R26 catches it
 
 class SnapshotPricesGate(unittest.TestCase):
     def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
