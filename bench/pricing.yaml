@@ -392,13 +392,14 @@
      "units_per_month": 500,
      "needs_card": false,
      "pool": "apify_usd_cents",
-     "note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search, $0.00228 per fetched page and $0.000225 per Actor Start event (pricing page and public Actor record, read 2026-10-27). Units here are US cents of that $5."
+     "note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search, $0.00228 per fetched page and $0.000225 per Actor Start event, 8 events per start at the Actor's published 8192 MB (pricing page and public Actor record, read 2026-10-27). Units here are US cents of that $5."
     },
     "tiers": {
      "entry": {
       "name": "Free plan per-event rate (AWI's plan)",
       "unit_price": 0.01,
-      "note": "unit = 1 US cent of event charges at the Free-plan event prices the adapter bills (collectors/benchmark.py APIFY_FREE_EVENT_USD). Spec R42.1 source, read 2026-10-27 02:40:22 ET, https://apify.com/apify/rag-web-browser/pricing (Free column, verbatim): 'Search result | $3.48 | / 1,000', 'Fetched page | Primary | $2.28 | / 1,000', 'Actor Start | Infrequent | $0.000225', 'Platform usage | Compute units (CU) | $0.20 | / CU'. Capture: agentwebindex cycles/2026-10-25-provider-contextdev/evidence/pricing-r42 (SHA256SUMS). Hedge: compute units per call are not published, so platform usage is not in this cost; Actor Start is counted as one event per call (the published minimum; events scale with memory, one per GB, and Standby start frequency is not published). Cost is a lower bound on the vendor's all-in charge."
+      "note": "unit = 1 US cent of event charges at the Free-plan event prices the adapter bills (collectors/benchmark.py APIFY_FREE_EVENT_USD). Spec R42.1 source, read 2026-10-27 02:40:22 ET, https://apify.com/apify/rag-web-browser/pricing (Free column, verbatim): 'Search result | $3.48 | / 1,000', 'Fetched page | Primary | $2.28 | / 1,000', 'Actor Start | Infrequent | $0.000225', 'Platform usage | Compute units (CU) | $0.20 | / CU'. Capture: agentwebindex cycles/2026-10-25-provider-contextdev/evidence/pricing-r42 (SHA256SUMS). The unit price is exact (1 unit = 1 US cent = $0.01). Actor Start: 'one event per GB, minimum one event' and the captured Actor record publishes memoryMbytes 8192, so one start = 8 events = $0.0018; how often a Standby run starts is not published (runs are reused), so one start per call is counted (a hedge, neither a minimum nor a maximum). Compute units per call are not published, so the unit count leaves out platform usage and the cost column is flagged a lower bound (lower_bound below). At 10 fetched pages a call is 0.18 + 0.348 + 2.28 = 2.808 cents, $28.08 per 1K calls.",
+      "lower_bound": "Apify platform usage (compute units per call) is not published and not counted"
      },
      "volume": {
       "name": "NOT CAPTURED",

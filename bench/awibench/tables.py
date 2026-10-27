@@ -154,7 +154,7 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
             for col in (f"{k}_tier_cost_per_1k", f"{k}_tier_cost_per_successful_1k"):
                 v = cc[col]; row[col] = _cell(None if v is None else ("inf" if v == float("inf") else v), _refs(rel, alln) + pref if v is not None else [],
                                                tier=cc[f"{k}_tier_name"], lower_bound=cc[f"{k}_tier_lower_bound"],
-                                               lower_bound_reason="vendor minimum/rounding not on pricing page; billed time could be higher" if cc[f"{k}_tier_lower_bound"] else None,
+                                               lower_bound_reason=cost.lower_bound_reason(pr, k) if cc[f"{k}_tier_lower_bound"] else None,
                                                na_reason=cc[f"{k}_tier_na_reason"],
                                                display=cc[f"{k}_tier_na_reason"] if v is None and cc[f"{k}_tier_na_reason"] else cost.fmt(v, cc[f"{k}_tier_lower_bound"]))
         doc["tables"][kind].append(row)

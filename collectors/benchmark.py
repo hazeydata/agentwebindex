@@ -48,11 +48,14 @@ def _firecrawl_search(key, item):   # pricing.yaml credits_per_call search = 2
 # Apify RAG Web Browser (Store Actor apify/rag-web-browser), Standby endpoint: Google search + page fetch, priced per event.
 # Event prices at the Apify Free plan (USD), spec R42.1 source read 2026-10-27 02:40 ET from https://apify.com/apify/rag-web-browser/pricing
 # and the public Actor record: search 0.00348, fetched page 0.00228, Actor Start 0.000225 (in effect since 2026-10-02). Actor Start is
-# "one event per GB, minimum one event"; Standby start frequency and memory are not published, so one start per call is counted (the
-# minimum). Platform usage ($0.20/CU) is also billed, but CU per call is not published, so it is not in billed_units (a lower bound;
+# "one event per GB, minimum one event", and the captured Actor record publishes memoryMbytes 8192 (defaultRunOptions and actorStandby),
+# so one start = 8 events = $0.0018 (APIFY_RAG_START_EVENTS). How often a Standby run starts is not published (runs are reused: desired 10,
+# max 14 requests per run), so AWI counts one start per call; a hedge, not a minimum or a maximum. Platform usage ($0.20/CU) is also
+# billed, but CU per call is not published, so it is not in billed_units (the unit count is low; the unit price, 1 unit = 1 cent, is exact;
 # the guard's 4.08-cent per-call estimate in bench/pricing.yaml comes from the live meter and covers it).
 APIFY_RAG_URL = "https://rag-web-browser.apify.actor/search"
 APIFY_FREE_EVENT_USD = {"search": 0.00348, "fetch": 0.00228, "start": 0.000225}
+APIFY_RAG_START_EVENTS = 8   # 8192 MB / 1 GB per event (Actor record memoryMbytes 8192)
 
 def _get_json(url, headers, timeout=150):
     import urllib.request, urllib.error
@@ -65,7 +68,7 @@ def _get_json(url, headers, timeout=150):
 
 def _apify_search(key, item):
     """Ranked results from the Actor's searchResult.rank; result URL = the fetched page's metadata.url (Google returns
-    redirect links in searchResult.url). billed_units = US cents charged at Free-plan event prices (1 Actor Start + 1 search + 1 per
+    redirect links in searchResult.url). billed_units = US cents charged at Free-plan event prices (one Actor Start of 8 events + 1 search + 1 per
     fetched page); platform usage (CU) is not published per call and not included."""
     import urllib.parse
     cfg = load_yaml(BENCH / "config.yaml"); name = cfg["apify_search_config"]; conf = cfg["apify_search_configs"][name]
@@ -81,7 +84,7 @@ def _apify_search(key, item):
         res.append({"url": md.get("url") or md.get("canonicalUrl") or sr.get("url"), "title": sr.get("title") or md.get("title"),
                     "snippet": sr.get("description"), "published_at": None})
     fetched = sum(1 for x in d if (x.get("crawl") or {}).get("requestStatus") == "handled")
-    cents = 100 * (APIFY_FREE_EVENT_USD["start"] + APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
+    cents = 100 * (APIFY_RAG_START_EVENTS * APIFY_FREE_EVENT_USD["start"] + APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
     return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
 
 # Apify Web Fetch (Store Actor apify/web-fetch), Standby endpoint: one URL -> page text. Pay per event, no platform usage.

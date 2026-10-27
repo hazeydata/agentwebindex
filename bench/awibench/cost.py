@@ -53,9 +53,17 @@ def min_rounding_not_published(pricing, tier_key):
     return (pricing or {}).get("model") == "per_hour_browser" and any(k in tier and not_captured(tier[k]) for k in ("min_minutes", "rounding_minutes"))
 
 def is_lower_bound(pricing, tier_key):
-    """Browser-hour pricing without the vendor's minimum/rounding fields: billed time can only be higher, so cost is a lower bound."""
+    """Browser-hour pricing without the vendor's minimum/rounding fields: billed time can only be higher, so cost is a lower bound.
+    Also any tier with a non-empty "lower_bound" reason (a part of the vendor charge the units leave out, e.g. Apify compute units)."""
     tier = ((pricing or {}).get("tiers") or {}).get(tier_key) or {}
+    if isinstance(tier.get("lower_bound"), str) and tier["lower_bound"].strip(): return True
     return (pricing or {}).get("model") == "per_hour_browser" and ("min_minutes" not in tier or "rounding_minutes" not in tier)
+
+def lower_bound_reason(pricing, tier_key):
+    """Why a lower-bound cost is low: the tier's own "lower_bound" text, else the browser-hour minimum/rounding reason; None if exact."""
+    if not is_lower_bound(pricing, tier_key): return None
+    tier = ((pricing or {}).get("tiers") or {}).get(tier_key) or {}
+    return tier.get("lower_bound") or "vendor minimum/rounding not on pricing page; billed time could be higher"
 
 def per_1k(usd, attempted, passed):
     """cost_per_1k = 1000*$/attempted; cost_per_successful_1k = 1000*$/passed (inf at 0 passes)."""

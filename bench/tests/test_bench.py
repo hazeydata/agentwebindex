@@ -744,7 +744,7 @@ class Collectors2(unittest.TestCase):
         try: out = B._apify_search("k", {"query": "q"})
         finally: B._get_json = old
         self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
-        self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.000225 + 0.00348 + 2 * 0.00228), places=4)   # R42.1: + one Actor Start
+        self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (8 * 0.000225 + 0.00348 + 2 * 0.00228), places=4)   # R42.1: + one Actor Start of 8 events (8192 MB)
 
     def test_apify_t60_config_pins_60s_and_120s_client_wait(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
@@ -4129,3 +4129,32 @@ class K3T3Mutants(Base):   # Kitty t3 survivors t5, t8, t17, i6, i19
     def test_i19_stop_statuses_are_stale(self):
         for st in guard.STOP_STATUSES: self.assertTrue(B.is_stale({"status": st}), st)
         self.assertTrue(B.is_stale({"status": "rate_limited"})); self.assertFalse(B.is_stale({"status": "ran"}))
+
+
+class R42ApifySearchPrice(unittest.TestCase):
+    """Spec R42.1 (#46, Kitty t2): Apify search list price. Unit = 1 US cent of Free-plan event charges (exact); the unit count
+    leaves out compute (unpublished), so the published cost is a lower bound. Actor Start = 8 events (Actor memory 8192 MB)."""
+    P = load_yaml(SITE / "bench" / "pricing.yaml")["providers"]["apify"]["search"]
+    def test_unit_price_pinned_at_one_cent(self):   # kills p01 (0.01 -> 0.001)
+        self.assertEqual((self.P["model"], self.P["tiers"]["entry"]["unit_price"]), ("per_request", 0.01))
+        self.assertEqual(self.P["tiers"]["volume"]["unit_price"], "NOT CAPTURED")
+    def test_cost_is_flagged_lower_bound_with_reason(self):
+        self.assertTrue(cost.is_lower_bound(self.P, "entry"))
+        self.assertIn("compute units", cost.lower_bound_reason(self.P, "entry"))
+        call = 100 * (8 * 0.000225 + 0.00348 + 10 * 0.00228)   # one call with 10 fetched pages, in cents
+        cc = cost.cost_columns(self.P, [{"status": "pass", "billed_units": call}] * 4)
+        self.assertAlmostEqual(cc["entry_tier_cost_per_1k"], 28.08, places=6); self.assertTrue(cc["entry_tier_lower_bound"])
+        self.assertEqual(cost.fmt(cc["entry_tier_cost_per_1k"], cc["entry_tier_lower_bound"]), "≥ $28.08 (lower bound)")
+    def test_lower_bound_flag_only_where_set(self):   # exact tiers stay exact; an empty reason is not a flag
+        self.assertFalse(cost.is_lower_bound({"model": "per_request", "tiers": {"entry": {"unit_price": 0.01}}}, "entry"))
+        self.assertFalse(cost.is_lower_bound({"model": "per_request", "tiers": {"entry": {"unit_price": 0.01, "lower_bound": " "}}}, "entry"))
+        self.assertIsNone(cost.lower_bound_reason({"model": "per_request", "tiers": {"entry": {"unit_price": 0.01}}}, "entry"))
+        self.assertEqual(cost.lower_bound_reason({"model": "per_hour_browser", "tiers": {"entry": {"usd_per_hour": 1}}}, "entry"),
+                         "vendor minimum/rounding not on pricing page; billed time could be higher")
+    def test_actor_start_is_eight_events_from_the_captured_record(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        rec = json.loads((SITE / "cycles/2026-10-25-provider-contextdev/evidence/pricing-r42/apify-api-acts-rag-web-browser.json").read_text())
+        rec = rec.get("data", rec)
+        self.assertEqual((rec["defaultRunOptions"]["memoryMbytes"], rec["actorStandby"]["memoryMbytes"]), (8192, 8192))
+        self.assertEqual(B.APIFY_RAG_START_EVENTS, rec["actorStandby"]["memoryMbytes"] // 1024)
+        self.assertAlmostEqual(B.APIFY_RAG_START_EVENTS * B.APIFY_FREE_EVENT_USD["start"], 0.0018, places=9)
