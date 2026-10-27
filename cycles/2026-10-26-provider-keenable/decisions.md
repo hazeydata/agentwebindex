@@ -55,3 +55,10 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 - Merge conflicts (bench/config.yaml, bench/tos_matrix.yaml, bench/tests/test_bench.py) came from #27's branch history, not from #36's own diff. They were resolved to main's content plus only #36's keenable confirmation fields. The diff vs main is flip-only: keenable `live_run_allowed` and `vendor_confirmation` in config.yaml, keenable `vendor_confirmation` in tos_matrix.yaml, and this cycle folder (docs, evidence, SHA256SUMS). `recorded_pr` stays https://github.com/hazeydata/agentwebindex/pull/36.
 - Supersedes the "README split" entry above as to base: the README follow-up PR targets `main`, not `feat/awi-provider-contextdev-001`, and opens after #36 merges. No README lines are in #36 (R13 rejects them in a flip PR).
 - Merges only on its own Weatherman SHIP. Live runs still need Fred's go.
+
+## R37: re-sync after #41 and #42 merged (2026-10-27)
+- #41 merged into main as `9dd16aac5a0e97b9b4cfe5beb7d186cb14c88cb5`, and #42 (the contextdev docs follow-up, R37.1) merged as `fe369f6c79f25b63bd29a0e5a79fd130b563f3ee`, both as merge commits. R37 order: the #36 re-sync comes after #42.
+- Main `fe369f6c` was merged into this branch with a normal merge commit. It merged cleanly; the diff vs main is still the 8 keenable files (config.yaml and tos_matrix.yaml confirmation fields, plus this folder).
+- Keenable docs follow-up: follow-up PR (number TBD, owner implement); split forced by R13. It opens after #36 merges; this supersedes the "opens after #36 and #41 merge" wording in the meta cycle docs. Until it merges, nothing else lands on main (R37.1).
+- recorded_pr hand check (R37.2): config and tos both have https://github.com/hazeydata/agentwebindex/pull/36, this PR's own URL.
+- Fred's-go wording, from now on: "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)." It supersedes "Live runs still need Fred's go" above.

@@ -13,3 +13,5 @@ No live calls were made. Merge needs its own Weatherman SHIP at the exact head, 
 - The tos_matrix `providers.keenable.note` and config `live_run_ruling` text describe the closed state. They are not confirmation fields, so the same docs PR fixes them.
 
 **Docs match code:** yes for this folder; no for README.md, bench/README.md and SPEC-bench.md (above).
+
+**Update (2026-10-27, R37 re-sync):** #41 (contextdev flip) merged into main as merge commit `9dd16aac`, and #42 (contextdev docs follow-up, R37.1) merged as merge commit `fe369f6c`. Main `fe369f6c` was merged into this branch with a normal merge commit (no rebase, no force-push). The diff vs main is still only the 8 keenable files. Keenable docs follow-up: follow-up PR (number TBD, owner implement); split forced by R13. It updates README.md, bench/README.md, SPEC-bench.md, tos_matrix `providers.keenable.note` and config `free_tier_guard.keenable.live_run_ruling`, and opens after #36 merges. The wording "opens after #36 and #41 merge" in the meta cycle docs is stale and superseded by this. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
