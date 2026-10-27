@@ -69,3 +69,11 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 - Docs vs code at `ad262f1c`: `guard.live_allowed` is true for both contextdev and keenable. `gates.publishable` is false for contextdev (`publish_hold`, AC23) and true for keenable (not held; AC23 does not apply to it). The docs say keenable is publishable and that no keenable results exist yet.
 - Keenable is keyless (`guard.KEYLESS`): `keyed_providers()` selects it with an empty env once the gate is open. The `benchmark` workflow's state is `disabled_manually` in the repo's Actions settings (read with gh api on 2026-10-27), so no scheduled run calls it. This is not enforced in code. Logged as still broken (owner Fred).
 - Still broken, flagged by QG: the 4 uuid lines from #31 (`286991a4`) in `bench/runs/2026-10-26/apify/news_2026-44.jsonl` are on main. Removing them needs a history rewrite, which is Fred's call (data owner).
+
+## Kitty t1 on #43; benchmark workflow ruling (2026-10-27)
+- Lucille 2 (AWI owner) ruled that the `benchmark` workflow stays disabled (`disabled_manually` in the repo's Actions settings) until a per-run go. This is agent-asserted. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+- Kitty t1 marked #43 @`bef42e25` NOT READY. The fix commit on #43 makes these changes:
+  - It updates the stale keenable lines in the contextdev cycle summary.md (keenable open since `ad262f1c`, keyless, publishable, workflow disabled) and that summary's #42/#43 next action and links.
+  - It labels the Fred's-go line in this folder's summary.md.
+  - It removes the K1 pre-flip wording from tos `providers.keenable.note` and config `free_tier_guard.keenable.live_run_ruling`; text only, gate values unchanged.
+  - It replaces "mocks only" and "ships default-closed" in README.md, bench/README.md and SPEC-bench.md with the post-flip wording.
