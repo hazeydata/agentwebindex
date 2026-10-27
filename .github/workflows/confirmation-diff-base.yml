@@ -1,0 +1,41 @@
+name: confirmation-diff-base
+# AWI-PROVIDER-CONTEXTDEV-001 AC24e/AC24h, R15: judge every PR with the BASE branch's confirmation_diff.py and gates.py,
+# so a PR's own copies of the checker, gates.py or this workflow never judge that PR.
+# pull_request_target runs this file as it is on the base branch. It NEVER executes PR code: only the base is checked out,
+# and the PR head is fetched as git data (diff and `git show` of the two yaml files).
+# Still open: a branch ruleset must make this check required (Fred); see the cycle's decisions.md.
+# SQ2 (R16): once this exists on the base, the base checker rejects any change to gates.py, confirmation_diff.py or the
+# confirmation workflows; such a change needs a separate Fred or CEO ruling.
+on:
+  pull_request_target: {}
+permissions: {contents: read}
+jobs:
+  confirmation-diff-base-judged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: "${{ github.event.pull_request.base.sha }}", fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: fetch the PR head as data (never checked out)
+        env: {PR_NUMBER: "${{ github.event.pull_request.number }}"}
+        run: git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/awi/pr-head"
+      - name: base-judged confirmation_diff
+        env:
+          AWI_BASE_REF: "${{ github.event.pull_request.base.sha }}"
+          AWI_HEAD_REF: "${{ github.event.pull_request.head.sha }}"   # R21 (3): both SHAs from the event; the head is git data, never checked out
+        run: |
+          # >>> base-judge
+          set -euo pipefail
+          base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"
+          if ! git cat-file -e "$base:bench/awibench/confirmation_diff.py" 2>/dev/null; then
+            # SQ1 (R16/R17 SQ-A): fail closed, no exemption, not even for the PR that adds the checker (R20: #27 is a gate-code PR; Kitty's fixtures and mutants plus Weatherman's SHIP are its review, but it merges only on a CEO or Fred ruling, with chief merging and citing it in decisions.md).
+            echo "FAILED: the base has no confirmation_diff.py (SQ1: fail closed, no exemption)"; exit 1
+          fi
+          judge="$(mktemp -d)"; trap 'rm -rf "$judge"' EXIT
+          mkdir -p "$judge/awibench"; : > "$judge/awibench/__init__.py"
+          for f in confirmation_diff.py gates.py; do git show "$base:bench/awibench/$f" > "$judge/awibench/$f"; done
+          flag="$(cd "$judge" && python3 -c 'from awibench.gates import REQUIRED_FLAG; print(REQUIRED_FLAG)')"
+          echo "judging $head with the base checker; flag name from base gates.py: $flag"
+          cd "$judge" && AWI_REPO_ROOT="$OLDPWD" python3 -m awibench.confirmation_diff "$base" "$head"
+          # <<< base-judge
