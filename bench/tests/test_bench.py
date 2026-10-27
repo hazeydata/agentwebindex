@@ -377,6 +377,9 @@ class T(unittest.TestCase):
         self.assertEqual(p["status"], "stale_quota"); self.assertIn(f"below the floor of {floor}", p["reason"]); self.assertTrue(p["reason"].startswith("mocksearch_floor_reached: "))
         self.assertTrue(0 < p["calls"] < n); self.assertGreaterEqual(floor + 2 * n - 10 * (ad.calls - 1) - 2, floor)   # the last call kept the floor
         f = s["floor_reached"]["mocksearch"]; self.assertIs(f["reached"], True); self.assertTrue(f["where"].startswith("before call "))   # owner call 6:20 AM ET: the signal
+        self.assertEqual(p["skip"], "skipped_floor")   # R45.3: per-call floor stop = a skipped_floor row; the partial run stays unpublished (stale_quota)
+        rows = [json.loads(l) for l in (kw["runs_dir"] / kw["run_date"] / runner.SKIPPED_CAP_FILE).read_text().splitlines()]
+        self.assertEqual([(r["status"], r["provider"], r["where"]) for r in rows], [("skipped_floor", "mocksearch", f["where"])]); self.assertTrue(rows[0]["run_id"])
         self.assertEqual([l for l in out.getvalue().splitlines() if l.startswith("mocksearch_floor_reached: ")], [runner.floor_line("mocksearch", f)])
         kw2, ad2, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
         kw2["cfg"] = dict(kw2["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": 2}}}); kw2["meters"] = {"mocksearch": lambda: floor + 2 * n - 2 * ad2.calls}
@@ -400,7 +403,9 @@ class T(unittest.TestCase):
         kw, ad, _ = self._setup_run(providers=P)
         kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": 2}}}); kw["meters"] = {"mocksearch": lambda: 1 / 0}
         p = runner.run(**kw, preflight=False)["providers"][0]   # balance unreadable: skip
-        self.assertEqual((p["status"], ad.calls), ("stale_quota", 0)); self.assertIn("unreadable", p["reason"])
+        self.assertEqual((p["status"], ad.calls), ("stale_quota", 0)); self.assertIn("unreadable", p["reason"]); self.assertEqual(p["skip"], "skipped_balance_unknown")   # R45.3
+        rows = [json.loads(l) for l in (kw["runs_dir"] / kw["run_date"] / runner.SKIPPED_CAP_FILE).read_text().splitlines()]
+        self.assertEqual([(r["status"], r["provider"]) for r in rows], [("skipped_balance_unknown", "mocksearch")])
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
@@ -4276,15 +4281,15 @@ class R41PreRun(unittest.TestCase):
         with self.assertRaises(runner.RunRefused) as e: fn()
         self.assertEqual(self.calls, []); r = e.exception.report
         self.assertTrue(r["refused"]); self.assertEqual(r["artifact"], "over_cap_projected.json"); return r
-    def _skipped(self, fn, runs="runs"):   # R44.3: a cap breach drops only that provider (0 calls), no refusal, skip row recorded
+    def _skipped(self, fn, runs="runs", status="skipped_cap"):   # R44.3/R45: a cap breach drops only that provider (0 calls), no refusal, skip row recorded
         n0 = len(self.calls); s = fn(); r = s["over_cap_projected"]
         self.assertFalse(r["refused"]); self.assertEqual(r["artifact"], "over_cap_projected.json"); self.assertTrue(r["skipped_cap"])
         dropped = {x["provider"] for x in r["skipped_cap"]}
         rows = [p for p in s["providers"] if p["provider"] in dropped]
-        self.assertTrue(rows); self.assertTrue(all(p["status"] == "skipped_cap" and p["calls"] == 0 and p["run_id"] for p in rows))
+        self.assertTrue(rows); self.assertTrue(all(p["status"] == status and p["calls"] == 0 and p["run_id"] for p in rows), rows)
         f = self.tmp / runs / s["run_date"] / runner.SKIPPED_CAP_FILE; skip = [json.loads(l) for l in f.read_text().splitlines()][-len(dropped):]
         self.assertEqual({x["provider"] for x in skip}, dropped)
-        for x in skip: self.assertTrue({"status", "provider", "projected_usd", "remaining_usd", "run_id"} <= x.keys()); self.assertEqual(x["status"], "skipped_cap")
+        for x in skip: self.assertTrue({"status", "provider", "projected_usd", "remaining_usd", "run_id"} <= x.keys()); self.assertEqual(x["status"], status)
         if len(dropped) == len({p["provider"] for p in s["providers"]}): self.assertEqual(len(self.calls), n0)   # all dropped: 0 calls
         return r
     def _no_provider_logs(self, runs="runs"):   # a dropped provider wrote no call log; only the _skipped_cap.jsonl run record
@@ -4340,11 +4345,14 @@ class R41PreRun(unittest.TestCase):
     def test_keenable_899_runs_900_refuses(self):
         s = self._k(899); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 899))
         self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
-        r = self._skipped(lambda: self._k(900)); p = r["providers"][0]
+        r = self._skipped(lambda: self._k(900), status="skipped_rate"); p = r["providers"][0]   # spec R45 (b): a rate skip, not a refusal
         self.assertEqual((p["provider"], p["planned_calls"], p["price"], p["projected_usd"]), ("keenable", 900, "0.004", "3.6"))
+        row = json.loads((self.tmp / "runs" / "2026-10-27" / runner.SKIPPED_CAP_FILE).read_text().splitlines()[-1])
+        self.assertEqual((row["status"], row["provider"], row["planned_per_hour"], row["limit"]), ("skipped_rate", "keenable", 900, 899)); self.assertTrue(row["run_id"])
     def test_keenable_counts_this_hours_calls(self):   # Kitty s9: 880 used this UTC hour -> 19 more run, 20 refuse (no partial run)
         self._k(880); self.calls = []
-        r = self._skipped(lambda: self._k(20)); self.assertIn("keenable: planned 20 units > remaining 19 free units", r["reason"])
+        r = self._skipped(lambda: self._k(20), status="skipped_rate"); self.assertIn("keenable: planned 20 units > remaining 19 free units", r["reason"])
+        self.assertEqual((r["skipped_cap"][0]["planned_per_hour"], r["skipped_cap"][0]["limit"]), (900, 899))
         self.assertEqual(r["providers"][0]["cap"]["counter_used"], 880)
         s = self._k(19); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 19))
         self.calls = []; s = self._k(20, now=self.NOW + dt.timedelta(hours=1)); self.assertEqual(len(self.calls), 20)   # next hour: fresh window
@@ -4353,9 +4361,28 @@ class R41PreRun(unittest.TestCase):
         r = self._refused(lambda: self._k(1)); self.assertIn(runner.guard.UNREADABLE, r["reason"])
     def test_keenable_hourly_cap_alone(self):   # with quota/stop above 899, the 899/hour limit still refuses 900 (and runs 899)
         c = self.kcfg(quota_credits=5000, stop_at_credits=4000)
-        r = self._skipped(lambda: self._k(900, cfg=c)); self.assertIn("900 planned calls + 0 this UTC hour > 899 per hour", r["reason"])
+        r = self._skipped(lambda: self._k(900, cfg=c), status="skipped_rate"); self.assertIn("900 planned calls + 0 this UTC hour > 899 per hour", r["reason"])
         s = self._k(899, cfg=c); self.assertEqual(len(self.calls), 899)
-        self.calls = []; r = self._skipped(lambda: self._k(1, cfg=c)); self.assertIn("1 planned calls + 899 this UTC hour > 899 per hour", r["reason"])
+        self.calls = []; r = self._skipped(lambda: self._k(1, cfg=c), status="skipped_rate"); self.assertIn("1 planned calls + 899 this UTC hour > 899 per hour", r["reason"])
+    def test_keenable_rate_breach_skips_keenable_others_run(self):   # spec R45 (b), Kitty t6 case 2: keenable 0 calls, brightdata runs, no refusal
+        self._mtd(0); c = self.kcfg()
+        bd = [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(3)]
+        kr = [{"id": f"k{i}", "query": f"q{i}", "check": {"type": "url_exact", "value": "https://k.example/"}} for i in range(900)]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            s = runner.run(providers=[PROV, self.BD], sets={"scrape_urls": {"rows": bd, "sha": "x"}, "search_evergreen": {"rows": kr, "sha": "y"}},
+                           pricing=self.BD_PRICE | {"keenable": B.run_pricing(PRICING_DOC)["keenable"]}, tos=self.ktos(),
+                           adapters={"brightdata": {"scrape": self._ok}, "keenable": {"search": self._kok}}, cfg=c, runs_dir=self.tmp / "runs",
+                           ledger_path=self.tmp / "l.json", run_date="2026-10-27", env={"BRIGHTDATA_API_KEY": "m"}, mock=True,
+                           now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend", guard_dir=self.tmp / "guard", sleep=lambda s: None)   # no RunRefused: exit-0 path
+        st = {p["provider"]: p for p in s["providers"]}
+        self.assertEqual((st["keenable"]["status"], st["keenable"]["calls"], st["brightdata"]["status"], st["brightdata"]["calls"]), ("skipped_rate", 0, "ran", 3))
+        self.assertEqual(sorted(self.calls), ["b0", "b1", "b2"])   # keenable got 0 calls
+        self.assertEqual((st["keenable"]["planned_per_hour"], st["keenable"]["limit"]), (900, 899))
+        rows = [json.loads(l) for l in (self.tmp / "runs" / "2026-10-27" / runner.SKIPPED_CAP_FILE).read_text().splitlines()]
+        self.assertEqual([(r["status"], r["provider"], r["planned_per_hour"], r["limit"], r["run_id"]) for r in rows], [("skipped_rate", "keenable", 900, 899, st["keenable"]["run_id"])])
+        self.assertTrue(rows[0]["run_id"].startswith("2026-10-27-offset0-")); self.assertFalse(s["over_cap_projected"]["refused"])
+        self.assertIn("skipped: rate keenable", out.getvalue())
     # ---- Kitty t1 survivors k06/k07/k10/k14 (behaviour, not source text) ----
     AP = {"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}
     def _ap(self, used_cents, n=100):   # apify browser at the committed price (0.155 cents/call x $0.01/credit), meter_budget stop $4.00
@@ -4426,19 +4453,22 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(runner.provider_problems([self.BD], c, {}, mock=True), [])
 
     # ---- collector: non-zero exit + over_cap_projected.json, 0 network ----
-    def _main(self, argv, env_extra=None, prep=None, run_patch=None, fc_meter=None):
+    def _main(self, argv, env_extra=None, prep=None, run_patch=None, fc_meter=None, net=None):
         import shutil
         root = self.tmp / "site"
         shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
         (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
         if prep: prep(root)
         urls = []; err = []
-        def no_net(req, *a, **k): urls.append(getattr(req, "full_url", req)); raise OSError("mock: network blocked")
+        def no_net(req, *a, **k):
+            urls.append(getattr(req, "full_url", req))
+            if net: return net(req)
+            raise OSError("mock: network blocked")
         env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | (env_extra or {})
         with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
              mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", *argv]), mock.patch("urllib.request.urlopen", side_effect=no_net), \
              mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), mock.patch.object(B, "apify_meter", side_effect=AssertionError("meter call")), \
-             mock.patch.object(B, "firecrawl_meter", **({"return_value": fc_meter} if fc_meter is not None else {"side_effect": AssertionError("meter call")})), \
+             mock.patch.object(B, "firecrawl_meter", **({"wraps": B.firecrawl_meter} if fc_meter == "real" else {"return_value": fc_meter} if fc_meter is not None else {"side_effect": AssertionError("meter call")})), \
              mock.patch("builtins.print", side_effect=lambda *a, **k: err.append(" ".join(map(str, a)))):
             with (mock.patch.object(B.runner, "run", run_patch) if run_patch else contextlib.nullcontext()): rc = B.main()
         f = root / "alerts" / "over_cap_projected.json"
@@ -4546,10 +4576,19 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 30, 11, 24), False), {})   # after the last full of the month
         self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 10, 41), True), {})   # a full run reserves nothing
         self.assertEqual(runner.full_reserve(CFG, at(2026, 12, 1, 10, 41), False), {k: 4 * v for k, v in per.items()})   # December: 4 Mondays
-    def test_main_passes_reserve_and_sizes_per_run_type(self):
-        def cap(argv): r = self._captured(argv); shutil.rmtree(self.tmp / "site"); return r
+    def test_main_passes_reserve_and_sizes_per_run_type(self):   # Kitty t6 m14: the clock is frozen so the reserve is never vacuously {}
+        frozen = dt.datetime(2026, 11, 2, 10, 41, tzinfo=dt.timezone.utc)   # Nov 2 smoke, before the first of November's 5 Monday fulls
+        class FrozenDT(dt.datetime):
+            @classmethod
+            def now(cls, tz=None): return frozen if tz is None else frozen.astimezone(tz)
+        fdt = type(sys)("datetime"); fdt.__dict__.update({k: getattr(dt, k) for k in dir(dt) if not k.startswith("__")}); fdt.datetime = FrozenDT
+        def cap(argv):
+            with mock.patch.object(B, "dt", fdt): r = self._captured(argv)
+            shutil.rmtree(self.tmp / "site"); return r
         sm = cap(["--mode", "smoke"]); fu = cap(["--mode", "full"]); rp = cap(["--reprobe-offset", "24"])
         self.assertEqual(fu["reserve"], {}); self.assertEqual(fu["limits"], CFG["run_schedule"]["full_limits"])
+        want = {k: 5 * v for k, v in CFG["run_schedule"]["full_reserve_units"].items()}
+        self.assertTrue(want); self.assertEqual(sm["reserve"], want); self.assertEqual(rp["reserve"], want)   # m14 (reserve = {}) fails here
         self.assertEqual(set(sm["reserve"]) | set(rp["reserve"]) <= set(self.Q3) | {"exa"}, True)
         self.assertIn("firecrawl", sm["meters"])
     def test_smoke_drops_quota_provider_before_the_full_reserve(self):   # owner call 3: smoke and re-probes drop them first; the full still runs
@@ -4558,6 +4597,7 @@ class R41PreRun(unittest.TestCase):
         res = 5 * CFG["run_schedule"]["full_reserve_units"]["tavily"]; used = {"tavily": 1000 - res - 3}   # 3 units spare, smoke plans 4
         x = self._q3(self._project(sm, used=used, reserve={"tavily": res}))["tavily"]
         self.assertTrue(x["cap_breach"]); self.assertIn(f"minus {res} reserved for the weekly full runs", x["reason"]); self.assertEqual(x["remaining_units"], str(res + 3))
+        self.assertEqual((x["skip_status"], x["reserve_units"]), ("skipped_reserve", str(res)))   # spec R45.4
         self.assertIsNone(self._q3(self._project(sm, used={"tavily": 1000 - res - 4}, reserve={"tavily": res}))["tavily"]["reason"])   # exactly fits
         f = self._q3(self._project(fu, used=used))["tavily"]; self.assertIsNone(f["reason"]); self.assertLessEqual(float(f["planned_units"]), res + 3)
     def test_firecrawl_prerun_capped_by_shared_meter(self):   # owner call 3: AWI never plans past the shared balance minus the floor
@@ -4566,10 +4606,10 @@ class R41PreRun(unittest.TestCase):
         self.assertIsNone(self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need}))["firecrawl"]["reason"])   # exactly at the floor
         y = self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need - 1}))["firecrawl"]
         self.assertTrue(y["cap_breach"]); self.assertEqual(y["remaining_units"], str(need - 1)); self.assertEqual(y["cap"]["shared_floor_credits"], str(floor))
-        self.assertTrue(y["reason"].startswith("firecrawl_floor_reached: ")); self.assertIs(y["floor_reached"]["reached"], True)
+        self.assertTrue(y["reason"].startswith("firecrawl_floor_reached: ")); self.assertIs(y["floor_reached"]["reached"], True); self.assertEqual(y["skip_status"], "skipped_floor")   # R45.3
         def down(): raise OSError("meter down")
         z = self._q3(self._project(fu, meters={"firecrawl": down}))["firecrawl"]
-        self.assertTrue(z["cap_breach"]); self.assertIn("shared-quota meter unreadable", z["reason"])
+        self.assertTrue(z["cap_breach"]); self.assertIn("shared-quota meter unreadable", z["reason"]); self.assertEqual(z["skip_status"], "skipped_balance_unknown")   # R45.3
         self.assertTrue(self._q3(self._project(fu, meters={}))["firecrawl"]["cap_breach"])   # no meter at all: fail closed
     def test_full_cron_matches_workflow(self):   # full_reserve counts the same Mondays benchmark.yml runs the full on
         c = CFG["run_schedule"]["full_cron_utc"]; wf = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
@@ -4578,7 +4618,7 @@ class R41PreRun(unittest.TestCase):
     def test_firecrawl_floor_is_the_owner_value_with_its_basis(self):
         sq = CFG["shared_quota"]["firecrawl"]; self.assertEqual(sq["floor_credits"], 10000)
         for s in ("about 10% of the 100K plan", "Firecrawl Standard, 100,000 credits a month, $99", "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)", "account_plan"): self.assertIn(s, sq["floor_note"], s)
-    # ---- owner call (Lucille 2, 2026-10-27 6:31 AM ET): the Firecrawl plan, worst-case units vs the floor (no auto-recharge), the 22nd-21st period ----
+    # ---- owner call (Lucille 2, 2026-10-27 6:31 AM ET): the Firecrawl plan, worst-case units vs the floor (above the default 1,000 auto-recharge threshold), the 22nd-21st period ----
     def test_pricing_firecrawl_account_plan_matches_owner_call(self):
         fc = load_yaml(BENCH / "pricing.yaml")["providers"]["firecrawl"]
         for kind in ("search", "scrape"):
@@ -4626,18 +4666,56 @@ class R41PreRun(unittest.TestCase):
     def test_main_floor_reached_log_line_and_job_summary(self):   # the owner hears it: a job-log line and a job-summary field
         summ = self.tmp / "step_summary.md"
         rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key", "GITHUB_STEP_SUMMARY": str(summ)}, fc_meter=9000)
-        self.assertEqual((rc, urls), (0, [])); self.assertEqual([x["provider"] for x in art["skipped_cap"]], ["firecrawl"])
+        self.assertEqual((rc, urls), (0, [])); self.assertEqual([(x["provider"], x["status"]) for x in art["skipped_cap"]], [("firecrawl", "skipped_floor")])   # R45.3
+        rows = [json.loads(l) for f in (self.tmp / "site" / "bench" / "runs").glob(f"*/{runner.SKIPPED_CAP_FILE}") for l in f.read_text().splitlines()]
+        self.assertEqual([(r["status"], r["provider"]) for r in rows], [("skipped_floor", "firecrawl")]); self.assertTrue(rows[0]["run_id"])
         self.assertTrue(any(l.startswith("firecrawl_floor_reached: shared balance 9000 credits, floor 10000 credits") for l in err), err)
         self.assertIn("- firecrawl_floor_reached: true (shared balance 9000 credits, floor 10000 credits, pre-run)", summ.read_text())
         shutil.rmtree(self.tmp / "site"); summ.unlink()
         rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key", "GITHUB_STEP_SUMMARY": str(summ)})
         self.assertEqual((rc, urls), (0, [])); self.assertIn("- firecrawl_floor_reached: unknown (shared balance unreadable; firecrawl skipped, fail closed)", summ.read_text())
+        self.assertEqual([(x["provider"], x["status"]) for x in art["skipped_cap"]], [("firecrawl", "skipped_balance_unknown")])   # R45.3: not a call
+        rows = [json.loads(l) for f in (self.tmp / "site" / "bench" / "runs").glob(f"*/{runner.SKIPPED_CAP_FILE}") for l in f.read_text().splitlines()]
+        self.assertEqual([(r["status"], r["provider"]) for r in rows], [("skipped_balance_unknown", "firecrawl")])
         self.assertFalse(any(l.startswith("firecrawl_floor_reached: ") for l in err))
     def test_floor_summary_fields(self):
         sh = CFG["shared_quota"]
         self.assertEqual(B.floor_summary(sh, {}), ["- firecrawl_floor_reached: not checked (not called in this run)"])
         self.assertEqual(B.floor_summary(sh, {"firecrawl": {"reached": False, "balance_credits": "50000", "floor_credits": "10000", "where": "pre-run"}}),
                          ["- firecrawl_floor_reached: false (shared balance 50000 credits, floor 10000 credits, pre-run)"])
+    RECHARGE = re.compile(r"recharge|top.?up|auto.?charge|purchase|checkout|/billing|add.?credits", re.I)
+    def test_floor_above_firecrawl_default_auto_recharge_threshold(self):   # Kitty t6 case 3: Firecrawl billing code default threshold 1000
+        sq = CFG["shared_quota"]["firecrawl"]
+        self.assertEqual(sq["auto_recharge_threshold_default"], 1000); self.assertGreater(sq["floor_credits"], sq["auto_recharge_threshold_default"])
+        for s_ in ("github.com/firecrawl/firecrawl/blob/6a5965a0/apps/api/src/services/billing/credit_billing.ts", "default 1000", "unverified"): self.assertIn(s_, sq["auto_recharge_note"], s_)
+        fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS)
+        for thr, bad in ((10000, True), (20000, True), (None, True), (9999, False)):   # floor must be strictly above the threshold; missing fails closed
+            c = json.loads(json.dumps(fu["cfg"]))
+            if thr is None: del c["shared_quota"]["firecrawl"]["auto_recharge_threshold_default"]
+            else: c["shared_quota"]["firecrawl"]["auto_recharge_threshold_default"] = thr
+            rep_ = self._project(fu | {"cfg": c}); x = self._q3(rep_)["firecrawl"]
+            self.assertEqual(rep_["refused"], bad, thr); self.assertFalse(x.get("cap_breach"), thr)
+            if bad: self.assertIn("floor_credits must be greater than auto_recharge_threshold_default", x["reason"], thr)
+            else: self.assertIsNone(x["reason"], thr)
+    def test_no_recharge_or_top_up_call_is_ever_made(self):   # spec R45.2: AWI never triggers, enables or changes an auto-recharge
+        for f in [SITE / "collectors" / "benchmark.py", *sorted((BENCH / "awibench").glob("*.py"))]:   # no such endpoint anywhere in the code
+            for u in re.findall(r"https?://[^\s\"']+", f.read_text()): self.assertNotRegex(u, self.RECHARGE, f"{f.name}: {u}")
+        seen = []
+        class R:
+            def __init__(s, body): s.status, s.body = 200, json.dumps(body).encode()
+            def read(s): return s.body
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        def net(req):   # the whole firecrawl path end to end (pre-run meter, per-call meter, search); every request recorded
+            u = req.full_url; seen.append((req.get_method(), u))
+            if u == "https://api.firecrawl.dev/v2/team/credit-usage": return R({"data": {"remainingCredits": 100000}})
+            if u == "https://api.firecrawl.dev/v1/search": return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
+            raise OSError(f"mock: unexpected URL {u}")
+        rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
+        self.assertEqual(rc, 0); self.assertTrue(seen)
+        self.assertIn(("GET", "https://api.firecrawl.dev/v2/team/credit-usage"), seen)
+        self.assertLessEqual({u for _, u in seen}, {"https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v1/search"})
+        for m, u in seen: self.assertNotRegex(u, self.RECHARGE); self.assertTrue(m == "GET" or u.endswith("/v1/search"), (m, u))
     def test_exa_every_full_fits_its_quota_worst_week(self):   # Exa: 5 untrimmed worst-case fulls fit 1,428 units; per-full rows not trimmed
         kw = self._news50(self._captured(["--mode", "full", "--only-providers", "exa"])); sch = CFG["run_schedule"]
         self.assertNotIn("exa", sch["full_limits"])
@@ -4666,6 +4744,9 @@ class R41PreRun(unittest.TestCase):
             (d / day / runner.SKIPPED_CAP_FILE).write_text("".join(json.dumps({"status": "skipped_cap", "provider": p, "run_id": r, "mock": m}) + "\n" for p, r, m in rows))
         self.assertEqual(B.skipped_cap_month(d, "2026-11"), {"apify": 2, "keenable": 1})
         self.assertEqual(B.skipped_cap_month(d, "2026-12"), {})
+        (d / "2026-12-07").mkdir(); (d / "2026-12-07" / runner.SKIPPED_CAP_FILE).write_text("".join(json.dumps({"status": st, "provider": p, "run_id": "r9", "mock": False}) + "\n"
+            for st, p in (("skipped_rate", "keenable"), ("skipped_floor", "firecrawl"), ("skipped_balance_unknown", "firecrawl"), ("skipped_reserve", "tavily"), ("ran", "exa"))))
+        self.assertEqual(B.skipped_cap_month(d, "2026-12"), {"firecrawl": 1, "keenable": 1, "tavily": 1})   # every R45 skip status counts
 
 class R42ApifySearchPrice(unittest.TestCase):
     """Spec R42.1 (#46, Kitty t2): Apify search list price. Unit = 1 US cent of Free-plan event charges (exact); the unit count

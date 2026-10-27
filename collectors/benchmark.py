@@ -338,12 +338,13 @@ def refuse(report):
     write_alert(report); return 2
 
 def skipped_cap_month(runs_dir, month):
-    """Spec R43/R44: month-to-date count of skipped_cap runs per provider (distinct run_id in bench/runs/<month>-*/_skipped_cap.jsonl).
+    """Spec R43/R44/R45: month-to-date count of skipped runs per provider (distinct run_id in bench/runs/<month>-*/_skipped_cap.jsonl),
+    every skip status in runner.SKIP_STATUSES (skipped_cap, skipped_rate, skipped_floor, skipped_balance_unknown, skipped_reserve).
     Mock rows are not counted."""
     seen = {}
     for f in sorted(Path(runs_dir).glob(f"{month}-*/{runner.SKIPPED_CAP_FILE}")):
         for r in read_jsonl(f):
-            if r.get("status") == runner.SKIPPED_CAP and not r.get("mock"): seen.setdefault(r["provider"], set()).add(r["run_id"])
+            if r.get("status") in runner.SKIP_STATUSES and not r.get("mock"): seen.setdefault(r["provider"], set()).add(r["run_id"])
     return {pid: len(ids) for pid, ids in sorted(seen.items())}
 
 def floor_summary(shared, hits):
@@ -362,7 +363,7 @@ def floor_summary(shared, hits):
 def job_summary(counts, month, shared=None, hits=None):
     """Spec R43: the job summary shows month-to-date skipped_cap runs per provider ($GITHUB_STEP_SUMMARY in Actions; printed always),
     plus the shared-quota floor fields (floor_summary)."""
-    lines = [f"### skipped_cap runs, month to date ({month})", ""] + ([f"- {pid}: {n}" for pid, n in counts.items()] or ["- none"])
+    lines = [f"### skipped_cap runs, month to date ({month})", "", "(every R45 skip status: cap, rate, floor, balance_unknown, reserve)", ""] + ([f"- {pid}: {n}" for pid, n in counts.items()] or ["- none"])
     if shared: lines += ["", "### shared-quota floor", ""] + floor_summary(shared, hits)
     print("\n".join(lines))
     if os.environ.get("GITHUB_STEP_SUMMARY"):

@@ -20,7 +20,7 @@ written (main 672d3c7c). Live runs are covered by Fred's Oct 26 go within spend 
 any run that would go over a cap, or that adds a new provider (spec R40.3, detailed in spec R41), is runner.check_run (merged in
 hazeydata/agentwebindex#45, 9aab8a58; main 672d3c7c): before any provider call it refuses the whole run on a missing price or cap,
 an unknown provider or a live provider with no cap (exit 2), and drops only a provider projected over its remaining cap (spec R44.3:
-skipped_cap, 0 calls, the rest run, exit 0); these per-call guards are the mid-run backstop. Spec R41.3/R44.7: the R41 code is merged,
+skipped_cap, or per spec R45 skipped_rate for keenable's 899/hour, skipped_floor, skipped_balance_unknown, skipped_reserve; 0 calls, the rest run, exit 0); these per-call guards are the mid-run backstop. Spec R41.3/R44.7: the R41 code is merged,
 and the workflow stays disabled until the R43/R44 cap-fallback PR (#47) passes Kitty and gets a Weatherman SHIP at its exact head.
 - live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
   free_tier_guard.<pid>.paid_usage_allowed to be bool False (missing or non-bool fails closed, R1).

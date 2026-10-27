@@ -281,7 +281,7 @@
      "auto_recharge": {"enabled": true, "usd_per_increment": 5, "credits_per_increment": 2000, "monthly_cap_usd": 50},
      "source": "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)",
      "corroboration": "public pricing page (research/p_firecrawl.txt in agentwebindex-meta, captured 2026-10-15; data/prices/firecrawl.json): Standard 100,000 credits / month, $99/month billed monthly, '2,000 extra credits per $5', Standard credits do not roll over; hazeydata-meta cycles/2026-10-24-treasury-status/decisions.md line 7 (George Sr., agent-written): '2026-10-23, Fred - Firecrawl moves to Standard with a $50/month auto-recharge cap'",
-     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), so it never triggers the auto-recharge."
+     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), which keeps AWI's calls well above zero and above Firecrawl's documented default auto-recharge threshold of 1,000 (config shared_quota.firecrawl.auto_recharge_note); the account's actual auto-recharge mode and threshold are unverified."
     },
     "tiers": {
      "entry": {
@@ -327,7 +327,7 @@
      "auto_recharge": {"enabled": true, "usd_per_increment": 5, "credits_per_increment": 2000, "monthly_cap_usd": 50},
      "source": "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)",
      "corroboration": "public pricing page (research/p_firecrawl.txt in agentwebindex-meta, captured 2026-10-15; data/prices/firecrawl.json): Standard 100,000 credits / month, $99/month billed monthly, '2,000 extra credits per $5', Standard credits do not roll over; hazeydata-meta cycles/2026-10-24-treasury-status/decisions.md line 7 (George Sr., agent-written): '2026-10-23, Fred - Firecrawl moves to Standard with a $50/month auto-recharge cap'",
-     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), so it never triggers the auto-recharge."
+     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), which keeps AWI's calls well above zero and above Firecrawl's documented default auto-recharge threshold of 1,000 (config shared_quota.firecrawl.auto_recharge_note); the account's actual auto-recharge mode and threshold are unverified."
     },
     "tiers": {
      "entry": {
