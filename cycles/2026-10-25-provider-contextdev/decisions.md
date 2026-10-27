@@ -54,3 +54,7 @@ This PR records the vendor's written request and opens the context.dev live gate
 
 ## Spec R40 recorded; Kitty t1 on #44 (2026-10-27)
 - Spec recorded Fred's 1:36 AM ET answer ("Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps.") as contextdev spec R40. Every mention of that approval in this PR now cites "(spec R40)" in place of the unsourced "relayed by chief" labels Kitty t1 flagged. R40.3: re-enable is sequenced after paper-desk spec-002 R25 reaches Kitty; a run over a cap or adding a new provider stops and returns to Side Hustle CEO. State as of this PR: `disabled_manually`; this PR does not enable the workflow.
+
+## Spec R41 wording fix (2026-10-27)
+- The R40 entry above says "Any run over a cap or adding a new provider stops and goes back to Lucille 2." as current behaviour. It is a requirement (spec R40.3), detailed in spec R41 (R41.1 pre-run over-cap projection; R41.2 unknown or uncapped provider stop), built in hazeydata/agentwebindex#45 and not on main until #45 merges. Spec R41.3: the workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP. The entry above stays as written (append-only); README.md, bench/README.md, guard.py and both summaries are reworded to match.
+- The README fixes Kitty t1 found (5 crons, `MONTHLY_CAP_USD` hardcoded `"0"`, push to main / manual trigger / test step, 8 adapters) are owned by #45, not this PR.
