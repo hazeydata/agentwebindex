@@ -4236,6 +4236,9 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(r["providers"][0]["cap"]["counter_used"], 880)
         s = self._k(19); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 19))
         self.calls = []; s = self._k(20, now=self.NOW + dt.timedelta(hours=1)); self.assertEqual(len(self.calls), 20)   # next hour: fresh window
+    def test_unreadable_guard_counter_refuses(self):   # a corrupt credit-guard counter fails the projection closed (0 calls)
+        (self.tmp / "guard" / f"keenable-{runner.guard.hour_window(self.NOW)}.json").write_text("{not json")
+        r = self._refused(lambda: self._k(1)); self.assertIn(runner.guard.UNREADABLE, r["reason"])
     def test_keenable_hourly_cap_alone(self):   # with quota/stop above 899, the 899/hour limit still refuses 900 (and runs 899)
         c = self.kcfg(quota_credits=5000, stop_at_credits=4000)
         r = self._refused(lambda: self._k(900, cfg=c)); self.assertIn("900 planned calls + 0 this UTC hour > 899 per hour", r["reason"])
