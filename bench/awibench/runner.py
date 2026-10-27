@@ -290,7 +290,7 @@ SKIP_STATUSES = (SKIPPED_CAP, SKIPPED_RATE, SKIPPED_FLOOR, SKIPPED_BALANCE_UNKNO
 SKIPPED_CAP_FILE = "_skipped_cap.jsonl"   # bench/runs/<run_date>/: one row per dropped provider per run (R43.2 fields), append-only
 
 def full_reserve(cfg, now, full):
-    """Owner call (Lucille 2, AWI owner, 2026-10-27 5:34 AM ET), call 3: the quota-limited providers are always kept for the weekly
+    """Owner call (Lucille 2, AWI owner, 2026-10-27 5:33 AM ET; recorded earlier as 5:34), call 3: the quota-limited providers are always kept for the weekly
     full runs, and every other run (daily smoke, re-probes) drops them first. Returns {pid: units} that a non-full run must leave
     unspent: run_schedule.full_reserve_units[pid] (the worst-case units of one trimmed full run) x the weekly full runs still to come
     this calendar month (run_schedule.full_cron_utc, the benchmark.yml full cron, strictly after now). {} for a full run."""
@@ -394,7 +394,7 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
        only that provider (0 calls to it), the rest run, exit 0. Status (spec R45): skipped_cap (USD stop or free quota), skipped_rate
        (keenable's 899/hour limit, R45 b: planned_per_hour, limit), skipped_floor (Firecrawl shared balance below floor_credits, R45.3),
        skipped_balance_unknown (shared meter unreadable, R45.3), skipped_reserve (eats into the full-run reserve, R45.4). limits = {pid: {kind: n}} (R44.2) trims that provider's sets before planning, exactly as run() does.
-    5. Owner call 3 (2026-10-27 5:34 AM ET): reserve = {pid: units} (full_reserve) that this non-full run must leave unspent for the
+    5. Owner call 3 (2026-10-27 5:33 AM ET): reserve = {pid: units} (full_reserve) that this non-full run must leave unspent for the
        weekly full runs still to come; a provider whose planned units would eat into it is dropped (skipped_reserve). A cfg shared_quota
        provider (firecrawl: its key is shared with Fred's other tools) also caps remaining units at the shared meter's remaining
        credits minus floor_credits (skipped_floor); an unreadable shared meter drops it (skipped_balance_unknown, fail closed)."""

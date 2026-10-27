@@ -4709,29 +4709,44 @@ class R41PreRun(unittest.TestCase):
             self.assertEqual(rep_["refused"], bad, thr); self.assertFalse(x.get("cap_breach"), thr)
             if bad: self.assertIn("floor_credits must be greater than auto_recharge_threshold_default", x["reason"], thr)
             else: self.assertIsNone(x["reason"], thr)
-    def test_no_recharge_or_top_up_call_is_ever_made(self):   # spec R45.2 (Kitty t7 a2b): AWI never triggers, enables or changes an auto-recharge
+    def test_no_recharge_or_top_up_call_is_ever_made(self):   # spec R45.2 (Kitty t7 a2b, t8 oracle v2): AWI never triggers, enables or changes an auto-recharge
+        import http.client, importlib.util, socket, _posixsubprocess
         for f in [SITE / "collectors" / "benchmark.py", *sorted((BENCH / "awibench").glob("*.py"))]:   # no such literal endpoint anywhere in the code
             for u in re.findall(r"https?://[^\s\"']+", f.read_text()): self.assertNotRegex(u, self.RECHARGE, f"{f.name}: {u}")
         METER, SEARCH = "https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v1/search"
+        requests = __import__("requests") if importlib.util.find_spec("requests") else None
         class R:
             def __init__(s, body): s.status, s.body = 200, json.dumps(body).encode()
             def read(s, *a): return s.body
             def __enter__(s): return s
             def __exit__(s, *a): return False
-        # healthy balance, pre-run below the floor, per-call below the floor (the 2nd meter read), unreadable balance:
-        # a top-up on any of these paths (built at runtime, string or Request URL, error swallowed) is still recorded and fails
+        # Firecrawl smoke at a healthy, pre-run-low, per-call-low (2nd meter read) and unreadable balance. urllib urlopen is answered by the
+        # mock and every call recorded (string or Request URL); every other way out of the process (socket, http.client, requests,
+        # subprocess / curl / wget, os.system, spawn, fork) is blocked and recorded, so a top-up that swallows its own error still fails.
         for label, bal, want in (("healthy", lambda n: 100000, []), ("prerun-low", lambda n: 9000, ["skipped_floor"]),
                                  ("percall-low", lambda n: 100000 if n <= 1 else 9000, ["skipped_floor"]), ("unknown", lambda n: None, ["skipped_balance_unknown"])):
-            seen = []; reads = [0]
-            def net(req):   # every urlopen call is recorded (method, URL) before it is answered
+            seen = []; esc = []; reads = [0]
+            def net(req):
                 u = getattr(req, "full_url", req); seen.append((req.get_method() if hasattr(req, "get_method") else "GET", str(u)))
                 if u == METER:
                     reads[0] += 1; b = bal(reads[0]); return R({"data": {"remainingCredits": b}} if b is not None else {"data": {}})
                 if u == SEARCH: return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
                 raise OSError(f"mock: unexpected URL {u}")
+            def block(kind):
+                def f(*a, **k): esc.append((kind, repr(a)[:200])); raise OSError(f"blocked {kind}")
+                return f
+            guards = [(socket.socket, "connect"), (socket.socket, "connect_ex"), (socket, "create_connection"), (socket, "getaddrinfo"),
+                      (http.client.HTTPConnection, "request"), (http.client.HTTPConnection, "connect"),
+                      (subprocess.Popen, "__init__"), (subprocess, "run"), (subprocess, "call"), (subprocess, "check_call"), (subprocess, "check_output"),
+                      (_posixsubprocess, "fork_exec"), (os, "system"), (os, "popen"), (os, "posix_spawn"), (os, "posix_spawnp"), (os, "fork")]
+            if requests: guards += [(requests.Session, "request"), (requests, "request")]
             shutil.rmtree(self.tmp / "site", ignore_errors=True)
-            rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
+            with contextlib.ExitStack() as st:
+                for obj, name in guards:
+                    if hasattr(obj, name): st.enter_context(mock.patch.object(obj, name, block(f"{getattr(obj, '__name__', obj)}.{name}")))
+                rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
             rows = [json.loads(l) for f in (self.tmp / "site" / "bench" / "runs").glob(f"*/{runner.SKIPPED_CAP_FILE}") for l in f.read_text().splitlines()]
+            self.assertEqual(esc, [], label)   # nothing leaves the process except through the mocked urlopen
             self.assertEqual(rc, 0, label); self.assertEqual([r["status"] for r in rows], want, label)
             if label == "percall-low": self.assertTrue(rows[0]["where"].startswith("before call"), rows)   # the per-call path really ran
             self.assertEqual(len(urls), len(seen), label); self.assertIn(("GET", METER), seen, label)
