@@ -1,5 +1,6 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
 import contextlib, datetime as dt, hashlib, json, math, os, re, shutil, subprocess, sys, unittest
+import pytest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
@@ -3604,24 +3605,58 @@ class VendorConfirmationGate(ContextDevBase):
             probs = cd.check([C], b, h)
             self.assertTrue(any(x.startswith("R26") and want in x for x in probs), (drop, probs))
             if drop: self.assertEqual([x for x in probs if not x.startswith("R26")], [], (drop, probs))   # a key deletion: only R26 catches it
-    @staticmethod
-    def _r33_open_gates(cfg, tos):   # R33/R34: committed gate fields that are not at the closed state (false + null), per provider
-        out = []
-        for pid in ("contextdev", "keenable"):
-            g, t = (cfg.get("free_tier_guard") or {}).get(pid) or {}, (tos.get("providers") or {}).get(pid) or {}
-            if g.get("live_run_allowed", "missing") is not False: out.append(f"config free_tier_guard.{pid}.live_run_allowed={g.get('live_run_allowed', 'missing')!r}")
-            if "vendor_confirmation" not in g or g["vendor_confirmation"] is not None: out.append(f"config free_tier_guard.{pid}.vendor_confirmation not null")
-            if "vendor_confirmation" not in t or t["vendor_confirmation"] is not None: out.append(f"tos_matrix providers.{pid}.vendor_confirmation not null")
-            if guard_mod.live_allowed(cfg, tos.get("providers") or {}, pid): out.append(f"guard.live_allowed({pid}) is True")
-        return out
-    def test_r33_committed_gate_closed_catches_reflip(self):   # R33/R34: #27 ships closed; a full, valid re-flip of the committed files must fail pytest, not only the checker
-        import copy
+    def test_r35_committed_gate_open_only_with_valid_record(self):   # R35 (replaces the R33 closed-value test): checks for a valid record, not a value
         cfg, tos = load_yaml(BENCH / "config.yaml"), load_yaml(BENCH / "tos_matrix.yaml")
-        self.assertEqual(self._r33_open_gates(cfg, tos), [], "the committed gate must be closed on #27 (R33/R34: live_run_allowed false, vendor_confirmation null); a flip lands only in its own flip PR")
-        c2, t2 = copy.deepcopy(cfg), copy.deepcopy(tos)   # control: a fully valid re-flip is detected
-        c2["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}; t2["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
-        self.assertIsNone(gates_mod.record_error(self.REC)); self.assertTrue(guard_mod.live_allowed(c2, t2["providers"], "contextdev"))
-        self.assertTrue(self._r33_open_gates(c2, t2))
+        self.assertEqual(r35_gate_errors(cfg, tos), [], "committed live gate: live_run_allowed true needs a vendor_confirmation that passes gates.record_error; false needs null records (R34/R35)")
+
+
+R35_GATED = ("contextdev", "keenable")
+def r35_gate_errors(cfg, tos):
+    """R35: per gated provider, in config.yaml (free_tier_guard) and tos_matrix.yaml (providers). live_run_allowed true is allowed
+    only when the config vendor_confirmation passes gates.record_error (no error) and the tos_matrix vendor_confirmation, if set,
+    passes it too; false is allowed with null records (R34 closed state). Anything else (non-bool, missing key or block) is an error."""
+    out = []
+    for pid in R35_GATED:
+        g = (cfg.get("free_tier_guard") or {}).get(pid); t = (tos.get("providers") or {}).get(pid)
+        if not isinstance(g, dict) or "live_run_allowed" not in g: out.append(f"{pid}: config live_run_allowed missing"); continue
+        if not isinstance(t, dict): out.append(f"{pid}: tos_matrix entry missing"); continue
+        lra = g["live_run_allowed"]
+        if lra is True:
+            e = gates_mod.record_error(g.get("vendor_confirmation"))
+            if e is not None: out.append(f"{pid}: live_run_allowed true but config vendor_confirmation is not a valid record ({e})")
+            if t.get("vendor_confirmation") is not None and (e2 := gates_mod.record_error(t["vendor_confirmation"])) is not None:
+                out.append(f"{pid}: live_run_allowed true but tos_matrix vendor_confirmation is not a valid record ({e2})")
+        elif lra is False:
+            for where, rec in (("config", g.get("vendor_confirmation")), ("tos_matrix", t.get("vendor_confirmation"))):
+                if rec is not None: out.append(f"{pid}: live_run_allowed false but {where} vendor_confirmation is not null (R34 closed state)")
+        else: out.append(f"{pid}: live_run_allowed is {lra!r}, not a bool")
+    return out
+
+R35_VALID = {"date": "2026-10-26", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "You may benchmark and publish.",
+             "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+R35_CASES = [   # (id, live_run_allowed, vendor_confirmation in config and tos; "DROP" deletes the key, expected pass)
+    ("true_no_record", True, None, False), ("true_record_key_missing", True, "DROP", False),
+    ("true_invalid_string", True, "yes", False), ("true_invalid_empty", True, {}, False),
+    ("true_invalid_partial", True, {k: v for k, v in R35_VALID.items() if k != "quote"}, False),
+    ("true_invalid_bad_url", True, R35_VALID | {"recorded_pr": "#27"}, False),
+    ("true_valid_record", True, R35_VALID, True), ("false_null", False, None, True)]
+
+@pytest.mark.parametrize("pid", R35_GATED)
+@pytest.mark.parametrize("live,rec,ok", [c[1:] for c in R35_CASES], ids=[c[0] for c in R35_CASES])
+def test_r35_gate_fixture(pid, live, rec, ok):   # R35 fixtures over copies of the committed files; one provider set at a time
+    import copy
+    cfg, tos = copy.deepcopy(load_yaml(BENCH / "config.yaml")), copy.deepcopy(load_yaml(BENCH / "tos_matrix.yaml"))
+    g, t = cfg["free_tier_guard"][pid], tos["providers"][pid]; g["live_run_allowed"] = live
+    for d in (g, t):
+        if rec == "DROP": d.pop("vendor_confirmation", None)
+        else: d["vendor_confirmation"] = copy.deepcopy(rec)
+    errs = [e for e in r35_gate_errors(cfg, tos) if e.startswith(f"{pid}:")]   # this provider only
+    if ok:
+        assert errs == [], errs
+        if live: assert gates_mod.record_error(rec) is None and guard_mod.live_allowed(cfg, tos["providers"], pid)
+    else:
+        assert errs, errs
+        assert not guard_mod.live_allowed(cfg, tos["providers"], pid)
 
 class SnapshotPricesGate(unittest.TestCase):
     def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
