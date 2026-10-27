@@ -274,7 +274,7 @@
    },
    "vendor_confirmation_required": true,
    "vendor_confirmation": {"date": "2026-10-25", "sender": "@styskin (Andrey Styskin, CEO and co-founder, Keenable)", "quote": "Please include @KeenableAI into your tests.", "evidence_path": "cycles/2026-10-26-provider-keenable/evidence/posts-api.json.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/36"},
-   "note": "R10: unpublished until Keenable replies in writing. Quote from sponsor-leads-draft.md (off-repo lead record) (lead record), to be re-verified against the live terms before any confirmation is recorded. AWI-PROVIDER-KEENABLE-001 K1 (2026-10-26): adapter, config and price record added, all default-closed; vendor_confirmation stays null until the K2 flip PR; benchmarking permitted by Fred's Oct 26 7:35 AM ruling (R4 (2)); terms re-read 2026-10-26 (Date of Last Revision: October 3, 2026), see cycles/2026-10-26-provider-keenable/evidence."
+   "note": "R10: Keenable's written reply is recorded in vendor_confirmation (K2 flip PR #36); keenable is publishable (not in publish_hold). Before #36: unpublished until Keenable replied in writing. Quote from sponsor-leads-draft.md (off-repo lead record). AWI-PROVIDER-KEENABLE-001 K1 (2026-10-26): adapter, config and price record added; benchmarking permitted by Fred's Oct 26 7:35 AM ruling (R4 (2)); terms re-read 2026-10-26 (Date of Last Revision: October 3, 2026), see cycles/2026-10-26-provider-keenable/evidence."
   }
  }
 }
