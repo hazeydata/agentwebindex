@@ -1,0 +1,239 @@
+{
+  "data": {
+    "id": "3ox4R101TgZz67sLr",
+    "userId": "ZscMwFR5H7eCtWtyh",
+    "name": "rag-web-browser",
+    "username": "apify",
+    "description": "Web search and fetch tool for AI agents and RAG pipelines. It queries Google Search, scrapes the top N pages using a full web browser, and returns their content as clean Markdown for further processing by an LLM. Can also fetch individual URLs.",
+    "isPublic": true,
+    "createdAt": "2024-09-11T19:41:07.795Z",
+    "modifiedAt": "2026-10-26T11:02:46.957Z",
+    "taggedBuilds": {
+      "beta-3": {
+        "buildId": "qgXf2KjSHVA6b6VLV",
+        "finishedAt": "2026-10-21T08:10:28.833Z",
+        "buildNumberInt": 100072,
+        "buildNumber": "0.1.72"
+      },
+      "version-1": {
+        "buildId": "UGCLefRtbXydW3IaZ",
+        "finishedAt": "2026-10-26T11:02:46.957Z",
+        "buildNumberInt": 10000034,
+        "buildNumber": "1.0.34"
+      }
+    },
+    "stats": {
+      "totalBuilds": 146,
+      "totalRuns": 9619054,
+      "totalUsers": 202521,
+      "totalUsers7Days": 11359,
+      "totalUsers30Days": 32825,
+      "totalUsers90Days": 68787,
+      "lastRunStartedAt": "2026-10-27T06:40:20.632Z",
+      "publicActorRunStats30Days": {
+        "ABORTED": 1592,
+        "FAILED": 6012,
+        "SUCCEEDED": 1173632,
+        "TIMED-OUT": 9190,
+        "TOTAL": 1190426
+      },
+      "actorReviewCount": 35,
+      "actorReviewRating": 4.713115441531599,
+      "bookmarkCount": 280
+    },
+    "versions": [
+      {
+        "versionNumber": "0.1",
+        "buildTag": "beta-3",
+        "sourceType": "GIT_REPO",
+        "gitRepoUrl": "https://github.com/apify/rag-web-browser#master:actors/apify_rag-web-browser",
+        "sourceFiles": [
+          {
+            "name": "Dockerfile",
+            "format": "TEXT",
+            "content": "# First, specify the base Docker image. You can read more about\n# the available images at https://sdk.apify.com/docs/guides/docker-images\n# You can also use any other image from Docker Hub.\nFROM apify/actor-node:16\n\n# Second, copy just package.json and package-lock.json since those are the only\n# files that affect \"npm install\" in the next step, to speed up the build.\nCOPY package*.json ./\n\n# Install NPM packages, skip optional and development dependencies to\n# keep the image small. Avoid logging too much and print the dependency\n# tree for debugging\nRUN npm --quiet set progress=false \\\n && npm install --only=prod --no-optional \\\n && echo \"Installed NPM packages:\" \\\n && (npm list || true) \\\n && echo \"Node.js version:\" \\\n && node --version \\\n && echo \"NPM version:\" \\\n && npm --version\n\n# Next, copy the remaining files and directories with the source code.\n# Since we do this after NPM install, quick build will be really fast\n# for most source file changes.\nCOPY . ./\n\n# Optionally, specify how to launch the source code of your Actor.\n# By default, Apify's base Docker images define the CMD instruction\n# that runs the Node.js source code using the command specified\n# in the \"scripts.start\" section of the package.json file.\n# In short, the instruction looks something like this:\n#\n# CMD npm start"
+          },
+          {
+            "name": "README.md",
+            "format": "TEXT",
+            "content": "# My beautiful actor\n\nContains a documentation what your Actor does and how to use it,\nwhich is then displayed in the app or library. It's always a good\nidea to write a good README.md, in a few months not even you\nwill remember all the details about the Actor.\n\nYou can use [Markdown](https://guides.github.com/features/mastering-markdown/)\nlanguage for rich formatting."
+          },
+          {
+            "name": "main.js",
+            "format": "TEXT",
+            "content": "// This is the main Node.js source code file of your Actor.\n// It is referenced from the \"scripts\" section of the package.json file.\n\nconst Apify = require('apify');\n\nApify.main(async () => {\n    // Get input of the Actor.\n    // If you'd like to have your input checked and generate a user\n    // interface for it, add INPUT_SCHEMA.json file to your Actor.\n    // For more information, see https://docs.apify.com/platform/actors/development/actor-definition/input-schema\n    const input = await Apify.getInput();\n    console.log('Input:');\n    console.dir(input);\n\n    // Do something useful here...\n\n    // Save output\n    const output = {\n        receivedInput: input,\n        message: 'Hello sir!',\n    };\n    console.log('Output:');\n    console.dir(output);\n    await Apify.setValue('OUTPUT', output);\n});"
+          },
+          {
+            "name": "package.json",
+            "format": "TEXT",
+            "content": "{\n    \"name\": \"my-actor\",\n    \"version\": \"0.0.1\",\n    \"dependencies\": {\n        \"apify\": \"^2.2.2\"\n    },\n    \"scripts\": {\n        \"start\": \"node main.js\"\n    },\n    \"author\": \"Me!\"\n}"
+          }
+        ]
+      },
+      {
+        "versionNumber": "1.0",
+        "buildTag": "version-1",
+        "sourceType": "GIT_REPO",
+        "gitRepoUrl": "https://github.com/apify/rag-web-browser#:actors/apify_rag-web-browser",
+        "sourceFiles": [
+          {
+            "name": "Dockerfile",
+            "format": "TEXT",
+            "content": "# First, specify the base Docker image. You can read more about\n# the available images at https://sdk.apify.com/docs/guides/docker-images\n# You can also use any other image from Docker Hub.\nFROM apify/actor-node:16\n\n# Second, copy just package.json and package-lock.json since those are the only\n# files that affect \"npm install\" in the next step, to speed up the build.\nCOPY package*.json ./\n\n# Install NPM packages, skip optional and development dependencies to\n# keep the image small. Avoid logging too much and print the dependency\n# tree for debugging\nRUN npm --quiet set progress=false \\\n && npm install --only=prod --no-optional \\\n && echo \"Installed NPM packages:\" \\\n && (npm list || true) \\\n && echo \"Node.js version:\" \\\n && node --version \\\n && echo \"NPM version:\" \\\n && npm --version\n\n# Next, copy the remaining files and directories with the source code.\n# Since we do this after NPM install, quick build will be really fast\n# for most source file changes.\nCOPY . ./\n\n# Optionally, specify how to launch the source code of your Actor.\n# By default, Apify's base Docker images define the CMD instruction\n# that runs the Node.js source code using the command specified\n# in the \"scripts.start\" section of the package.json file.\n# In short, the instruction looks something like this:\n#\n# CMD npm start"
+          },
+          {
+            "name": "README.md",
+            "format": "TEXT",
+            "content": "# My beautiful actor\n\nContains a documentation what your Actor does and how to use it,\nwhich is then displayed in the app or library. It's always a good\nidea to write a good README.md, in a few months not even you\nwill remember all the details about the Actor.\n\nYou can use [Markdown](https://guides.github.com/features/mastering-markdown/)\nlanguage for rich formatting."
+          },
+          {
+            "name": "main.js",
+            "format": "TEXT",
+            "content": "// This is the main Node.js source code file of your Actor.\n// It is referenced from the \"scripts\" section of the package.json file.\n\nconst Apify = require('apify');\n\nApify.main(async () => {\n    // Get input of the Actor.\n    // If you'd like to have your input checked and generate a user\n    // interface for it, add INPUT_SCHEMA.json file to your Actor.\n    // For more information, see https://docs.apify.com/platform/actors/development/actor-definition/input-schema\n    const input = await Apify.getInput();\n    console.log('Input:');\n    console.dir(input);\n\n    // Do something useful here...\n\n    // Save output\n    const output = {\n        receivedInput: input,\n        message: 'Hello sir!',\n    };\n    console.log('Output:');\n    console.dir(output);\n    await Apify.setValue('OUTPUT', output);\n});"
+          },
+          {
+            "name": "package.json",
+            "format": "TEXT",
+            "content": "{\n    \"name\": \"my-actor\",\n    \"version\": \"0.0.1\",\n    \"dependencies\": {\n        \"apify\": \"^2.2.2\"\n    },\n    \"scripts\": {\n        \"start\": \"node main.js\"\n    },\n    \"author\": \"Me!\"\n}"
+          }
+        ],
+        "envVars": []
+      }
+    ],
+    "defaultRunOptions": {
+      "build": "version-1",
+      "timeoutSecs": 900,
+      "memoryMbytes": 8192,
+      "maxItems": 1000,
+      "maxTotalChargeUsd": 1
+    },
+    "exampleRunInput": {
+      "body": "{ \"helloWorld\": 123 }",
+      "contentType": "application/json; charset=utf-8"
+    },
+    "categories": [
+      "AI",
+      "OPEN_SOURCE"
+    ],
+    "isDeprecated": false,
+    "title": "RAG Web Browser",
+    "pictureUrl": "https://apify-image-uploads-prod.s3.us-east-1.amazonaws.com/3ox4R101TgZz67sLr/SGmCeTBVS4pdLKrXM-2815986.png",
+    "seoTitle": null,
+    "seoDescription": null,
+    "pricingInfos": [
+      {
+        "minimalMaxTotalChargeUsd": null,
+        "pricingModel": "PAY_PER_EVENT",
+        "isPriceChangeNotificationSuppressed": false,
+        "reasonForChange": "We're setting more transparent and predictable price for each fetched page and search query.\nFeel free to reach out if the price changes too much for you.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "fetch": {
+              "eventTitle": "Fetched page",
+              "eventDescription": "Returns content of a fetched page",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.00228
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.0019
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.00162
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.00133
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.00105
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.00076
+                }
+              },
+              "isPrimaryEvent": true
+            },
+            "search": {
+              "eventTitle": "Search result",
+              "eventDescription": "Returns a set of links to be fetched",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.00348
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.0029
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.00247
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.00203
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0016
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.00116
+                }
+              }
+            },
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.000225
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.000225
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.000225
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.000225
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.000225
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.000225
+                }
+              }
+            }
+          }
+        },
+        "startedAt": "2026-10-02T00:00:00.000Z",
+        "createdAt": "2026-09-18T19:21:46.182Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-09-18T19:46:55.146Z",
+        "notifiedAboutChangeAt": "2026-10-02T00:05:50.582Z"
+      }
+    ],
+    "notice": "NONE",
+    "isCritical": false,
+    "isGeneric": false,
+    "hasNoDataset": false,
+    "isSourceCodeHidden": false,
+    "actorStandby": {
+      "isEnabled": true,
+      "disableStandbyFieldsOverride": false,
+      "tenancy": "SINGLE_TENANT",
+      "maxRequestsPerActorRun": 14,
+      "desiredRequestsPerActorRun": 10,
+      "idleTimeoutSecs": 300,
+      "build": "version-1",
+      "memoryMbytes": 8192,
+      "shouldPassActorInput": false,
+      "isConsoleAuthEnabled": false,
+      "isTokenlessEnabled": false
+    },
+    "standbyUrl": "https://rag-web-browser.apify.actor",
+    "actorPermissionLevel": "LIMITED_PERMISSIONS",
+    "readmeSummary": "## RAG Web Browser\n\nA web-browsing and web-scraping Actor designed to provide up-to-date web context for LLMs and retrieval-augmented generation (RAG) pipelines: it issues web searches, crawls top search results or specific URLs, renders JavaScript when needed with a headless browser, expands collapsed page sections, extracts page metadata (title, description, language, canonical/OpenGraph data), converts HTML to clean Markdown/plain text/HTML, and returns ordered, de-duplicated absolute links with visible link text and crawl/status/timing information; it also supports a lightweight HTTP-fetch mode for static pages, media skipping, anti-scraping bypass via proxies and browser fingerprints, and integration via OpenAPI/MCP for function-calling and low-latency HTTP server deployments for parallel requests.\n\n## Use cases\n\n- Feed LLM applications and RAG pipelines with up-to-date web content discovered via web search.  \n- Crawl and extract content from specific web pages (including JavaScript-rendered pages) and convert it to Markdown or plain text for prompt context.  \n- Provide search-driven collections of top results (titles, descriptions, page metadata, and extracted content) for semantic retrieval.  \n- Integrate web browsing capabilities into custom AI assistants, GPTs, and MCP-based agent workflows via OpenAPI/function-calling.  \n- Low-latency, production-ready web extraction using a standby HTTP server that handles parallel requests.  \n- Fast static-site scraping using a lightweight HTTP fetch mode when JavaScript rendering is not required.  \n- Extract and normalize links on pages into absolute URLs with associated visible text for downstream citation or navigation.  \n- Capture content hidden in collapsed elements (accordions/FAQ) by expanding them before extraction.  \n- Avoid downloading media files during scraping to focus on textual content for LLM consumption.",
+    "deploymentKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDC831nuR+vdHDJrQRwYJZ5XkhNXjbsZ2GpHe5L4tt2J+ytKFAYunAhzWR6+EuVtyzG0608W6hwZc2BY7NsizRZ9RRk3E+yg7Inm+9bHtOL/IQ5Ts6ILs1cZYMywZned42+EyvgfCnmHpEXh1EKr8WRNX/FCJPA8DMf1UjzcV8xrh7WJfB3FdLm/kz5aJ4laeTswk3BaM4MVakhc3S/M/oyuhkxDKbNfHf2020Y2ytj9uvcuXLaozkNegS2X/qsxg5zdABqFeBnGILR35un45eOxqjxkKdDEqVA3st0asY+a8NXUHudC9lqMAwGxyYaFd/MzfYX1eXlW6SzbsXA/we1 \n"
+  }
+}

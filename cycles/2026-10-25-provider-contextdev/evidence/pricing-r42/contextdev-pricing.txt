@@ -1,0 +1,333 @@
+Web Scraping API Pricing: Plans from $0 | Context.dev
+Introducing News: 200M articles indexed live
+Context.dev
+Products
+Use Cases
+Customers
+Pricing
+Docs
+Scrape anything
+Scrape any URL with a 99.96% success rate.
+Explore Scrape anything
+Web search
+Search the live web for AI agents and LLM apps.
+Map domains
+Discover URLs across a website before you scrape.
+Run batches
+Scrape thousands of URLs or crawl entire websites.
+Answers from the web
+Research questions, structured answers, and sources.
+Create monitors
+Watch the web for changes and receive updates.
+Retrieve brand data
+Company profile and the website’s design system.
+Build with
+API docs
+SDKs
+CLI
+MCP
+Crawl the web
+Monitor everything
+Feed RAG pipelines
+Ground AI agents
+Research agents
+Automatic personalization
+All customer stories
+Crawl the web
+Every page of a site as clean Markdown.
+SiteGPT moved its crawling off Firecrawl in under a day.
+Explore
+Featured stories
+View all stories
+Zero
+Zero uses Context.dev for web scraping, live agent search, and brand data across its AI CRM. Its platform keeps data on 20M+ companies fresh, and switching providers took probably less than five minutes with Codex.
+Read their story
+Mintlify
+How Mintlify used Context.dev to power a tool that transforms any GitHub repo URL into a complete, branded documentation site, and got there in under 10 minutes of integration time.
+Read their story
+SiteGPT
+SiteGPT, the AI chatbot platform for customer support, switched from Firecrawl to Context.dev to scrape entire websites and turn them into the knowledge base behind its customers' bots. The migration took under a day.
+Read their story
+Book demo
+Start for free
+Straightforward, transparent pricing
+Start with 1,000 free credits per month, no credit card required.
+Monthly
+Yearly 2 months free
+Plans
+Free Tier
+For exploring the APIs and testing your first ideas.
+$0
+/month
+Get started
+Credits per month
+1,000
+No overage
+2
+concurrent
+Scrape
+1,000
+pages
+JS rendering & proxies included
+10
+monitors
+1
+concurrent batch
+Email support
+Pull
+10K
+logos (one-time quota)
+Developer
+For side projects, MVPs, and lightweight apps.
+$20
+/month
+Start building
+Credits per month
+10,000
+$3.00
+per
+1,000
+credits overage
+10
+concurrent
+Scrape
+10,000
+pages
+JS rendering & proxies included
+2
+concurrent batches
+Email support
+Usage alerts
+Pull
+100K
+logos
+1,000
+Answers in Fast mode
+100
+monitors
+Pro
+For production apps and AI agents powered by web data.
+$90
+/month
+Start Pro
+Credits per month
+100K
+500K
+1M
+2.5M
+$2.00
+per
+1,000
+credits overage
+100
+concurrent
+Scrape
+100,000
+pages
+JS rendering & proxies included
+5
+concurrent batches
+Email + Slack support
+Spend controls
+Pull
+2.5M
+logos
+10,000
+Answers in Fast mode
+1,000
+monitors
+Enterprise
+For teams with custom volume, security, and compliance requirements.
+Custom
+Book demo
+Custom monthly credits
+Volume discounts
+Custom rate and monitor limits
+SSO, SAML and SCIM provisioning
+99.9%
+uptime SLA
+Annual invoicing, MSA and DPA
+Dedicated Slack channel
+Custom support and implementation help
+Eligible startups and nonprofits get 30% off an annual paid plan for 12 months.
+Apply for the discount
+Powering agents and products with the world's data.
+Tuomo Riekki
+Co-founder @ Zero
+“ Migrating to Context.dev was extremely easy. The APIs are clean and easy for agents to understand and implement. The Dashboard is also handy for testing out how various scraping types behave. Switching to Context.dev from our existing scraping and web search providers took probably less than 5min with Codex. ”
+Read the case study
+Nick Khami
+Former Engineering Manager @ Mintlify
+“ Onboarding couldn't be simpler. Self-serve sign-up gives you an API key immediately, the documentation is thorough, and we were integrating within 10 minutes. ”
+Read the case study
+Pranav
+Founder @ Chatwoot
+“ Happy to be a paid customer of @getcontextdev. It's great, gives us the best results with ms response times. We have tested a couple of products, and Context wins without a doubt. ”
+Raz
+AI @ Similarweb
+“ My agent understood it perfectly. Setup was very easy. I was looking for a nice datapoint for my agents, and Context.dev was the best one in the marketplace. ”
+Read the case study
+Wilson Wilson
+Founder @ Ferndesk
+“ Now that context.dev has been integrated into Ferndesk, we've been able to ship this really beautiful onboarding that integrates the customer's company throughout the entire flow. ”
+Read the case study
+Aaron Edwards
+Founder @ DocsBot
+“ We're seeing much higher activation rates for our free trials and sign-ups because of it. It's made it a lot simpler for customers to get started with DocsBot and to get to that 'aha' value moment very quickly. ”
+Read the case study
+Ido Shamun
+Co-founder @ daily.dev
+“ We use Context.dev for our internal enrichment system to verify companies. The integration was straightforward. We set it up once and never had to touch it again. It just works. ”
+Read the case study
+Christopher Price
+COO @ Sixtyfour
+“ The API integration was seamless and expedient. My team was able to get it set up and testing with production workloads within an hour of hearing what Context.dev was! ”
+Read the case study
+Lewis Carhart
+Founder @ Comp AI
+“ Just used Context.dev to help Codex build an on-brand sales deck generator for us. Came out really well! ”
+Read the case study
+Bhanu
+Co-founder @ Squad.so
+“ It was great. Took 5 mins to integrate. We use Context.dev to give AI agents ability to scrape webpages, take screenshots, and also extract specific content from webpages. ”
+Read the case study
+One balance. Every API.
+A standard scrape uses 1 credit. Here’s what each API costs.
+API credit costs per request API
+Credits
+Scrape
+From 1 credit per call
+Scrape with JSON extraction
+5 credits per page
+Map URLs
+From 1 credit per call
+Crawl Website
+1 credit per page
+Search Web
+From 1 credit per call
+Answers
+From 10 credits per call
+Retrieve Brand
+10 credits per call
+Auto-complete
+1 credit; free on Pro, Growth, and Scale
+Extract Styleguide
+10 credits per call
+Enrich Person
+20 credits per match
+Search People
+10 credits per call
+Search Companies
+2 credits per call
+Search News
+From 1 credit per call
+Parse File
+From 1 credit per call
+Frequently asked questions
+Everything you need to know about integrating and scaling with Context.dev.
+Book demo
+API & integration
+Pricing & plans
+Credits & billing
+Can I crawl an entire website?
+Yes. Crawl discovers and scrapes up to 500 pages into Markdown in one call, with controls for depth, page count, URL patterns, and subdomains. For larger sites, run Batches in crawl mode and collect results through pagination or a completion webhook. Use Map when you only need the URLs.
+What are the rate limits, and how can I increase them?
+Core API limits cap concurrent requests per organization: Free allows 2; Developer 10, Pro 100, Growth 250, and Scale 500. Plans have no per-minute cap by default. Existing accounts keep their current allowances until they change plans; custom overrides can apply to either limit or both. The dashboard shows your effective limits. Batches, Monitors, webhook deliveries, logs, and feedback have separate organization limits. Enterprise can have custom limits; Logo Link has a separate quota.
+Why am I getting timeout errors?
+Scrape waits up to 90 seconds by default. For slow or heavily protected pages, raise timeoutOpts.milliseconds (up to 300,000), set timeoutOpts.behavior to return-partial to keep the outputs that finished, and give your HTTP client a longer timeout than the request. Use Batches for large URL lists, and Prefetch to warm uncached domains before a Brand request.
+What SDKs are available?
+We provide official SDKs for TypeScript, Python, Ruby, Go, and PHP.
+How can my agent sign up?
+AI agents can register and obtain API credentials programmatically using our agent authentication guide (auth.md). You will still need to sign in or verify your email. Share the link with your agent: https://www.context.dev/auth.md
+Copy
+How fresh is the brand data? How often is it updated?
+Brand Retrieve may reuse cached data up to its documented maxAgeMs, which defaults to about 90 days and is clamped to 0 through one year. A value of 0 requests a fresh Brand retrieval. For a specific correction or rebrand, use https://www.context.dev/update
+and treat returned media URLs as external resources that your application should handle defensively.
+Do you support subdomains?
+Yes, subdomains are fully supported.
+What if I need additional data points?
+We are constantly adding new data points to the API and have more data under the hood that we don't surface yet. If you need a specific data point, please contact us at hello@context.dev
+and we will be happy to surface it.
+Ask anything
+Is there a free tier?
+Yes. The free tier includes 1,000 API credits per month, enough for 1,000 standard scrapes, plus 10K one-time Logo Link requests, with no credit card required.
+What pricing plans are available, and can I make one-time lookups instead of subscribing?
+Context.dev offers Developer ($20/mo), Pro ($90/mo), Growth ($300/mo), Scale ($500/mo), and Scale 2.5M ($950/mo), plus Enterprise for teams that need more than 2.5M credits a month, volume discounts, or security and procurement support. We currently do not support one-time lookups, however you can contact us to discuss options for one-time projects at hello@context.dev
+.
+Which plan should I choose?
+Start with Free for testing or Developer for your first workflow. Pro suits steady production usage; Growth adds capacity between Pro and Scale. Scale supports high-volume traffic and self-serve SSO / SAML. Choose Enterprise for custom volume, limits, procurement, or support. Upgrades apply immediately; downgrades apply at renewal.
+Do you offer annual billing?
+Yes. Annual billing saves two months compared with monthly billing on every paid plan.
+Do you offer discounts for startups or nonprofits?
+Eligible startups and nonprofits can apply for 30% off an annual paid plan for 12 months, plus private Slack Connect with our team. Existing customer deals stay unchanged. Apply at https://www.context.dev/startups
+.
+When should I talk to sales?
+Talk to sales if you need high-volume pricing beyond 2.5M credits/month, custom rate limits, annual invoicing, or help with a security or procurement review. Review our published compliance status, policies, controls, and subprocessors at https://trust.context.dev/
+. Reach us at hello@context.dev
+or through the contact page.
+Ask anything
+How do API credits work?
+Scrape starts at 1 credit, or 2 with browser actions. Structured JSON extraction against your schema adds 4 when it succeeds, so 5 credits per page. Highlights and Product add 1, and PDF OCR adds 1 per recovered page. Brand and Styleguide cost 10 credits. Answers costs 10 in Fast mode or 100 in Ultra. Web and news search cost 1 credit per 10 results; web search adds 1 per 10 results for highlights and 1 per page returned as Markdown. People Search costs 10 per call and People Enrich 20 per match. Logo Link has a separate quota.
+Are there extra fees for JS rendering, anti-bot bypass, or premium proxies?
+JS rendering, anti-bot bypass, and proxies are included in the base scrape price. Browser actions raise the base to 2 credits. Successful JSON extraction adds 4 credits. Highlights and Product add 1, and PDF OCR adds 1 per recovered page.
+Am I billed for failed requests?
+Most failed requests are not billed. Not-found responses (404) are billed at the request’s base price. Scrape can return a 200 with failed outputs: it charges when at least one output succeeds or the target page is missing. Check key_metadata.credits_consumed for the amount charged.
+What happens when my API credits run out?
+The Free plan includes 1,000 API credits that renew every month. Paid plans can use Auto-Topup in 1K-credit blocks: Developer $3.00, Pro $2.00, Growth $1.50, Scale $1.00, and Scale 2.5M $0.75 for new subscriptions. Existing subscriptions keep their rates. With insufficient credits and no available top-up, any plan returns 401 USAGE_EXCEEDED. Logo Link has a separate quota.
+What's the difference between API credits and Logo Link?
+They are separate products with separate quotas. API credits meter the documented API endpoints. Logo Link returns a square logo through a direct image URL and does not consume API credits. Core API requests use the plan concurrency limit; Logo Link image delivery follows its separately documented quota and delivery policy.
+Ask anything
+Start building with live web context.
+Scrape, search, and research the web with one API. Bring the results straight into your product.
+1,000
+free credits
+Every month. No credit card required.
+Start for free
+Read the docs
+Context.dev
+Web data infrastructure for AI agents.
+Scrape anything. Get answers. Keep your data fresh.
+Backed by Combinator
+SOC 2 Type 2 compliant
+Service status
+Product
+Scrape anything
+Web search
+Map domains
+Run batches
+Answers from the web
+Create monitors
+Retrieve brand data
+Pricing
+Developers
+Documentation
+Playground
+Integrations & SDKs
+MCP Server
+CLI
+Changelog
+Resources
+Blog
+Guides
+Customers
+Use Cases
+Compare Alternatives
+Free Tools
+Glossary
+HTTP Error Codes
+Startups & nonprofits
+RL Research Grants
+Datasets
+Company
+Contact
+Affiliates
+Brand & Press Kit
+Trust Center
+Request Brand Update
+© 2026 Context.dev
+Built with in San Francisco
+Terms
+DPA
+Privacy
+Onboard your agent
+Copied

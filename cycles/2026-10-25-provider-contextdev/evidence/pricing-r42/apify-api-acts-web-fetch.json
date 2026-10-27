@@ -1,0 +1,158 @@
+{
+  "data": {
+    "id": "a6Sqhlnt4touIHTub",
+    "userId": "ZscMwFR5H7eCtWtyh",
+    "name": "web-fetch",
+    "username": "apify",
+    "description": "Download any web page by URL and convert it to clean Markdown, plain text, HTML, and other formats. Automatically renders JavaScript and works around bot blocking. The Actor provides a real-time API for quick response times.",
+    "isPublic": true,
+    "createdAt": "2026-07-30T12:25:52.599Z",
+    "modifiedAt": "2026-10-26T15:34:39.068Z",
+    "taggedBuilds": {
+      "latest": {
+        "buildId": "ZdAEj7OMWPWkgR4Sa",
+        "finishedAt": "2026-10-26T15:34:39.068Z",
+        "buildNumberInt": 31,
+        "buildNumber": "0.0.31"
+      }
+    },
+    "stats": {
+      "totalBuilds": 31,
+      "totalRuns": 2452877,
+      "totalUsers": 39900,
+      "totalUsers7Days": 11564,
+      "totalUsers30Days": 24169,
+      "totalUsers90Days": 31344,
+      "lastRunStartedAt": "2026-10-27T06:40:21.872Z",
+      "actorReviewCount": 3,
+      "actorReviewRating": 4.999999999999999,
+      "bookmarkCount": 0,
+      "publicActorRunStats30Days": {
+        "ABORTED": 4432,
+        "FAILED": 102850,
+        "SUCCEEDED": 1416030,
+        "TIMED-OUT": 7206,
+        "TOTAL": 1530518
+      }
+    },
+    "versions": [
+      {
+        "versionNumber": "0.0",
+        "sourceType": "GIT_REPO",
+        "buildTag": "latest"
+      }
+    ],
+    "defaultRunOptions": {
+      "build": "latest",
+      "timeoutSecs": 300,
+      "memoryMbytes": 1024
+    },
+    "exampleRunInput": {
+      "body": "{ \"helloWorld\": 123 }",
+      "contentType": "application/json; charset=utf-8"
+    },
+    "categories": [
+      "AI",
+      "AUTOMATION",
+      "DEVELOPER_TOOLS"
+    ],
+    "isDeprecated": false,
+    "title": "Web Fetch",
+    "pictureUrl": "https://apify-image-uploads-prod.s3.us-east-1.amazonaws.com/ZscMwFR5H7eCtWtyh-actor-a6Sqhlnt4touIHTub-UvwxrvFGCH-ZscMwFR5H7eCtWtyh-actor-oK4fp52ayRqNayFTw-n7k1Ktjufz-Page_scrape",
+    "seoTitle": null,
+    "seoDescription": null,
+    "pricingInfos": [
+      {
+        "minimalMaxTotalChargeUsd": null,
+        "pricingModel": "PAY_PER_EVENT",
+        "isPriceChangeNotificationSuppressed": false,
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "fetch": {
+              "eventTitle": "Fetch",
+              "eventDescription": "Successful fetch",
+              "isOneTimeEvent": false,
+              "eventPriceUsd": 0.0015,
+              "isPrimaryEvent": true
+            },
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventPriceUsd": 0.00005
+            }
+          }
+        },
+        "startedAt": "2026-07-30T12:31:15.983Z",
+        "createdAt": "2026-07-30T12:31:16.452Z",
+        "apifyMarginPercentage": 0.2
+      },
+      {
+        "minimalMaxTotalChargeUsd": null,
+        "pricingModel": "PAY_PER_EVENT",
+        "isPriceChangeNotificationSuppressed": true,
+        "apifyMarginPercentage": 0.2,
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "fetch": {
+              "eventTitle": "Fetch",
+              "eventDescription": "Successful fetch",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.00125
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.001
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.001
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.001
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.0015
+                },
+                "FREE": {
+                  "tieredEventPriceUsd": 0.0015
+                }
+              },
+              "isPrimaryEvent": true
+            },
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventPriceUsd": 0.00005
+            }
+          }
+        },
+        "createdAt": "2026-09-10T09:36:43.089Z",
+        "startedAt": "2026-09-10T09:36:43.089Z"
+      }
+    ],
+    "notice": "NONE",
+    "isCritical": false,
+    "isGeneric": false,
+    "hasNoDataset": false,
+    "isSourceCodeHidden": true,
+    "actorStandby": {
+      "isEnabled": true,
+      "disableStandbyFieldsOverride": false,
+      "tenancy": "MULTI_TENANT",
+      "maxRequestsPerActorRun": 10,
+      "desiredRequestsPerActorRun": 8,
+      "idleTimeoutSecs": 300,
+      "build": "latest",
+      "memoryMbytes": 1024,
+      "shouldPassActorInput": false,
+      "isConsoleAuthEnabled": false,
+      "isTokenlessEnabled": false
+    },
+    "standbyUrl": "https://web-fetch.apify.actor",
+    "actorPermissionLevel": "LIMITED_PERMISSIONS",
+    "readmeSummary": "## Web Fetch\n\nWeb Fetch is a web-content fetching and conversion Actor that retrieves a URL and returns cleaned, LLM-ready content and metadata in selectable formats (clean Markdown, cleaned HTML, plain text, a deduplicated ordered list of links, or the raw original bytes), with optional browser rendering to execute page JavaScript and wait for late-loaded content. It includes fetch-level metadata (final URL after redirects, HTTP status, content type, size, timestamps) and page metadata (canonical URL, title, description, author, language tag, Open Graph tags, parsed JSON‑LD, and HTTP response headers). The Actor is designed to bypass common bot protection, browser-based challenges, and rate limits on behalf of an LLM or agent, supports returning binary content as base64 when requested, and exposes a Model Context Protocol (MCP) fetch tool for LLM clients; it also can return a single format directly as the HTTP response body for simplified ingestion.\n\n## Use cases\n\n- Feed LLMs and retrieval-augmented generation (RAG) pipelines with compact, structured text (Markdown or plain text) for lower token costs and easier parsing.\n- Extract cleaned HTML or main-article text with boilerplate removal for content analysis, summarization, or indexing.\n- Convert PDFs and other documents to extracted text/Markdown or retrieve original binary bytes for downstream processing.\n- Bypass bot protection and browser challenges to fetch pages that impede simple HTTP clients.\n- Execute page JavaScript in a real browser to capture dynamically rendered content and late-loaded elements.\n- Produce a deduplicated, document-ordered list of links to build crawl queues or site maps.\n- Expose a fetch tool via Model Context Protocol for integration into LLM agents and agent toolchains.\n- Obtain fetch metadata and page metadata for validation, filtering, and downstream enrichment (status, content type, size, canonical URL, Open Graph, JSON‑LD).",
+    "deploymentKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDj/a7jkSMLs7Xfi2qsWTbnugA+wHdqY2HuTjV0UD33Uq3w/faQx4EFcWyksfAO+qBV7HBBhK2TqFE4WQjku88KBe/m3/szLZO+PdHbXhn/+TUu1Ai2qmAn2vbC+iAtSfxE8z+bpSgmkugOxhyrBrhd3qXuguKkupzn3DIC5LoXWhGP+AWTLGkIu3/q+UVzZQ5rLdppjy1KTWUUeDSpaAviUEGIu10nINl1xb156pY/CpTxABqiCVX3VXCItiR7+Jg8QYPT3kqaj9qGgj/KjunV3d79OwDlWRm6Wqx/+lNNlAbsMePaqzCoe4+eXei+dfAYo9sjMy1doLmsEV4uAdKz \n"
+  }
+}

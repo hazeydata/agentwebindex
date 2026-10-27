@@ -381,10 +381,10 @@
   },
   "apify": {
    "search": {
-    "pricing_url": "https://apify.com/apify/rag-web-browser",
-    "source_url": "https://apify.com/apify/rag-web-browser",
-    "checked_at": "2026-10-19",
-    "verified_date": "2026-10-19",
+    "pricing_url": "https://apify.com/apify/rag-web-browser/pricing",
+    "source_url": "https://apify.com/apify/rag-web-browser/pricing",
+    "checked_at": "2026-10-27",
+    "verified_date": "2026-10-27",
     "model": "per_request",
     "credits_per_call": {"search": 4.08}, "credits_per_call_source": "guard estimate in US cents: measured 2026-10-26, live Apify meter moved $0.8563 over 21 RAG calls (run_meter_usd, bench/spend/apify-meter-2026-10.json) = 4.078 cents/call, rounded up",
     "proxy_per_gb": "NOT CAPTURED",
@@ -392,17 +392,19 @@
      "units_per_month": 500,
      "needs_card": false,
      "pool": "apify_usd_cents",
-     "note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search and $0.00228 per fetched page (Actor Store record, 2026-10-19). Units here are US cents of that $5."
+     "note": "Apify Free plan: '$5 to spend' monthly, no credit card (apify.com/pricing). RAG Web Browser charges per event plus Apify platform usage: at the Free plan $0.00348 per search, $0.00228 per fetched page and $0.000225 per Actor Start event, 8 events per start at the Actor's published 8192 MB (pricing page and public Actor record, read 2026-10-27). Units here are US cents of that $5."
     },
     "tiers": {
      "entry": {
-      "name": "Paid-plan per-event rate (not captured)",
-      "unit_price": "NOT CAPTURED",
-      "note": "per-event prices drop on paid plans (Store discount tiers); the plan-to-tier mapping was not read from a pricing page, so no cost column"
+      "name": "Free plan per-event rate (AWI's plan)",
+      "unit_price": 0.01,
+      "note": "unit = 1 US cent of event charges at the Free-plan event prices the adapter bills (collectors/benchmark.py APIFY_FREE_EVENT_USD). Spec R42.1 source, read 2026-10-27 02:40:22 ET, https://apify.com/apify/rag-web-browser/pricing (Free column, verbatim): 'Search result | $3.48 | / 1,000', 'Fetched page | Primary | $2.28 | / 1,000', 'Actor Start | Infrequent | $0.000225', 'Platform usage | Compute units (CU) | $0.20 | / CU'. Capture: agentwebindex cycles/2026-10-25-provider-contextdev/evidence/pricing-r42 (SHA256SUMS). The unit price is exact (1 unit = 1 US cent = $0.01). Actor Start: 'one event per GB, minimum one event' and the captured Actor record publishes memoryMbytes 8192, so one start = 8 events = $0.0018; how often a Standby run starts is not published (runs are reused), so one start per call is counted (a hedge, neither a minimum nor a maximum). Compute units per call are not published, so the unit count leaves out platform usage and the cost column is flagged a lower bound (lower_bound below). At 10 fetched pages a call is 0.18 + 0.348 + 2.28 = 2.808 cents, $28.08 per 1K calls.",
+      "lower_bound": "Apify platform usage (compute units per call) is not published and not counted"
      },
      "volume": {
       "name": "NOT CAPTURED",
-      "unit_price": "NOT CAPTURED"
+      "unit_price": "NOT CAPTURED",
+      "note": "Business column (same page, verbatim): 'Search result ... $2.03 | / 1,000', 'Fetched page ... $1.33 | / 1,000'; the Actor Start price is the same on every plan, so no single per-cent rate maps the Free-price unit to Business; not derived"
      }
     },
     "note": "Search via the RAG Web Browser Actor, Standby mode, maxResults 10, raw-http fetch"
@@ -660,19 +662,20 @@
    "search": {
     "pricing_url": "https://www.context.dev/pricing",
     "source_url": "https://www.context.dev/pricing",
-    "checked_at": "2026-10-25",
-    "verified_date": "NOT CAPTURED",
-    "model": "NOT CAPTURED",
+    "checked_at": "2026-10-27",
+    "verified_date": "2026-10-27",
+    "model": "tier",
     "credits_per_call": {
      "search": 1,
      "scrape": 1
     },
     "credits_per_call_rule": {
-     "search": "ceil(results/10) + ceil(results/10) if markdown + ceil(results/10) if highlights",
+     "search": "ceil(results/10) + results if markdown + ceil(results/10) if highlights (when at least one result returns them)",
      "scrape": "1; 2 with browser actions",
      "source_url": "https://docs.context.dev/account/credits",
-     "checked_at": "2026-10-25",
-     "quote": "Scrape 1 base; 2 with browser actions. ... Search 1 per 10 returned results, rounded up. Markdown and highlights each add 1 per 10 results"
+     "checked_at": "2026-10-27",
+     "quote": "Scrape | 1 base; 2 with browser actions. ... Search | 1 per 10 returned results, rounded up. Highlights add 1 per 10 results when at least one result returns them. Markdown adds 1 per result returned with Markdown.",
+     "drift": "guard.contextdev_credits still charges +ceil(n/10) for markdown (the 2026-10-25 rule); AWI sends no markdown (guard.contextdev_request), so AWI's estimate (1 credit per search) is unaffected. Still broken, owner implement."
     },
     "proxy_per_gb": "NOT CAPTURED",
     "free_tier": {
@@ -680,37 +683,43 @@
      "needs_card": false,
      "pool": "contextdev",
      "refill": "grant-anchor day",
-     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25)"
+     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25); Free Tier '$0 | /month | ... | Credits per month | 1,000 | No overage' (www.context.dev/pricing, read 2026-10-27)"
     },
     "tiers": {
      "entry": {
-      "name": "NOT CAPTURED",
-      "plan_fee": "NOT CAPTURED",
-      "included_units": "NOT CAPTURED",
-      "overage_per_unit": "NOT CAPTURED"
+      "name": "Developer $20/month (10,000 credits)",
+      "plan_fee": 20,
+      "included_units": 10000,
+      "overage_per_unit": 0.003,
+      "note": "$3.00 per 1,000 credits overage (published); 1 AWI call = 1 credit"
      },
      "volume": {
-      "name": "NOT CAPTURED"
+      "name": "Pro $90/month (100,000 credits)",
+      "plan_fee": 90,
+      "included_units": 100000,
+      "overage_per_unit": 0.002,
+      "note": "$2.00 per 1,000 credits overage (published)"
      }
     },
-    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Search category."
+    "note": "Spec R42.1 source, read 2026-10-27 02:40:24 ET, https://www.context.dev/pricing (verbatim): plan card 'Developer | For side projects, MVPs, and lightweight apps. | $20 | /month | ... | Credits per month | 10,000 | $3.00 | per | 1,000 | credits overage'; 'Free Tier | ... | $0 | /month | ... | Credits per month | 1,000 | No overage'; FAQ 'Context.dev offers Developer ($20/mo), Pro ($90/mo), Growth ($300/mo), Scale ($500/mo), and Scale 2.5M ($950/mo)'. Billing doc https://docs.context.dev/account/billing (read 02:41:05 ET): 'Developer | 10,000/month', 'Pro | 100,000/month'. The 2026-10-25 conflict (FAQ $19, Auto-Topup $2.20, billing doc 7,500/month) no longer appears on these pages. Capture: agentwebindex cycles/2026-10-25-provider-contextdev/evidence/pricing-r42 (SHA256SUMS). Public self-serve list; per the billing doc legacy and custom plans can differ (AWI org entitlement not checked). Superseded: the F3 n/a (2026-10-25 three-way conflict, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Search category."
    },
    "scrape": {
     "pricing_url": "https://www.context.dev/pricing",
     "source_url": "https://www.context.dev/pricing",
-    "checked_at": "2026-10-25",
-    "verified_date": "NOT CAPTURED",
-    "model": "NOT CAPTURED",
+    "checked_at": "2026-10-27",
+    "verified_date": "2026-10-27",
+    "model": "tier",
     "credits_per_call": {
      "search": 1,
      "scrape": 1
     },
     "credits_per_call_rule": {
-     "search": "ceil(results/10) + ceil(results/10) if markdown + ceil(results/10) if highlights",
+     "search": "ceil(results/10) + results if markdown + ceil(results/10) if highlights (when at least one result returns them)",
      "scrape": "1; 2 with browser actions",
      "source_url": "https://docs.context.dev/account/credits",
-     "checked_at": "2026-10-25",
-     "quote": "Scrape 1 base; 2 with browser actions. ... Search 1 per 10 returned results, rounded up. Markdown and highlights each add 1 per 10 results"
+     "checked_at": "2026-10-27",
+     "quote": "Scrape | 1 base; 2 with browser actions. ... Search | 1 per 10 returned results, rounded up. Highlights add 1 per 10 results when at least one result returns them. Markdown adds 1 per result returned with Markdown.",
+     "drift": "guard.contextdev_credits still charges +ceil(n/10) for markdown (the 2026-10-25 rule); AWI sends no markdown (guard.contextdev_request), so AWI's estimate (1 credit per search) is unaffected. Still broken, owner implement."
     },
     "proxy_per_gb": "NOT CAPTURED",
     "free_tier": {
@@ -718,20 +727,25 @@
      "needs_card": false,
      "pool": "contextdev",
      "refill": "grant-anchor day",
-     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25)"
+     "note": "Free organizations receive 1,000 credits monthly on their grant-anchor day (docs/account/credits, 2026-10-25); Free Tier '$0 | /month | ... | Credits per month | 1,000 | No overage' (www.context.dev/pricing, read 2026-10-27)"
     },
     "tiers": {
      "entry": {
-      "name": "NOT CAPTURED",
-      "plan_fee": "NOT CAPTURED",
-      "included_units": "NOT CAPTURED",
-      "overage_per_unit": "NOT CAPTURED"
+      "name": "Developer $20/month (10,000 credits)",
+      "plan_fee": 20,
+      "included_units": 10000,
+      "overage_per_unit": 0.003,
+      "note": "$3.00 per 1,000 credits overage (published); 1 AWI call = 1 credit"
      },
      "volume": {
-      "name": "NOT CAPTURED"
+      "name": "Pro $90/month (100,000 credits)",
+      "plan_fee": 90,
+      "included_units": 100000,
+      "overage_per_unit": 0.002,
+      "note": "$2.00 per 1,000 credits overage (published)"
      }
     },
-    "note": "AWI-PROVIDER-CONTEXTDEV-001 F3: no price in this build; the entry tier is a 3-way conflict, not a pick (fact check 2026-10-25, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Pricing page card: 'Developer ... $20 /month ... Credits per month 10,000 $3.00 per 1,000 credits overage'. Same page FAQ: 'Context.dev offers Developer ($19/mo), Pro ($99/mo), Growth ($299/mo), and Scale ($499/mo)' and Auto-Topup 'in 1K-credit blocks: Developer $2.20' (overage $3.00 vs $2.20 per 1k). Billing doc: 'Developer | 7,500/month | 10'. Cost is n/a until the dashboard or written vendor confirmation settles it (OQ-B). Scrape category; same pool 'contextdev'."
+    "note": "Spec R42.1 source, read 2026-10-27 02:40:24 ET, https://www.context.dev/pricing (verbatim): plan card 'Developer | For side projects, MVPs, and lightweight apps. | $20 | /month | ... | Credits per month | 10,000 | $3.00 | per | 1,000 | credits overage'; 'Free Tier | ... | $0 | /month | ... | Credits per month | 1,000 | No overage'; FAQ 'Context.dev offers Developer ($20/mo), Pro ($90/mo), Growth ($300/mo), Scale ($500/mo), and Scale 2.5M ($950/mo)'. Billing doc https://docs.context.dev/account/billing (read 02:41:05 ET): 'Developer | 10,000/month', 'Pro | 100,000/month'. The 2026-10-25 conflict (FAQ $19, Auto-Topup $2.20, billing doc 7,500/month) no longer appears on these pages. Capture: agentwebindex cycles/2026-10-25-provider-contextdev/evidence/pricing-r42 (SHA256SUMS). Public self-serve list; per the billing doc legacy and custom plans can differ (AWI org entitlement not checked). Superseded: the F3 n/a (2026-10-25 three-way conflict, agentwebindex-meta cycles/2026-10-25-provider-contextdev/evidence/fact-check-lucille.md). Scrape category; same pool 'contextdev'."
    }
   }
  }

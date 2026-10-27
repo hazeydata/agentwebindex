@@ -1,0 +1,590 @@
+Web Fetch · Apify
+Skip to content
+Get started
+Log in
+Solutions
+Back
+MCP server configuration
+Configure your Apify MCP server with Actors and tools for seamless integration with MCP clients.
+Start building
+Apify for
+Enterprise
+Startups
+Universities
+Nonprofits
+Use cases
+Data for generative AI
+Data for AI agents
+Lead generation
+Market research
+View more →
+Consulting
+Professional services
+Apify Partners
+Product
+Back
+Start here!
+Ready-to-run tools for your AI agents and apps. Just pick one and go.
+Browse 99,597 Actors
+Apify platform
+Apify Store
+Actors for any job on the web
+Actors
+Build and run tools for AI agents and automation
+Integrations
+Connect with apps and services
+MCP
+Give your AI access to Actors
+Anti-blocking
+Anti-blocking
+Scrape without getting blocked
+Proxy
+Rotate scraper IP addresses
+Open source
+Crawlee
+Web scraping and crawling library
+Developers
+Back
+Documentation
+Full reference for the Apify platform
+Get started
+Actor templates
+Python, JavaScript, and TypeScript
+Web scraping academy
+Courses for beginners and experts
+Monetize your code
+Publish your Actors and get paid
+Learn
+API reference
+CLI
+SDK
+MCP
+Crawlee
+Earn from your code
+$1.7M paid out last month. Many developers earn over $3k.
+Start earning now
+Resources
+Back
+Help and support
+Advice and answers about Apify
+Actor ideas
+Get inspired to build Actors
+Changelog
+See what’s new on Apify
+Customer stories
+Find out how others use Apify
+Company
+About Apify
+Contact us
+Blog
+Live events
+Doing Good
+Jobs
+We're hiring!
+Join our Discord
+Talk to other builders
+Pricing
+Contact sales
+Web Fetch
+Pricing
+from $1.00 / 1,000 fetches
+Try for free
+Go to Apify Store
+Web Fetch
+apify/web-fetch
+Try for free
+Copy setup prompt
+Copied
+Download any web page by URL and convert it to clean Markdown, plain text, HTML, and other formats. Automatically renders JavaScript and works around bot blocking. The Actor provides a real-time API for quick response times.
+Pricing
+from $1.00 / 1,000 fetches
+Rating
+5.0
+( 4 )
+Developer
+Apify
+Maintained by Apify
+Actor stats
+1
+Bookmarked
+40K
+Total users
+24K
+Monthly active users
+10 days
+Issues response
+15 hours ago
+Last modified
+Categories
+AI
+Automation
+Developer tools
+Share
+README
+Input
+Pricing
+Server
+API
+Reviews
+Issues
+Tasks
+7
+Get clean, LLM-ready Markdown, HTML, or links from a URL with a single API call. Web Fetch bypasses bot protection, rate limits, and browser-based challenges and returns the page content in your requested format. No browser automation infrastructure, no proxy management, no CAPTCHA-solving code to maintain yourself.
+Web Fetch is the unblocker your AI agent needs to reach the web. It runs in Standby mode
+, staying ready in the background to handle HTTP requests like a web server, so you send a request and get your answer back directly in the response.
+Why use Web Fetch to scrape websites?
+Feed LLMs and RAG pipelines clean content. Markdown is far cheaper (in tokens) and easier for a model to parse than raw HTML, making it the ideal input for retrieval-augmented generation, AI agents, and fine-tuning datasets.
+Get past bot protection without building your own bypass logic. Web Fetch gets past browser-based challenges and other common blocking mechanisms, with no need to reverse-engineer them yourself.
+No infrastructure to run or scale. No server to provision. Call the endpoint and get a response.
+Automate anywhere. Call it directly via HTTP, through the Apify API
+client libraries for Python and JavaScript, or wire it into Apify integrations
+like Make, Zapier, and n8n.
+How much does it cost?
+Web Fetch uses pay-per-event pricing
+: you're charged one fetch event for every successful request, and nothing for failed requests, plus a small automatic Actor Start event per run. No proxy or infrastructure bills to manage yourself. Current prices are on the Actor's page on Apify Store.
+A request is successful when Web Fetch returns the page content in a format you specified. The target site's own status code doesn't matter: if the site responds with a 404 page and Web Fetch converts it to Markdown, that's still one fetch event.
+A request fails and isn't charged when Web Fetch returns an error instead of content. This includes an invalid URL, an unreachable or blocking site, a page that's slow to load or too large, or content that can't be converted to any format you specified, like Markdown for an image. Retries within a single request are free: you're charged once, when the request succeeds.
+Getting started
+Authenticate with your Apify API token
+, either as a token query parameter or as an Authorization: Bearer <token> header (the header is more secure since URLs can end up in logs or browser history). The platform uses it to identify and bill the calling user for each successful fetch.
+Send a GET or POST request to https://web-fetch.apify.actor with the URL you want to convert. Both support the same Web Fetch options:
+$
+curl
+'https://web-fetch.apify.actor/?url=https://apify.com&formats=markdown,links&token=***'
+curl
+-X
+POST
+'https://web-fetch.apify.actor/'
+\
+-H
+'Content-Type: application/json'
+\
+-H
+'Authorization: Bearer ***'
+\
+-d
+'{
+"url": "https://apify.com",
+"formats": ["markdown", "links"]
+}'
+Read markdown and links from the JSON response, alongside the always-present fetch and metadata objects. No polling, no separate results endpoint.
+Prefer a regular Actor run instead? Enter the same fields on the Input tab and select Start . Web Fetch performs the single fetch, saves the result to the run's dataset, and exits, like any other Actor.
+Running it as a regular Actor run gives you access to all of Apify's native integrations and lets you schedule recurring runs.
+Input
+These fields are accepted by https://web-fetch.apify.actor , either as GET query parameters or a POST JSON body. The same fields, minus unwrap , also appear on the Input tab for a regular Actor run.
+Field
+Description
+url
+The URL of a web page, PDF, image, or other file to fetch (required). Only http and https URLs are supported; a value with no scheme (e.g. apify.com ) is treated as https:// .
+formats
+Which outputs to return, case-insensitive: markdown , html , text , links , raw . If omitted from the API request, a format is picked based on the content type (see "Output"). The Input form starts with Markdown selected instead.
+unwrap
+Only available through the REST API: regular Actor runs and MCP always return JSON, so unwrap doesn't apply. Return the first requested format that can be produced (or the auto-selected default) directly in the response body instead of the JSON response; raw is the only format that works for any content type. Composes freely with formats . Default: false . Accepts true / false , 1 / 0 , case-insensitive.
+headers
+Extra HTTP headers to send to the target URL, useful for localized content or a session cookie the site expects: an object in the POST body, or a JSON-encoded string in the GET query parameter.
+wait
+Milliseconds to wait after the page loads, for content that shows up late, from 1 to 60000. Setting it opens the page in a real browser.
+{
+"url"
+:
+"https://apify.com"
+,
+"headers"
+:
+{
+"Accept-Language"
+:
+"fr-FR"
+,
+"Authorization"
+:
+"Bearer TARGET_SITE_TOKEN"
+}
+}
+For pages that build their content with JavaScript or load parts of it late, add wait . Web Fetch opens the page in a real browser, waits, and then returns the page.
+$
+curl
+'https://web-fetch.apify.actor/?url=https://quotes.toscrape.com/js/&wait=2000&token=***'
+The links format returns a deduplicated list of every link found on the page. Use it to build a crawl queue that fetches more content.
+Output
+Every request (other than unwrap=true , see "Unwrapped response") returns a JSON response with fetch (how the page was fetched), metadata (what's on the page), and one key per requested format. The response's own HTTP status is 200 whenever Web Fetch itself succeeds, even if the target URL returned an error like 404 ; check fetch.httpStatusCode for the target's actual status. If formats is omitted, a single format is auto-selected based on the fetched content type. You never need to know it up front: HTML or PDF defaults to markdown , plain text ( text/plain ) or textual data (JSON, JavaScript, YAML) defaults to text , and other content types, like images or archives, default to raw . Outside that auto-selected case, raw only appears when you add it to formats yourself, since it returns the original content and can be much larger:
+{
+"url"
+:
+"https://apify.com"
+,
+"fetch"
+:
+{
+"loadedUrl"
+:
+"https://apify.com"
+,
+"loadedTime"
+:
+"2026-07-27T12:41:41.064Z"
+,
+"httpStatusCode"
+:
+200
+,
+"contentLengthBytes"
+:
+45210
+,
+"contentType"
+:
+"text/html; charset=utf-8"
+}
+,
+"metadata"
+:
+{
+"canonicalUrl"
+:
+"https://apify.com"
+,
+"title"
+:
+"Apify: Full-stack web scraping and data extraction platform"
+,
+"description"
+:
+"Cloud platform for web scraping, browser automation, AI agents, and data for AI."
+,
+"author"
+:
+null
+,
+"keywords"
+:
+null
+,
+"languageCode"
+:
+"en"
+,
+"openGraph"
+:
+[
+{
+"property"
+:
+"og:title"
+,
+"content"
+:
+"Apify"
+}
+,
+{
+"property"
+:
+"og:site_name"
+,
+"content"
+:
+"Apify"
+}
+]
+,
+"jsonLd"
+:
+null
+,
+"headers"
+:
+{
+"content-type"
+:
+"text/html; charset=utf-8"
+,
+"content-length"
+:
+"45210"
+}
+}
+,
+"markdown"
+:
+"# Apify: Full-stack web scraping and data extraction platform\n\n..."
+,
+"links"
+:
+[
+"https://apify.com/pricing"
+,
+"https://apify.com/store"
+]
+}
+metadata fields like description , author , keywords , and languageCode are null when the fetched resource has no HTML to extract them from, like a PDF or image, or the page doesn't have that tag. title follows the same rule for images and other non-HTML, non-PDF content, but PDFs are the exception: a PDF's own embedded title metadata, when present, populates metadata.title too. text and markdown are both derived from the same cleaned content: the main article when the page reads as one, or the full page with boilerplate stripped otherwise; text strips all formatting, markdown keeps structure like headings and links.
+A requested format that can't be produced for the fetched resource's content type (like markdown for an image) returns null rather than failing the whole request, unless none of the requested formats can be produced, in which case the whole request fails with a 415 Unsupported Media Type status and an UNSUPPORTED_CONTENT_TYPE code instead of returning all- null . raw can be produced for any content type, so requesting formats: ["raw"] works regardless of what the URL returns: unmodified for text-based content, base64-encoded for binary content like images or PDFs. Beyond that, if the fetch fails outright (bad input, unreachable site, none of the requested formats could be produced, or a timeout), you'll get an error with a stable code and a matching HTTP status instead:
+{
+"code"
+:
+"UNSUPPORTED_CONTENT_TYPE"
+,
+"error"
+:
+"The URL returned a content type (image/jpeg) that cannot be converted to any of the requested formats: markdown. Add \"raw\" to formats (works for any content type), or omit \"formats\" to use the best-effort default, to fetch it as-is."
+}
+See the Actor's Endpoints tab
+for the full field-by-field API reference.
+Unwrapped response: unwrap=true
+Setting unwrap=true returns a single format directly in the response body instead of the JSON response, with an appropriate Content-Type ( text/markdown , text/html , text/plain , or, for raw , the target URL's own content type). The HTTP status also changes: instead of always returning 200 when Web Fetch itself succeeds, it mirrors the target URL's own status code (a 404 page comes back as a 404 , not wrapped in a 200 ).
+Set formats along with unwrap=true to choose which format comes back:
+unwrap=true alone returns the auto-selected format directly in the response body (same content-type-based defaulting described in "Output": HTML/PDF becomes markdown , plain text/JSON/JavaScript/YAML becomes text , other content types become raw ).
+formats=["markdown"]&unwrap=true returns the Markdown as text/markdown .
+formats=["raw"]&unwrap=true returns the raw original body, verbatim (works for any content type, including images and archives).
+If multiple formats are requested with unwrap=true , they're tried in the given order and the first one that can be produced for the fetched content type is returned as the body. For example, formats=["markdown","raw"] returns Markdown when possible, or the raw body when it's not. raw is treated like any other requested format in that order. Listing it last still gets you a guaranteed response if everything before it comes back empty, since it works for any content type.
+# Returns the PDF's extracted text as markdown (the auto-selected default for PDF)
+curl
+'https://web-fetch.apify.actor/?url=https://example.com/file.pdf&unwrap=true&token=***'
+# Returns the same thing, requested explicitly
+curl
+'https://web-fetch.apify.actor/?url=https://example.com/file.pdf&unwrap=true&formats=markdown&token=***'
+# Returns the original PDF file, verbatim
+curl
+'https://web-fetch.apify.actor/?url=https://example.com/file.pdf&unwrap=true&formats=raw&token=***'
+-o
+file.pdf
+If none of the requested formats support the content type, the request returns a 415 Unsupported Media Type error with code UNSUPPORTED_CONTENT_TYPE . For example, requesting only markdown for an image URL returns this error. Add raw to formats to guarantee a response regardless of content type.
+Every successful fetch is also saved as an item in the run's dataset. unwrap=true requests get the same shape as any other request ( fetch , metadata , and one key per requested format), even though only one of those formats becomes the HTTP body; you can download the dataset in JSON, HTML, CSV, or Excel format from the Output tab.
+Response
+Field
+Type
+Description
+url
+string
+The URL you requested.
+text
+string
+Page content as plain text, narrowed to the main article when the page reads as one, or the full page with boilerplate stripped otherwise. Content that's already text is returned verbatim.
+markdown
+string
+Page content converted to clean Markdown (if requested).
+html
+string
+Cleaned HTML: the main article (ads, navigation, and footers stripped) when the page reads as one, or the full page with fixed boilerplate removed otherwise (if requested).
+raw
+string
+Original HTTP response body, available for any content type. Textual content is returned as-is; binary content such as images and PDFs is base64-encoded.
+links
+string[]
+Absolute URLs of the links found on the page, deduplicated and in document order (if requested).
+fetch.loadedUrl
+string
+The final URL, after any redirects.
+fetch.loadedTime
+string
+When the fetch completed, in ISO 8601.
+fetch.httpStatusCode
+number
+HTTP status code returned by the target site.
+fetch.contentLengthBytes
+number
+Size of the response body, in bytes.
+fetch.contentType
+string
+The Content-Type returned by the target site.
+metadata.canonicalUrl
+string
+The page's <link rel="canonical"> URL, or the loaded URL if absent.
+metadata.title
+string
+Page <title> .
+metadata.description
+string
+The <meta name="description"> content, if present.
+metadata.author
+string
+The <meta name="author"> content, if present.
+metadata.keywords
+string
+The <meta name="keywords"> content, if present.
+metadata.languageCode
+string
+IETF language tag from the page's <html lang> attribute.
+metadata.openGraph
+array
+Open Graph and other property -based meta tags ( og: , twitter: , etc.) as { property, content } pairs; omitted, not null , when the page has none. name -based Twitter Card tags aren't captured.
+metadata.jsonLd
+array
+Parsed <script type="application/ld+json"> blocks. null when the page has none; omitted when a block fails to parse.
+metadata.headers
+object
+All HTTP response headers from the target site.
+Fetch via MCP
+Web Fetch also runs a Model Context Protocol
+server at /mcp , exposing a single fetch tool with the same JSON output and parameters as the REST API, except unwrap , which only applies there. Add it to any MCP-compatible client, like Claude Code or Cursor, using the Actor's /mcp endpoint:
+$
+claude mcp
+add
+web-fetch https://web-fetch.apify.actor/mcp
+-t
+http
+Get it through the Apify MCP server
+instead. Add apify/web-fetch to skip connecting to the Actor's own /mcp endpoint directly.
+Tips for getting the best results
+Request only the formats you need (like markdown alone) to keep responses smaller and faster to parse.
+Textual data (JSON, JavaScript, YAML, CSV, CSS, calendar/TSV files) supports text and raw (both verbatim) and markdown (wrapped in a fenced code block, or passed through unfenced for text/markdown since it's already markdown); html / links come back null since there's no markup to extract.
+For binary content (images, archives, etc.), only formats: ["raw"] will return anything. text / markdown / html / links come back null since there's no text or markup to extract; this is also why these content types default to raw when formats is omitted.
+The target URL's response is capped at 10 MB and an overall fetch timeout of 2 minutes (covering both fetching and reading the response). A response over either limit fails with RESPONSE_TOO_LARGE / FETCH_TIMEOUT instead of being partially processed.
+FAQ
+What's a web fetch tool?
+A web fetch tool gets content from a URL on behalf of an AI agent or LLM app, converting it to a format the model can parse, like Markdown.
+Why not fetch via Claude or AI clients?
+Native LLM web fetches often rely on limited fetch infrastructure that can't reliably get past bot protection or JavaScript-heavy pages at scale. Web Fetch is built for that job.
+Does Web Fetch handle sites with bot protection?
+Yes. It's built to get past common bot protection, rate limits, and browser-based challenges without any extra configuration on your end.
+Does Web Fetch support JavaScript?
+Yes. Set wait and Web Fetch opens the page in a real browser, runs its JavaScript, and returns the page as you'd see it. Without them, Web Fetch uses a fast plain fetch, and Apify Proxy's Unblocker
+switches to a browser on its own only for sites with bot protection.
+Does Web Fetch support PDFs?
+Yes. text , markdown , and html all work for PDF URLs, using extracted text (no layout, images, or tables); raw returns the original PDF bytes, base64-encoded. links always returns an empty list for PDFs.
+Why does Web Fetch prefer Markdown over HTML?
+Markdown is a strong format to feed an LLM. It's lighter than HTML but preserves text structure like titles and headings. Using Markdown instead of HTML lowers your token usage and your AI costs.
+Is web scraping legal?
+Scraping publicly available, non-personal data is generally legal. But what you do with the data afterward matters, and some content is protected by copyright or a site's Terms of Service. If you're unsure, seek legal advice. Read more in this blog post
+.
+Troubleshooting
+Common errors
+Symptom
+When it happens
+What to do
+UPSTREAM_FETCH_ERROR
+The target URL couldn't be reached: a DNS lookup failed, the target server refused the connection, or the response stayed empty or blocked after retrying.
+Double-check the URL is correct and the site is reachable.
+FETCH_TIMEOUT
+The fetch took longer than 2 minutes total, covering both fetching the URL and reading its response.
+Try again, or try a different URL if the site is consistently slow.
+RESPONSE_TOO_LARGE
+The target URL's response is over 10 MB. There's no way to fetch a partial response.
+Try a different URL, or a resource you know is smaller.
+UNSUPPORTED_CONTENT_TYPE
+Every requested format has failed for the fetched content, like requesting only markdown for a zip file.
+Add raw to formats to guarantee a response regardless of content type.
+Requested format is null
+A format doesn't apply to the fetched content type. This isn't a failure; the rest of the request still succeeds.
+Add raw to formats , since it works for any content type, or check fetch.contentType to see what was returned.
+Need support, or a custom feature?
+Open an issue on the Actor's Issues tab with the URL and formats you tried, chat with Apify support
+, or email support@apify.com
+. Custom extraction pipelines (screenshots, structured/LLM extraction, table extraction from PDFs) can be requested through Apify's custom solutions page
+.
+You might also like
+RAG Web Browser
+apify / rag-web-browser
+Web search and fetch tool for AI agents and RAG pipelines. It queries Google Search, scrapes the top N pages using a full web browser, and returns their content as clean Markdown for further processing by an LLM. Can also fetch individual URLs.
+Apify
+203K
+4.8
+(36)
+Google Search Results Scraper
+apify / google-search-scraper
+Scrape Google Search Engine Results Pages (SERPs). Select the country or language and extract organic and paid results, AI Mode, AI overviews, ads, queries, People Also Ask, prices, reviews, like a Google SERP API. Export data, run the scraper via API, schedule runs, or integrate with other tools.
+Apify
+218K
+4.6
+(220)
+Instagram Scraper
+apify / instagram-scraper
+Extract Instagram posts, reels, profiles, places, hashtags, carousels, and comments. Get data from Instagram using one or more Instagram URLs or search queries: content, context, metrics, metadata. Export scraped data, run the scraper via API, schedule and monitor runs or integrate with other tools.
+Apify
+449K
+4.7
+(603)
+Instagram Profile Scraper
+apify / instagram-profile-scraper
+Scrape all Instagram profile info. Just add Instagram usernames, IDs or URLs and extract name, join date, number of followers, location, bio, website, related profiles, video&post count, latest posts. Export scraped data, schedule scraper via API, and integrate with other tools or AI workflows.
+Apify
+264K
+4.7
+(175)
+YouTube Transcript & Subtitles Scraper API
+johnvc / YoutubeTranscripts
+Scrape YouTube transcripts, subtitles, and captions in bulk, the cheapest pay-per-video YouTube transcript API on Apify. Callable from any MCP client (Claude, Cursor, ChatGPT). Supports YouTube videos, Shorts, and every URL format.
+John
+6.7K
+4.8
+(11)
+Instagram Post Scraper
+apify / instagram-post-scraper
+Scrape Instagram posts. Just add one or more Instagram usernames and get your data in seconds including caption, metrics, images, mentions, coauthors, recent comments, sponsored status, video duration, views. Export scraped data, schedule scraper via API, integrate with other tools or AI workflows.
+Apify
+148K
+4.3
+(138)
+AI Web Scraper
+apify / ai-web-scraper
+AI-first web scraper that extracts structured data from any website using natural-language prompts.
+No programming knowledge required.
+No hard-coded logic that breaks when a website changes.
+Apify
+10K
+4.9
+(15)
+Website Screenshot Generator
+apify / screenshot-url
+Create a screenshot of a website based on a specified URL. The screenshot is stored as the output in a key-value store. It can be used to monitor web changes regularly after setting up the scheduler.
+Apify
+9.2K
+3.9
+(21)
+Website Content Crawler
+apify / website-content-crawler
+Crawl websites and extract text content to feed AI models, LLM applications, vector databases, or RAG pipelines. The Actor supports rich formatting using Markdown, cleans the HTML, downloads files, and integrates well with 🦜🔗 LangChain, LlamaIndex, and the wider LLM ecosystem.
+Apify
+172K
+4.6
+(235)
+URL to markdown
+apify / url-to-markdown
+An Apify Actor that takes a URL as input and returns the content of the page in Markdown format.
+Apify
+50
+5.0
+(7)
+Product
+Apify Store
+Integrations
+Proxy
+MCP
+Crawlee
+Developers
+Documentation
+Actor templates
+API reference
+Get paid on Apify
+Consulting
+Professional services
+Apify Partners
+Resources
+Help & support
+Submit your ideas
+Forum
+Agent interface
+Onboard your AI agent
+Spotlight
+APIs
+What is web scraping?
+Best web scraping tools
+Python web scraping libraries
+Scrapers
+Company
+About Apify
+Contact us
+Events
+Blog
+Jobs We're hiring!
+Brand
+Socials
+Security
+Reviews
+Loading status...
+Imprint
+Terms of use
+Privacy policy
+Cookie policy
+Cookies
+© 2026 Apify

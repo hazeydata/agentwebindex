@@ -1,0 +1,368 @@
+Pricing · RAG Web Browser · Apify
+Skip to content
+Get started
+Log in
+Solutions
+Back
+MCP server configuration
+Configure your Apify MCP server with Actors and tools for seamless integration with MCP clients.
+Start building
+Apify for
+Enterprise
+Startups
+Universities
+Nonprofits
+Use cases
+Data for generative AI
+Data for AI agents
+Lead generation
+Market research
+View more →
+Consulting
+Professional services
+Apify Partners
+Product
+Back
+Start here!
+Ready-to-run tools for your AI agents and apps. Just pick one and go.
+Browse 99,597 Actors
+Apify platform
+Apify Store
+Actors for any job on the web
+Actors
+Build and run tools for AI agents and automation
+Integrations
+Connect with apps and services
+MCP
+Give your AI access to Actors
+Anti-blocking
+Anti-blocking
+Scrape without getting blocked
+Proxy
+Rotate scraper IP addresses
+Open source
+Crawlee
+Web scraping and crawling library
+Developers
+Back
+Documentation
+Full reference for the Apify platform
+Get started
+Actor templates
+Python, JavaScript, and TypeScript
+Web scraping academy
+Courses for beginners and experts
+Monetize your code
+Publish your Actors and get paid
+Learn
+API reference
+CLI
+SDK
+MCP
+Crawlee
+Earn from your code
+$1.7M paid out last month. Many developers earn over $3k.
+Start earning now
+Resources
+Back
+Help and support
+Advice and answers about Apify
+Actor ideas
+Get inspired to build Actors
+Changelog
+See what’s new on Apify
+Customer stories
+Find out how others use Apify
+Company
+About Apify
+Contact us
+Blog
+Live events
+Doing Good
+Jobs
+We're hiring!
+Join our Discord
+Talk to other builders
+Pricing
+Contact sales
+RAG Web Browser
+Pricing
+from $1.33 / 1,000 fetched pages
+Try for free
+Go to Apify Store
+RAG Web Browser
+apify/rag-web-browser
+Try for free
+Copy setup prompt
+Copied
+Web search and fetch tool for AI agents and RAG pipelines. It queries Google Search, scrapes the top N pages using a full web browser, and returns their content as clean Markdown for further processing by an LLM. Can also fetch individual URLs.
+Pricing
+from $1.33 / 1,000 fetched pages
+Rating
+4.8
+( 36 )
+Developer
+Apify
+Maintained by Apify
+Actor stats
+281
+Bookmarked
+203K
+Total users
+33K
+Monthly active users
+20 hours ago
+Last modified
+Categories
+AI
+Open source
+Share
+README
+Input
+Pricing
+Server
+API
+Source code
+Reviews
+Issues
+Changelog
+Tasks
+3
+You might also like
+Linkedin Jobs Scraper
+curious_coder / linkedin-jobs-scraper
+Scrape Linkedin jobs from jobs search results using search URLs or filters. Get full job details, job poster and company details.
+Curious Coder
+176K
+4.5
+(143)
+LinkedIn Profile Scraper + Email (No Cookies)
+harvestapi / linkedin-profile-scraper
+Extract detailed information from LinkedIn profiles in bulk, including complete work experience, education history, skills and more. No cookies or account required.
+HarvestAPI
+87K
+4.6
+(93)
+Website Content Crawler
+apify / website-content-crawler
+Crawl websites and extract text content to feed AI models, LLM applications, vector databases, or RAG pipelines. The Actor supports rich formatting using Markdown, cleans the HTML, downloads files, and integrates well with 🦜🔗 LangChain, LlamaIndex, and the wider LLM ecosystem.
+Apify
+172K
+4.6
+(235)
+Web Fetch
+apify / web-fetch
+Download any web page by URL and convert it to clean Markdown, plain text, HTML, and other formats. Automatically renders JavaScript and works around bot blocking. The Actor provides a real-time API for quick response times.
+Apify
+40K
+5.0
+(4)
+Google Search Results Scraper
+apify / google-search-scraper
+Scrape Google Search Engine Results Pages (SERPs). Select the country or language and extract organic and paid results, AI Mode, AI overviews, ads, queries, People Also Ask, prices, reviews, like a Google SERP API. Export data, run the scraper via API, schedule runs, or integrate with other tools.
+Apify
+218K
+4.6
+(220)
+YouTube Video Transcript
+starvibe / youtube-video-transcript
+This Apify Actor extracts full transcripts (with timestamps) and metadata from YouTube videos, including title, description, upload date, views, likes, channel info, and duration
+starvibe
+15K
+5.0
+(23)
+Web Scraper
+apify / web-scraper
+Crawls arbitrary websites using a web browser and extracts structured data from web pages using a provided JavaScript function. The Actor supports both recursive crawling and lists of URLs, and automatically manages concurrency for maximum performance.
+Apify
+126K
+4.7
+(100)
+Website Screenshot Generator
+apify / screenshot-url
+Create a screenshot of a website based on a specified URL. The screenshot is stored as the output in a key-value store. It can be used to monitor web changes regularly after setting up the scheduler.
+Apify
+9.2K
+3.9
+(21)
+Reddit Scraper Lite
+trudax / reddit-scraper-lite
+Pay Per Result, unlimited Reddit web scraper to crawl posts, comments, communities, and users without login. Limit web scraping by number of posts or items and extract all data in a dataset in multiple formats.
+Trudax
+50K
+4.4
+(40)
+OpenRouter
+apify / openrouter
+You can use any AI LLM model without accounts in AI providers. Use this Actor as a proxy for all requests. Use pay-per-event pricing to pay only for the real credit used.
+Apify
+20K
+4.9
+(10)
+Product
+Apify Store
+Integrations
+Proxy
+MCP
+Crawlee
+Developers
+Documentation
+Actor templates
+API reference
+Get paid on Apify
+Consulting
+Professional services
+Apify Partners
+Resources
+Help & support
+Submit your ideas
+Forum
+Agent interface
+Onboard your AI agent
+Spotlight
+APIs
+What is web scraping?
+Best web scraping tools
+Python web scraping libraries
+Scrapers
+Company
+About Apify
+Contact us
+Events
+Blog
+Jobs We're hiring!
+Brand
+Socials
+Security
+Reviews
+Loading status...
+Imprint
+Terms of use
+Privacy policy
+Cookie policy
+Cookies
+© 2026 Apify
+Free
+up to
+2,192
+fetched pages
+$0
+/ month
+$5 to spend in Apify Store or on your own Actors
+Start for free
+Starter
+$1.90
+/ 1,000 fetched pages
+$19
+/ month + pay as you go
+$19 to spend in Apify Store or on your own Actors
+Choose plan
+Scale
+$1.62
+/ 1,000 fetched pages
+$199
+/ month + pay as you go
+$199 to spend in Apify Store or on your own Actors
+Choose plan
+Business
+$1.33
+/ 1,000 fetched pages
+$999
+/ month + pay as you go
+$999 to spend in Apify Store or on your own Actors
+Choose plan
+All events
+Free
+Starter
+Scale
+Business
+Fetched page
+Primary
+$2.28
+/ 1,000
+$1.90
+/ 1,000
+$1.62
+/ 1,000
+$1.33
+/ 1,000
+Search result
+$3.48
+/ 1,000
+$2.90
+/ 1,000
+$2.47
+/ 1,000
+$2.03
+/ 1,000
+Actor Start
+Infrequent
+$0.000225
+$0.000225
+$0.000225
+$0.000225
+Platform usage
+Compute units (CU)
+$0.20
+/ CU
+$0.20
+/ CU
+$0.16
+/ CU
+$0.13
+/ CU
+Actor RAM
+16 GB
+64 GB
+256 GB
+512 GB
+Max concurrent runs
+5
+32
+128
+256
+Residential proxies
+$8.00
+/ GB
+$8.00
+/ GB
+$7.50
+/ GB
+$7.00
+/ GB
+Datacenter proxies
+5 IPs
+included
+30 IPs
+included
+then
+$1.00
+/ IP
+200 IPs
+included
+then
+$0.80
+/ IP
+500 IPs
+included
+then
+$0.60
+/ IP
+Google SERP proxies
+$2.50
+/ 1,000 SERPs
+$2.50
+/ 1,000 SERPs
+$2.00
+/ 1,000 SERPs
+$1.70
+/ 1,000 SERPs
+Unblocker
+$1.50
+/ 1,000 requests
+$1.50
+/ 1,000 requests
+$1.25
+/ 1,000 requests
+$1.00
+/ 1,000 requests
