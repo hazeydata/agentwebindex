@@ -42,3 +42,22 @@ This PR records the vendor's written request and opens the context.dev live gate
 - The line "Gate re-closed for #27 per R33; contextdev re-opens only in its flip PR (number TBD)." under "R33/R34" is superseded: the flip PRs are #41 (contextdev, merged as `9dd16aac`) and #36 (keenable, open). The old line stays as written (append-only).
 - Keenable terms wording: README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden`; the committed `providers.keenable.benchmarking.status` is `permitted_by_ruling` (as bench/README.md's terms-clause line already said). Fixed to match the code.
 - Fred's-go wording, used everywhere from now: "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)." It replaces earlier wordings in this folder (such as "Live runs still need Fred's go" in the #41 entry), which read as both pending and already given.
+
+## Spec R39: live runs covered by Fred's Oct 26 go (2026-10-27)
+- Source: Fred, Oct 27 2026 1:32 AM ET, relayed by chief: "No, my Oct 26 go covers AWI live runs within the spend caps."
+- Live runs: covered by Fred's Oct 26 go within spend caps (R24, R39). No per-run go. This supersedes the per-run Fred's-go wording above (kept as written, append-only). Workflow and publish status: superseded by the next entry.
+
+## Keenable hold cancelled; benchmark re-enable approved (2026-10-27)
+- **Lucille 2 (Side Hustle CEO), 1:33 AM ET Oct 27, agent-asserted:** AWI-KEENABLE-HOLD is cancelled. Keenable is NOT added to `publish_hold`, and the cap guards are unchanged. This supersedes "keenable's publish status is pending a Side Hustle CEO ruling".
+- **Fred, 1:36 AM ET Oct 27 (spec R40):** "Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps." The re-enable is sequenced after paper desk R25 reaches Kitty. Until then the workflow is still `disabled_manually` in the repo's Actions settings. Any run over a cap or adding a new provider stops and goes back to Lucille 2. This supersedes "the `benchmark` workflow stays disabled" and the "until a per-run go" part of the Lucille 2 entry above.
+- Docs are written to stay true before and after the re-enable: "approved for re-enable (spec R40); state as of this PR: `disabled_manually`". This PR does not enable the workflow.
+
+## Spec R40 recorded; Kitty t1 on #44 (2026-10-27)
+- Spec recorded Fred's 1:36 AM ET answer ("Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps.") as contextdev spec R40. Every mention of that approval in this PR now cites "(spec R40)" in place of the unsourced "relayed by chief" labels Kitty t1 flagged. R40.3: re-enable is sequenced after paper-desk spec-002 R25 reaches Kitty; a run over a cap or adding a new provider stops and returns to Side Hustle CEO. State as of this PR: `disabled_manually`; this PR does not enable the workflow.
+
+## Spec R41 wording fix (2026-10-27)
+- The R40 entry above says "Any run over a cap or adding a new provider stops and goes back to Lucille 2." as current behaviour. It is a requirement (spec R40.3), detailed in spec R41 (R41.1 pre-run over-cap projection; R41.2 unknown or uncapped provider stop), built in hazeydata/agentwebindex#45 and not on main until #45 merges. Spec R41.3: the workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP. The entry above stays as written (append-only); README.md, bench/README.md, guard.py and both summaries are reworded to match.
+- The README fixes Kitty t1 found (5 crons, `MONTHLY_CAP_USD` hardcoded `"0"`, push to main / manual trigger / test step, 8 adapters) are owned by #45, not this PR.
+
+## Kitty t1 (A7): branch protection not visible (2026-10-27)
+- Kitty t1 (Oct 27 2026) found that neither cycle summary's Still broken list named the branch-protection gap (agentwebindex-meta#34 has it as item 9). Added to Still broken in both cycle summaries (contextdev and keenable): the branch protection API returns 403 for AWI's token and the rulesets list is `[]` on agentwebindex and agentwebindex-meta (re-checked 2026-10-27 3:05 AM ET), so protection on `main` is unverified. Owner: Fred (repo admin).
