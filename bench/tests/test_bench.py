@@ -4576,6 +4576,18 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 30, 11, 24), False), {})   # after the last full of the month
         self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 10, 41), True), {})   # a full run reserves nothing
         self.assertEqual(runner.full_reserve(CFG, at(2026, 12, 1, 10, 41), False), {k: 4 * v for k, v in per.items()})   # December: 4 Mondays
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 11, 23), False), {k: 4 * v for k, v in per.items()})   # Kitty t6 m12: a full at exactly now is not still to come
+    def test_firecrawl_meter_without_remaining_credits_is_unreadable(self):   # Kitty t6 m31: a missing balance never defaults to a number (fails closed)
+        class _Resp:
+            def __init__(s, body): s.body = body; s.status = 200
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s, *a): return s.body
+        for body in (b'{"data": {}}', b'{"data": {"remainingCredits": null}}', b'<html>'):
+            with mock.patch("urllib.request.urlopen", lambda *a, **k: _Resp(body)):
+                self.assertIsNone(runner.read_meter({"firecrawl": lambda: B.firecrawl_meter("mock-not-a-key")}, "firecrawl"), body)
+        with mock.patch("urllib.request.urlopen", lambda *a, **k: _Resp(b'{"data": {"remainingCredits": 50000}}')):
+            self.assertEqual(runner.read_meter({"firecrawl": lambda: B.firecrawl_meter("mock-not-a-key")}, "firecrawl"), 50000)
     def test_main_passes_reserve_and_sizes_per_run_type(self):   # Kitty t6 m14: the clock is frozen so the reserve is never vacuously {}
         frozen = dt.datetime(2026, 11, 2, 10, 41, tzinfo=dt.timezone.utc)   # Nov 2 smoke, before the first of November's 5 Monday fulls
         class FrozenDT(dt.datetime):
