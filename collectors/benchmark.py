@@ -242,9 +242,13 @@ def keyed_providers(provs, env, cfg=None, tos=None):
 
 def run_pricing(pricing_doc):
     """AC24: the runner's pricing map = pricing.yaml providers plus the keenable free_tier from keenable_price_record (run eligibility
-    only; tables/Prices/Also priced keep reading pricing.yaml providers, so AC21 still holds)."""
-    pr = dict(pricing_doc["providers"]); ft = (pricing_doc.get("keenable_price_record") or {}).get("free_tier")
-    if ft and "keenable" not in pr: pr["keenable"] = {"search": {"model": "per_request", "free_tier": ft}}
+    only; tables/Prices/Also priced keep reading pricing.yaml providers, so AC21 still holds). R41.1: the record's list price
+    (usd_per_1k_requests) is the entry tier, so the pre-run projection has a price for keenable."""
+    rec = pricing_doc.get("keenable_price_record") or {}; pr = dict(pricing_doc["providers"]); ft = rec.get("free_tier")
+    if ft and "keenable" not in pr:
+        pr["keenable"] = {"search": {"model": "per_request", "free_tier": ft}}
+        if isinstance(rec.get("usd_per_1k_requests"), (int, float)):
+            pr["keenable"]["search"]["tiers"] = {"entry": {"name": "list price (keenable_price_record)", "unit_price": rec["usd_per_1k_requests"] / 1000}}
     return pr
 
 def keep_previous_rows(doc, prev_path, stale):
@@ -307,6 +311,14 @@ def load_test_set(name):
 cost_per_1k = cost.cost_columns
 freshness_score = freshness.freshness
 
+def refuse(report):
+    """R41 alert: write over_cap_projected.json to alerts/ (not committed; the job fails, so nothing is published) and print it to
+    the job log; exit code 2. No provider call was made."""
+    f = ROOT / "alerts" / runner.OVER_CAP_FILE; f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+    print(f"ALERT {runner.OVER_CAP_FILE}: {report['reason']}", file=sys.stderr); print(json.dumps(report, sort_keys=True), file=sys.stderr)
+    return 2
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--mode", choices=["smoke", "full"], default="smoke")
     ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H)
@@ -353,15 +365,22 @@ def main():
                 if p["status"] == "ran" or merged.get(k, {}).get("status") != "ran": merged[k] = p | {"run_date": day}
         s = {"run_date": today, "run_dates": dates, "mock": False, "offset_h": a.reprobe_offset or 0, "providers": list(merged.values())}
     else:
-      if a.only_providers: provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
+      now = dt.datetime.now(dt.timezone.utc); unknown = []
+      if a.only_providers:
+          unknown = [f"{n}: unknown provider (not in collectors/providers.json)" for n in a.only_providers.split(",") if n not in {p["id"] for p in provs}]
+          provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
+      probs = unknown + runner.provider_problems(provs, cfg, tos)   # R41.2: before the keyless check, so an unknown provider always fails the job
+      if probs: return refuse(runner.refusal_report(today, now, probs))
       if not keyed_providers(provs, os.environ, cfg, tos):   # a run without keys must never overwrite published data or run summaries
           print(f"SKIP publish: no provider API key present for any collector ({today}); no provider calls made; "
                 "data/benchmarks/latest.json and bench/runs left unchanged"); return 0
-      s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
+      try:
+       s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
                    offset_h=a.reprobe_offset or 0, only_ids=only,
                    meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),
                            "contextdev": lambda: contextdev_meter(os.environ["CONTEXT_DEV_API_KEY"])})
+      except runner.RunRefused as e: return refuse(e.report)   # R41.1: projected over a cap (or no price/cap): 0 calls, job fails
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"

@@ -18,6 +18,7 @@ State on main:
 **Fixed:** README.md, bench/README.md and SPEC-bench.md describe contextdev as open, with the record summary; tos_matrix `providers.contextdev.note` and config `live_run_ruling` match (#42). The follow-up named in #41's docs as TBD is #42.
 
 **Still broken:**
+- Spec R41.1 (pre-run over-cap projection, exit 2 and `over_cap_projected.json`) and R41.2 (unknown provider or live provider with no cap stops the run) are built in hazeydata/agentwebindex#45 (code + tests), not on main until #45 merges. R41.3: the `benchmark` workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP. Uploading the artifact needs a PROTECTED benchmark.yml change (CEO or Fred ruling). Contextdev and apify have no list price, so a run that would call them is refused. Owner: implement.
 - Keenable docs follow-up: hazeydata/agentwebindex#43 (owner implement; R37.1, Keenable R10), open; nothing else lands on main until it merges.
 - Wayback backfill for the vendor post (R27(5)). Owner: implement.
 - AWI-GATES-RECORDED-PR-001 (R37.2, recorded_pr must equal the PR's own URL in CI) is not built. Until then Kitty and Weatherman check by hand. Owner: implement.

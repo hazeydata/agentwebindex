@@ -1,3 +1,4 @@
 dist/
 data/cache/
 __pycache__/
+alerts/
