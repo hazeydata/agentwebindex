@@ -258,7 +258,7 @@
     "quote": "\u00a78: 'Interfere with, disrupt, or create an undue burden on the Services'"
    },
    "vendor_confirmation_required": true,
-   "vendor_confirmation": {"date": "2026-10-25", "sender": "@mynameisyahia (Yahia Bakour, Founder and CEO, Context.dev)", "quote": "@HazeyDataFred Hello! Can you add https://t.co/TjSwtUVs0K as well?", "evidence_path": "cycles/2026-10-25-provider-contextdev/evidence/posts-api.json.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/28"},
+   "vendor_confirmation": null,
    "full_read": true,
    "source": "fact-check-lucille.md",
    "note": "F6: P1 = UNVERIFIED; publish gate closed. Plain name only, no logo. R10: unpublished until the vendor replies in writing."

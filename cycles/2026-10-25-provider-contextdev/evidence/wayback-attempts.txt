@@ -1,5 +1,0 @@
-2026-10-26 09:57:55 EDT save attempt 1: 523
-2026-10-26 09:58:05 EDT save attempt 2: 523
-2026-10-26 09:58:15 EDT save attempt 3: 523
-2026-10-26 09:58:26 EDT availability: {"url": "x.com/mynameisyahia/status/2114212271258038294", "archived_snapshots": {}}
-2026-10-26 10:21:55 EDT archive.today submit attempt 1 (only): HTTP 429 (rate-limit/captcha page, no archive URL). No further Wayback tries per R27.
