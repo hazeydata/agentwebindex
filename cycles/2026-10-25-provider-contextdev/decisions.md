@@ -25,3 +25,10 @@ This PR records the vendor's written request and opens the context.dev live gate
 ## R33/R34: gate re-closed for #27 (2026-10-26)
 - Gate re-closed for #27 per R33; contextdev re-opens only in its flip PR (number TBD).
 - State on this branch: bench/config.yaml `free_tier_guard.contextdev.live_run_allowed` is `false` and `vendor_confirmation` is `null`; bench/tos_matrix.yaml `providers.contextdev.vendor_confirmation` is `null`. Keenable stays closed (`false`/`null`). Lines 3 and 21 above describe the #28/#38 flip and are kept as written (append-only).
+
+## R33 (2b): contextdev flip-only PR into main (2026-10-26)
+- #27 merged into main as squash `8fc842223f10bc30e555e347d43b945716036bf1` with both gates closed. Per R33 (2b), contextdev re-lands in its own flip-only PR, hazeydata/agentwebindex#41 from `flip/awi-r33-contextdev`, branched from `8fc84222`.
+- Change: bench/config.yaml `free_tier_guard.contextdev.live_run_allowed` false -> true and `vendor_confirmation` null -> the record; bench/tos_matrix.yaml `providers.contextdev.vendor_confirmation` null -> the same record. The record is the one #27's revert `e50a9721` removed, unchanged except `recorded_pr`, now https://github.com/hazeydata/agentwebindex/pull/41 (its own PR, per R33). Plus this file and summary.md. No code, test or other file changes.
+- Approval: Lucille 2 (AWI owner) approved the sequence (2b then 2c) at 11:52 PM ET on 2026-10-26, via chief; agent-asserted, wording not on file.
+- Gate: merges only on its own Weatherman SHIP, with confirmation-diff-base green at its exact head. Live runs still need Fred's go.
+- Keenable (R33 2c) is not part of this PR. Its record was never on #27 (#27's revert left keenable false/null; keenable's record lives on the open #36, whose evidence files under cycles/2026-10-26-provider-keenable/ are not on main), so a keenable flip needs a ruling on its record source and evidence first.
