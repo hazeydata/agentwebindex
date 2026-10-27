@@ -1,0 +1,8 @@
+{"_doc": "AWI-PROVIDER-KEENABLE-001 AC8: head-side edits to the committed bench/tos_matrix.yaml / bench/config.yaml; every case must make awibench.confirmation_diff.check fail.",
+ "cases": [
+  {"name": "keenable vendor_confirmation_required true -> false", "file": "bench/tos_matrix.yaml", "path": ["providers", "keenable", "vendor_confirmation_required"], "op": "set", "value": false},
+  {"name": "keenable vendor_confirmation_required key deleted", "file": "bench/tos_matrix.yaml", "path": ["providers", "keenable", "vendor_confirmation_required"], "op": "delete"},
+  {"name": "keenable tos vendor_confirmation 'yes'", "file": "bench/tos_matrix.yaml", "path": ["providers", "keenable", "vendor_confirmation"], "op": "set", "value": "yes"},
+  {"name": "keenable config vendor_confirmation 'yes'", "file": "bench/config.yaml", "path": ["free_tier_guard", "keenable", "vendor_confirmation"], "op": "set", "value": "yes"},
+  {"name": "keenable config live_run_allowed 'true' string", "file": "bench/config.yaml", "path": ["free_tier_guard", "keenable", "live_run_allowed"], "op": "set", "value": "true"}
+ ]}

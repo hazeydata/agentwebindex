@@ -1,5 +1,5 @@
 {
- "_note": "Provider ids, pricing URLs and API-key env var NAMES only. Quotas and costs live ONLY in bench/pricing.yaml (single source).",
+ "_note": "Provider ids, pricing URLs and API-key env var NAMES only. Quotas and costs live ONLY in bench/pricing.yaml (single source). Optional boolean exclude_from_also_priced (absent = false): true keeps the provider out of the site's \"Also priced, no published results yet\" line.",
  "providers": [
   {
    "id": "exa",
@@ -142,6 +142,27 @@
    ],
    "pricing_url": "https://www.browserless.io/pricing",
    "key_env": "BROWSERLESS_API_KEY"
+  },
+  {
+   "id": "contextdev",
+   "name": "Context.dev",
+   "categories": [
+    "search",
+    "scrape"
+   ],
+   "pricing_url": "https://www.context.dev/pricing",
+   "key_env": "CONTEXT_DEV_API_KEY",
+   "exclude_from_also_priced": true
+  },
+  {
+   "id": "keenable",
+   "name": "Keenable",
+   "categories": [
+    "search"
+   ],
+   "pricing_url": "https://keenable.ai/pricing",
+   "key_env": null,
+   "exclude_from_also_priced": true
   }
  ]
 }

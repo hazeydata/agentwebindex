@@ -1,9 +1,10 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
-import contextlib, datetime as dt, hashlib, json, math, os, shutil, subprocess, sys, unittest
+import contextlib, datetime as dt, hashlib, json, math, os, re, shutil, subprocess, sys, unittest
+import pytest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
-from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks
+from awibench import validate, newsgen, cost, freshness, runner, tables, secrets_scan, freeze, checks, guard as guard_mod, gates as gates_mod, confirmation_diff
 from awibench.util import load_yaml, read_jsonl, sha256_file, SITE
 import mocks
 
@@ -16,6 +17,59 @@ def tmpd(tc):
 
 CFG = load_yaml(BENCH / "config.yaml"); RSS = Path(__file__).parent / "fixtures" / "rss"
 RUN_AT = dt.datetime.fromisoformat("2026-10-19T06:00:00-04:00")
+
+
+def parse_workflow_yaml(text):
+    """Minimal block-YAML reader for the workflow files (PyYAML is optional here): mappings, '- ' lists, one-line flow maps
+    `{k: v, ...}`, `|` block scalars, quoted scalars and comments. Enough to read on/jobs/steps/env/run; unknown shapes raise."""
+    def scalar(v):
+        v = v.strip()
+        if v.startswith('"'): return v[1:v.index('"', 1)]
+        if v.startswith("{"):
+            body = v[1:v.rindex("}")].strip(); out = {}
+            parts, depth, cur = [], 0, ""
+            for ch in body:
+                if ch in "{[": depth += 1
+                if ch in "}]": depth -= 1
+                if ch == "," and depth == 0: parts.append(cur); cur = ""
+                else: cur += ch
+            if cur.strip(): parts.append(cur)
+            for part in parts:
+                k, _, val = part.partition(":"); out[k.strip()] = scalar(val)
+            return out
+        return v.split(" #")[0].strip()
+    lines = [l for l in text.splitlines()]
+    def strip_comment(l): return "" if l.lstrip().startswith("#") else l
+    def block(i, indent):   # returns (value, next_i)
+        items = []; mapping = {}; is_list = None
+        while i < len(lines):
+            raw = lines[i]; l = strip_comment(raw)
+            if not l.strip(): i += 1; continue
+            ind = len(l) - len(l.lstrip())
+            if ind < indent: break
+            if ind > indent: raise ValueError(f"unexpected indent at line {i+1}: {raw!r}")
+            body = l.strip()
+            if body.startswith("- "):
+                is_list = True; sub = " " * (ind + 2) + body[2:]; lines[i] = sub
+                val, i = block(i, ind + 2); items.append(val); continue
+            k, sep, v = body.partition(":")
+            if not sep: raise ValueError(f"not a mapping at line {i+1}: {raw!r}")
+            v = v.strip(); i += 1
+            if v.split(" #")[0].strip() == "|":
+                buf = []
+                while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) > ind):
+                    buf.append(lines[i]); i += 1
+                cut = min((len(b) - len(b.lstrip()) for b in buf if b.strip()), default=0)
+                mapping[k.strip()] = "\n".join(b[cut:] for b in buf).rstrip("\n") + "\n"
+            elif v == "" or v.startswith("#"):
+                nxt = i
+                while nxt < len(lines) and not strip_comment(lines[nxt]).strip(): nxt += 1
+                if nxt < len(lines) and len(lines[nxt]) - len(lines[nxt].lstrip()) > ind:
+                    sub_ind = len(lines[nxt]) - len(lines[nxt].lstrip()); mapping[k.strip()], i = block(nxt, sub_ind)
+                else: mapping[k.strip()] = None
+            else: mapping[k.strip()] = scalar(v)
+        return (items if is_list else mapping), i
+    doc, _ = block(0, 0); return doc
 
 class T(unittest.TestCase):
     def setUp(self): self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
@@ -356,8 +410,8 @@ class T(unittest.TestCase):
     def _real(self):
         return (load_yaml(BENCH / "pricing.yaml")["providers"], load_yaml(BENCH / "tos_matrix.yaml")["providers"],
                 json.loads((SITE / "collectors/providers.json").read_text())["providers"])
-    def _real_run(self, provs=None, cfg=None, pricing=None):
-        rp, tos, allp = self._real(); pricing = pricing or rp; provs = provs or allp
+    def _real_run(self, provs=None, cfg=None, pricing=None, tos=None):
+        rp, rt, allp = self._real(); pricing = pricing or rp; provs = provs or allp; tos = rt if tos is None else tos
         sd = self.tmp / "rsets"; mocks.make_sets(sd)
         tasks = load_yaml(sd / "browser_tasks.yaml"); tasks[0] = dict(tasks[0], category="anti_bot")   # an anti-bot browser task for decision 2
         sets = {f: {"rows": read_jsonl(sd / f"{f}.jsonl"), "sha": "x"} for f in ("search_evergreen", "scrape_urls")}
@@ -375,7 +429,7 @@ class T(unittest.TestCase):
         # even a stray brave log never reaches a table
         f = self.tmp / "rruns" / "2026-10-19" / "brave" / "search_evergreen.jsonl"; f.parent.mkdir(parents=True)
         f.write_text(json.dumps({"ts": "2026-10-19T11:23:00+00:00", "status": "pass", "set_sha": "x", "latency_ms": 1, "billed_units": 1, "mock": True}) + "\n")
-        doc = tables.build(self.tmp / "rruns", pricing, None, tos)
+        doc = tables.build(self.tmp / "rruns", pricing, None, mocks.keenable_closed(None, tos)[1])   # R25: keenable closed fixture, so a K2 flip can't add its exclusion here
         self.assertNotIn("brave", [r["provider"] for t in doc["tables"].values() for r in t])
         self.assertEqual([e["provider"] for e in doc["exclusions"]], ["brave"]); self.assertIn("brave.com", doc["exclusions"][0]["terms_url"])
     def test_d2_steel_browserless_skip_anti_bot(self):
@@ -408,10 +462,11 @@ class T(unittest.TestCase):
             errs = validate.validate_by_set(self.tmp, CFG)["browser_tasks"][0]
             self.assertEqual(errs == [], ok, (u, errs[:1]))
     def test_d4_month1_only_six_providers(self):
-        s, pricing, tos = self._real_run()
+        s, pricing, tos = self._real_run(cfg=closed_cfg(), tos=closed_tos())   # R25: explicit closed fixture
         st = {(p["provider"], p["category"]): p["status"] for p in s["providers"]}
         ran = {k for k, v in st.items() if v in ("ran", "stale_quota")}
         self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"})
+        self.assertEqual(st[("contextdev", "search")], "skipped_no_vendor_confirmation")   # AC6a: a closed config keeps contextdev out of live runs
         for (pid, cat), v in st.items():
             if pid == "brave": self.assertEqual(v, "excluded_tos_benchmarking")
             elif pid not in CFG["month1_free_tier_providers"]: self.assertEqual(v, "skipped_not_month1", pid)
@@ -432,7 +487,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 22)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + apify browser web-fetch (AWI-RUN-2026-10-26)
+        self.assertEqual(n, 24)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + contextdev search/scrape + apify browser web-fetch (AWI-RUN-2026-10-26)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -440,7 +495,7 @@ class T(unittest.TestCase):
         provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
         banned = {"free_quota", "entry_cost", "costs", "cost", "pricing", "free_tier", "quota", "units_per_month", "unit_price", "tiers"}
         for p in provs:
-            self.assertEqual(set(p) & banned, set(), p["id"]); self.assertEqual(set(p), {"id", "name", "categories", "pricing_url", "key_env"}, p["id"])
+            self.assertEqual(set(p) & banned, set(), p["id"]); self.assertEqual(set(p) - {"exclude_from_also_priced"}, {"id", "name", "categories", "pricing_url", "key_env"}, p["id"])   # exclude_from_also_priced: optional R3 flag
     def test_4_worst_case_guard_is_data_and_halts_before_call(self):
         wc = CFG["worst_case_units_per_call"]
         self.assertEqual({k: v for k, v in wc.items()}.keys(), {"tavily", "apify"})
@@ -771,7 +826,7 @@ class Rulings3(unittest.TestCase):
         runs = SITE / "bench" / "runs"; snap = sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file())
         env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
-             mock.patch("builtins.print") as pr:
+             mock.patch("builtins.print") as pr, mock.patch.object(B.guard, "live_allowed", return_value=False):   # AC24: keyless providers are gated only by live_allowed; closed here, so no key = no calls in either gate state
             self.assertEqual(B.main(), 0)
         self.assertEqual(out.read_bytes(), before)
         self.assertEqual(sorted((str(f), f.stat().st_mtime_ns) for f in runs.rglob("*") if f.is_file()), snap)
@@ -785,7 +840,7 @@ class Rulings3(unittest.TestCase):
         def deny(req, **kw): calls.append(req.full_url); raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error":"invalid api key"}'))
         env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"EXA_API_KEY": "invalid-dummy"}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full"]), \
-             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr:
+             mock.patch("urllib.request.urlopen", deny), mock.patch("builtins.print") as pr, mock.patch.object(B.guard, "live_allowed", return_value=False):   # AC24: keyless gate closed (state-independent)
             self.assertEqual(B.main(), 0)
         self.assertEqual(snap(), before)   # latest.json, bench/runs and data/spend byte-identical
         self.assertEqual(len(calls), 1)    # stopped at the first auth error
@@ -2276,6 +2331,1379 @@ class TavilyPhase0(unittest.TestCase):
         self.assertTrue(pub); self.assertEqual(pub, exp)
         for r in pub: self.assertIn(f"(checked {self.VERIFIED_DATE})", r["cost_units_note"])
 
+
+# R23 (AC27b-d): an X reply from a verified vendor officer is a valid vendor record; the R19 validator is unchanged. FIXTURE ONLY (example text, not the vendor's words).
+X_REPLY_CONFIRMATION = {"date": "2026-10-26", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "Example text: yes, the free tier may be used for this benchmark.",
+                        "evidence_path": "evidence/vendor/example/x-reply-0000000000000000001.html", "recorded_pr": "https://github.com/hazeydata/agentwebindex-meta/pull/999"}
+MOCK_CONFIRMATION = {"date": "2026-11-01", "sender": "Mock Sender, mock@example.invalid", "quote": "mock written permission", "evidence_path": "mock/evidence.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+
+# R25: gate-behavior tests run on these explicit closed/open fixtures, never on whatever the committed files say today.
+def closed_cfg(cfg=None):
+    """Deep copy of `cfg` (default: committed config) with the contextdev live gate closed (R9 defaults)."""
+    c = json.loads(json.dumps(CFG if cfg is None else cfg)); c["free_tier_guard"]["contextdev"].update(live_run_allowed=False, vendor_confirmation=None); return c
+def closed_tos(tos=None):
+    """Deep copy of tos_matrix providers (default: committed) with keenable and contextdev vendor_confirmation null."""
+    t = json.loads(json.dumps(load_yaml(BENCH / "tos_matrix.yaml")["providers"] if tos is None else tos))
+    for pid in ("keenable", "contextdev"): t[pid]["vendor_confirmation"] = None
+    return t
+def committed_consistent(tc):
+    """R25 committed-state check. Returns True if the committed contextdev gate is open, after asserting the open state is
+    consistent: live_run_allowed is bool True, the config record passes gates.record_error, the tos entry still requires
+    confirmation and carries the same valid record, and guard.live_allowed agrees. Returns False if live_run_allowed is False;
+    callers then apply the old closed assertions unchanged. Anything else (e.g. "yes") fails."""
+    g = CFG["free_tier_guard"]["contextdev"]; e = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"]
+    if g["live_run_allowed"] is False: return False
+    tc.assertIs(g["live_run_allowed"], True)
+    tc.assertIsNone(gates_mod.record_error(g["vendor_confirmation"])); tc.assertIs(e["vendor_confirmation_required"], True)
+    tc.assertIsNone(gates_mod.record_error(e["vendor_confirmation"])); tc.assertEqual(e["vendor_confirmation"], g["vendor_confirmation"])
+    tc.assertTrue(gates_mod.vendor_confirmed(e)); tc.assertTrue(guard_mod.live_allowed(CFG, {"contextdev": e}))
+    return True
+
+class ContextDevBase(unittest.TestCase):
+    """AWI-PROVIDER-CONTEXTDEV-001 spec rev 4 (MOCK ONLY; urlopen is always patched or never reached). Tests are labelled with AC numbers.
+    self.cfg is the committed config with the R9 live gate opened and grant_anchor_day 15, so the guard logic is reachable; the committed gate is tested separately."""
+    TS = "2026-10-26T10:00:00+00:00"   # anchor 15 -> window 2026-10-15
+    W = "2026-10-15"
+    def setUp(self):
+        self.tmp = mktmp(self); self.cfg = mocks.mock_cfg(CFG)
+        self.cfg["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation=dict(MOCK_CONFIRMATION), grant_anchor_day=15)
+        self.pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; self.tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        self.tos["contextdev"] = self.tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}   # in-memory R10 record so the live/publish paths are reachable
+        sd = self.tmp / "sets"; mocks.make_sets(sd); self.rows = read_jsonl(sd / "search_evergreen.jsonl"); self.srows = read_jsonl(sd / "scrape_urls.jsonl")
+        self.spend = self.tmp / "spend"; self.spend.mkdir(); self.calls = []; self.sleeps = []
+    def prov_def(self, kinds=("search",)): return [{"id": "contextdev", "categories": list(kinds), "key_env": "CONTEXT_DEV_API_KEY"}]
+    def seed(self, attempted, billed=0, window=None):
+        w = window or self.W
+        (self.spend / f"contextdev-{w}.json").write_text(json.dumps({"provider": "contextdev", "window": w, "attempted": attempted, "billed": billed}))
+    def counter(self, window=None): return json.loads((self.spend / f"contextdev-{window or self.W}.json").read_text())
+    def ad_search(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "results": [{"url": "https://a.example/", "title": "t", "snippet": "s"}]}
+    def ad_scrape(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "text": "x", "html": "<p>x</p>"}
+    adapter = ad_search
+    def go(self, n=3, kinds=("search",), adapters=None, cfg=None, pricing=None, meters=None, providers=None, tos=None, env=None, ts=None, run_date="2026-10-26",
+           ledger="ledger.json", sets=None):
+        ts = ts or self.TS
+        sets = sets or ({"search_evergreen": {"rows": self.rows[:n], "sha": "x"}} if "search" in kinds else {}) | ({"scrape_urls": {"rows": self.srows[:n], "sha": "x"}} if "scrape" in kinds else {})
+        ad = adapters or {"contextdev": {"search": self.ad_search, "scrape": self.ad_scrape}}
+        return runner.run(providers=providers or self.prov_def(kinds), sets=sets, pricing=pricing or self.pricing, tos=tos if tos is not None else self.tos, adapters=ad,
+                          cfg=cfg or self.cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / ledger, run_date=run_date, env=env or {"CONTEXT_DEV_API_KEY": "mock-key"},
+                          mock=True, spend_dir=self.spend, meters=meters, now_fn=lambda: dt.datetime.fromisoformat(ts), sleep=self.sleeps.append)
+    def prov(self, s, pid="contextdev", cat=None): return next(p for p in s["providers"] if p["provider"] == pid and (cat is None or p["category"] == cat))
+    def lines(self, kind="search"): return read_jsonl(self.tmp / f"runs/2026-10-26/contextdev/{'search_evergreen' if kind == 'search' else 'scrape_urls'}.jsonl")
+    def cfg_with(self, **g):
+        c = json.loads(json.dumps(self.cfg)); c["free_tier_guard"]["contextdev"].update(g); return c
+
+def http_err(code, text="vendor text"):
+    def f(key, item): raise RuntimeError(f"HTTP {code}: {text}")
+    return f
+
+class ContextDevConfig(ContextDevBase):
+    def test_ac2_no_price_in_pricing_and_cost_na(self):   # AC2
+        for kind in ("search", "scrape"):
+            e = self.pricing["contextdev"][kind]
+            for tier in e["tiers"].values():
+                for k, v in tier.items(): self.assertEqual(v, "NOT CAPTURED", (kind, k))   # no numeric price field
+            self.assertNotRegex(json.dumps(e), r"TBD|PLACEHOLDER|XXX")
+            for q in ("$20", "$19", "7,500", "$3.00", "$2.20"): self.assertIn(q, e["note"])   # the conflict is quoted, not resolved
+            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["entry_tier_cost_per_1k"], None)
+            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["volume_tier_cost_per_1k"], None)
+            self.assertEqual((e["credits_per_call"], e["free_tier"]["units_per_month"], e["free_tier"]["needs_card"], e["free_tier"]["pool"], e["free_tier"]["refill"]),
+                             ({"search": 1, "scrape": 1}, 1000, False, "contextdev", "grant-anchor day"))
+            self.assertEqual(e["credits_per_call_rule"]["source_url"], "https://docs.context.dev/account/credits")
+            self.assertEqual(e["credits_per_call_rule"]["scrape"], "1; 2 with browser actions")
+    def test_ac3_p0_still_not_passed(self):   # AC3: the committed state keeps P0 unpassed (recorded as still broken in summary.md, meta repo)
+        for kind in ("search", "scrape"): self.assertIsNone(cost.billed_usd(self.pricing["contextdev"][kind], "entry", []))
+        self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0]); self.assertIn("P0 pricing not passed", tables.publish_gate("contextdev", self.pricing, self.tos)[1])
+    def test_ac4_tos_entry_matches_rev4_shape(self):   # AC4
+        t = self.tos["contextdev"]
+        self.assertEqual((t["terms_url"], t["sections"], t["verdict"], t["allowed"], t["full_read"], t["terms_last_updated"]), ("https://www.context.dev/term", 27, "unverified", None, True, "2026-10-01"))
+        for c in ("benchmarking", "publishing_results", "automated_access", "attribution", "anti_bot_scraping"): self.assertTrue(t[c]["quote"].strip(), c)
+        self.assertIn("23. User data", t["benchmarking"]["quote"]); self.assertIn("Restrictions on Use", t["publishing_results"]["quote"])
+        self.assertIn("§4", t["automated_access"]["quote"]); self.assertIn("§8", t["automated_access"]["quote"]); self.assertEqual(t["automated_access"]["status"], "forbidden_literal")
+        self.assertIn("§3", t["attribution"]["quote"]); self.assertIn("/brand", t["attribution"]["quote"])
+        self.assertEqual((t["benchmarking"]["status"], t["publishing_results"]["status"]), ("unclear", "unclear"))
+    def test_ac6_name_plain_text_and_no_logo(self):   # AC6
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        self.assertEqual(next(p for p in provs if p["id"] == "contextdev")["name"], "Context.dev")
+        skip = {".git", "__pycache__", "node_modules"}; imgs = (".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".gif")
+        url = re.compile(r"context\.dev[^\s\"']*(logo|\.(svg|png|jpe?g|webp|ico))", re.I)
+        for f in SITE.rglob("*"):
+            if not f.is_file() or skip & set(f.relative_to(SITE).parts): continue
+            if f.suffix.lower() in imgs: self.assertNotIn("context", f.name.lower(), str(f))
+            elif f.suffix in (".py", ".json", ".yaml", ".md", ".html", ".js", ".css", ".txt", ".yml") and f.name != "test_bench.py":
+                self.assertIsNone(url.search(f.read_text(errors="replace")), str(f))
+    def test_ac7_providers_json_entry_and_keyed(self):   # AC7
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        self.assertEqual(next(p for p in provs if p["id"] == "contextdev"), {"id": "contextdev", "name": "Context.dev", "categories": ["search", "scrape"],
+                         "pricing_url": "https://www.context.dev/pricing", "key_env": "CONTEXT_DEV_API_KEY", "exclude_from_also_priced": True})
+        self.assertNotIn("contextdev", B.keyed_providers(provs, {})); self.assertNotIn("contextdev", B.keyed_providers(provs, {"CONTEXT_DEV_API_KEY": ""}))
+        self.assertIn("contextdev", B.keyed_providers(provs, {"CONTEXT_DEV_API_KEY": "mock"}))
+        self.assertEqual(set(B.ADAPTERS["contextdev"]), {"search", "scrape"})
+        self.assertIn("exclude_from_also_priced", json.loads((SITE / "collectors/providers.json").read_text())["_note"])   # new optional field documented (AC28)
+    def test_ac8_no_key_skipped_and_others_run(self):   # AC8
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}
+        pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        for env in ({"K": "x", "CONTEXT_DEV_API_KEY": ""}, {"K": "x"}):
+            s = self.go(providers=self.prov_def() + [other], adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]), pricing=pricing, env=env)
+            self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_key", [])); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+            self.assertFalse(list(self.spend.glob("contextdev-*.json")))
+    def test_config_block_matches_rev4_shape(self):   # AC10/AC11/AC13/AC6a/AC26 config values, committed file
+        g = CFG["free_tier_guard"]["contextdev"]
+        want = {"pool": "contextdev", "quota_credits": 1000, "stop_at_credits": 900, "grant_anchor_day": None, "live_run_allowed": False, "vendor_confirmation": None,
+                "meter": "https://api.context.dev/v1/org/usage", "max_concurrent": 1, "count": "attempts", "retry_after_429_s": 1,
+                "quota_stop_errors": ["HTTP 402 USAGE_EXCEEDED", "HTTP 401 USAGE_EXCEEDED"], "paid_tier": False}
+        if committed_consistent(self): want |= {"live_run_allowed": True, "vendor_confirmation": g["vendor_confirmation"]}   # R25: open only with a valid record
+        self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
+                                            "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")}, want)
+        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        self.assertNotIn("contextdev", CFG["ceo_free_tier_allowlist"])   # needs_card is false in pricing.yaml; no allowlist exception
+    def test_also_priced_helper_eleven_with_flag(self):   # AC22 support (the site repo tests the page itself): helper honours exclude_from_also_priced
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        latest = json.loads((SITE / "data/benchmarks/latest.json").read_text())
+        names = tables.also_priced_providers(self.pricing, latest, provs)
+        self.assertEqual(sorted(names), sorted(["Brave Search API", "Linkup", "Parallel", "Serper", "Firecrawl", "Jina Reader", "Bright Data Web Unlocker",
+                                                "Hyperbrowser", "ScrapingBee", "Browserbase", "Steel"]))
+        self.assertEqual(len(names), 11); self.assertNotIn("Context.dev", names)
+        unflagged = [{k: v for k, v in p.items() if k != "exclude_from_also_priced"} for p in provs]
+        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 12)   # the flag, not chance, excludes it
+
+class ContextDevLiveGate(ContextDevBase):
+    def test_ac6a_live_allowed_function(self):   # AC6a
+        real_tos = closed_tos(); tos = {"contextdev": real_tos["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}   # R25: closed tos fixture
+        self.assertFalse(guard_mod.live_allowed(closed_cfg(), real_tos)); self.assertFalse(guard_mod.live_allowed(closed_cfg(), tos))   # closed config / closed tos fixtures
+        self.assertIs(guard_mod.live_allowed(CFG, load_yaml(BENCH / "tos_matrix.yaml")["providers"]), committed_consistent(self))   # R25: committed files open only if consistent
+        g = lambda **kw: {"free_tier_guard": {"contextdev": kw}}
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=None), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=False, vendor_confirmation=MOCK_CONFIRMATION), tos))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed="yes", vendor_confirmation=MOCK_CONFIRMATION), tos))
+        self.assertTrue(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), tos))
+        # R10: config flags alone are not enough; the tos_matrix record must pass vendor_confirmed
+        self.assertEqual(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), real_tos), real_tos["contextdev"].get("vendor_confirmation") is None)   # R22: a null tos record is fine; a set one must be valid
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), {"contextdev": tos["contextdev"] | {"vendor_confirmation": {"date": "2026-11-01"}}}))
+        self.assertFalse(guard_mod.live_allowed(g(live_run_allowed=True, vendor_confirmation=MOCK_CONFIRMATION), {}))
+    def test_r21_guard_config_record_uses_validator(self):   # R21 (1): guard's live gate runs the config record through gates.record_error, no truthiness
+        from awibench import gates
+        tos = {"contextdev": load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"] | {"vendor_confirmation": MOCK_CONFIRMATION}}
+        g = lambda vc: {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": vc}}}
+        self.assertTrue(guard_mod.live_allowed(g(dict(MOCK_CONFIRMATION)), tos))                                               # positive control
+        bad = ["yes", {}, {"date": "2026-11-01"}, "https://example.invalid/reply", dict(MOCK_CONFIRMATION, recorded_pr=27), dict(MOCK_CONFIRMATION, extra=1), ["x"], 1, True]
+        for vc in bad:
+            self.assertIsNotNone(gates.record_error(vc), vc)                                                                # invalid (all truthy except {}, which R21 lists)
+            self.assertFalse(guard_mod.live_allowed(g(vc), tos), vc)
+        for vc in ("yes", {}, {"date": "2026-11-01", "sender": "s"}):                                                       # zero live calls through the runner
+            s = self.go(cfg=self.cfg_with(vendor_confirmation=vc))
+            self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []), vc)
+    def test_r22_live_allowed_all_conditions(self):   # R22 extends R21 (1); follows R9: every condition must hold, else fail closed (mock)
+        base = load_yaml(BENCH / "tos_matrix.yaml")["providers"]["contextdev"]
+        ok_cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
+        tos = lambda **kw: {"contextdev": {k: v for k, v in (base | kw).items() if v is not ...}}
+        la = guard_mod.live_allowed; F = "vendor_confirmation_required"
+        self.assertTrue(la(ok_cfg, tos(**{F: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                        # everything valid
+        self.assertTrue(la(ok_cfg, tos(**{F: True, "vendor_confirmation": None})))                                           # tos record not set: only the config record counts
+        self.assertFalse(la(ok_cfg, tos(**{F: ..., "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                        # tos flag missing
+        self.assertFalse(la(ok_cfg, tos(**{F: False, "vendor_confirmation": dict(MOCK_CONFIRMATION)})))                      # tos flag false
+        for flag in ("true", 1, None): self.assertFalse(la(ok_cfg, tos(**{F: flag})), flag)                                    # flag must be bool True
+        self.assertFalse(la(ok_cfg, {})); self.assertFalse(la(ok_cfg, None)); self.assertFalse(la(ok_cfg, {"contextdev": None}))   # tos entry missing
+        self.assertFalse(la(ok_cfg, {"contextdev": "x"}))
+        for bad in ("yes", {}, {"date": "2026-11-01"}, dict(MOCK_CONFIRMATION, recorded_pr=27), None):                      # flag true, invalid config record
+            cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": bad}}}
+            self.assertFalse(la(cfg, tos(**{F: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)})), bad)
+        for bad in ("yes", {"date": "2026-11-01"}, dict(MOCK_CONFIRMATION, date="2026-02-30"), {}):                         # tos record set but invalid
+            self.assertFalse(la(ok_cfg, tos(**{F: True, "vendor_confirmation": bad})), bad)
+        for lra in (False, "true", 1, None):                                                                                 # live_run_allowed must be bool True
+            cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": lra, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}}
+            self.assertFalse(la(cfg, tos(**{F: True})), lra)
+    def test_r23_x_reply_record_valid(self):   # R23 (AC27b-d): X-reply-shaped record passes gates.record_error and live_allowed (mocked); both quote and evidence_path empty fails
+        rec = dict(X_REPLY_CONFIRMATION)
+        self.assertIsNone(gates_mod.record_error(rec))
+        tos = {"contextdev": dict(self.tos["contextdev"], vendor_confirmation_required=True, vendor_confirmation=dict(rec))}
+        cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=dict(rec))
+        self.assertTrue(guard_mod.live_allowed(cfg, tos))
+        search = mock.Mock(side_effect=self.ad_search)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+            s = self.go(n=2, cfg=cfg, tos=tos, adapters={"contextdev": {"search": search}})
+        self.assertEqual((self.prov(s)["status"], search.call_count), ("ran", 2)); net.assert_not_called()   # mocked adapter only
+        # R26 (supersedes R19's at-least-one; resolves AC27d): BOTH quote and evidence_path must be non-empty strings
+        for q, ev in (("", rec["evidence_path"]), (None, rec["evidence_path"]), ("  ", rec["evidence_path"]), (rec["quote"], ""), (rec["quote"], None), (rec["quote"], " "),
+                      ("", ""), ("", None), (None, ""), (None, None), ("  ", None), (1, rec["evidence_path"]), (rec["quote"], ["x"])):
+            bad = dict(rec, quote=q, evidence_path=ev)
+            self.assertIsNotNone(gates_mod.record_error(bad), (q, ev))
+            self.assertFalse(guard_mod.live_allowed(self.cfg_with(live_run_allowed=True, vendor_confirmation=bad), tos), (q, ev))
+            self.assertFalse(guard_mod.live_allowed(cfg, {"contextdev": dict(tos["contextdev"], vendor_confirmation=bad)}), (q, ev))
+    def test_r26_c07_missing_key_or_block_zero_calls(self):   # R26 (1) / C07: live_allowed is consulted unconditionally for contextdev
+        valid_tos = {"contextdev": self.tos["contextdev"] | {"vendor_confirmation": dict(MOCK_CONFIRMATION)}}
+        no_key = json.loads(json.dumps(self.cfg)); g = no_key["free_tier_guard"]["contextdev"]; del g["live_run_allowed"]; g["vendor_confirmation"] = None
+        no_block = json.loads(json.dumps(self.cfg)); del no_block["free_tier_guard"]["contextdev"]
+        no_ftg = json.loads(json.dumps(self.cfg)); no_ftg.pop("free_tier_guard")
+        key_only_gone = json.loads(json.dumps(self.cfg)); del key_only_gone["free_tier_guard"]["contextdev"]["live_run_allowed"]   # valid record, key missing
+        for name, cfg in (("key deleted, null record", no_key), ("block removed", no_block), ("free_tier_guard removed", no_ftg), ("key deleted, valid record", key_only_gone)):
+            self.calls.clear(); search = mock.Mock(side_effect=self.ad_search)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, cfg=cfg, tos=valid_tos, adapters={"contextdev": {"search": search}})
+            self.assertEqual((self.prov(s)["status"], search.call_count), ("skipped_no_vendor_confirmation", 0), name); net.assert_not_called()
+            self.assertFalse(list(self.spend.glob("contextdev-*")), name); self.assertFalse((self.tmp / "runs").exists(), name)
+            self.assertFalse(guard_mod.live_allowed(cfg, valid_tos), name)
+    def test_r26_c07_each_gate_term_alone_fails_closed(self):   # R26 (1) / C07: each term of the runner's live-gate condition is load-bearing on its own
+        # (a) LIVE_GATED alone: contextdev with no guard block and a tos entry that lacks the required flag is still skipped
+        no_block = json.loads(json.dumps(self.cfg)); del no_block["free_tier_guard"]["contextdev"]
+        no_flag = {"contextdev": {k: v for k, v in self.tos["contextdev"].items() if k != gates_mod.REQUIRED_FLAG}}
+        search = mock.Mock(side_effect=self.ad_search)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+            s = self.go(n=2, cfg=no_block, tos=no_flag, adapters={"contextdev": {"search": search}})
+        self.assertEqual((self.prov(s)["status"], search.call_count), ("skipped_no_vendor_confirmation", 0)); net.assert_not_called()
+        self.assertIn("config free_tier_guard.contextdev", self.prov(s)["reason"])
+        # (b) tos required flag alone: a provider outside LIVE_GATED, valid tos record, no guard block, is skipped by the config-side gate
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        tos = self.tos | {"mockp": self.tos["contextdev"] | {gates_mod.REQUIRED_FLAG: True, "vendor_confirmation": dict(MOCK_CONFIRMATION)}}
+        mp = mocks.MockAdapters(); s = self.go(providers=[other], cfg=self.cfg, tos=tos, pricing=pricing, env={"K": "x"}, adapters=mp.table("mockp", ["search"]))
+        self.assertEqual(self.prov(s, "mockp")["status"], "skipped_no_vendor_confirmation"); self.assertIn("config free_tier_guard.mockp", self.prov(s, "mockp")["reason"])
+        s = self.go(providers=[other], cfg=self.cfg, tos=self.tos | {"mockp": tos["mockp"] | {gates_mod.REQUIRED_FLAG: False}}, pricing=pricing, env={"K": "x"}, adapters=mp.table("mockp", ["search"]))
+        self.assertEqual(self.prov(s, "mockp")["status"], "ran")   # positive control: without the flag the same provider runs
+    def test_r22_bad_config_record_zero_live_calls(self):   # R21 (1) / R22: "yes", {} or a partial config record -> live_allowed False and the provider/http client is never invoked
+        for bad in ("yes", {}, {"date": "2026-11-01", "sender": "x@context.dev"}, {k: v for k, v in MOCK_CONFIRMATION.items() if k != "recorded_pr"}):
+            cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=bad)
+            self.assertFalse(guard_mod.live_allowed(cfg, self.tos), bad)
+            search, scrape = mock.Mock(side_effect=self.ad_search), mock.Mock(side_effect=self.ad_scrape)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, kinds=("search", "scrape"), cfg=cfg, adapters={"contextdev": {"search": search, "scrape": scrape}})
+            self.assertEqual([p["status"] for p in s["providers"]], ["skipped_no_vendor_confirmation"] * 2, bad)
+            search.assert_not_called(); scrape.assert_not_called(); net.assert_not_called(); self.assertEqual(self.calls, [], bad)
+            self.assertFalse(list(self.spend.glob("contextdev-*")), bad)
+        cfg = self.cfg_with(live_run_allowed=True, vendor_confirmation=dict(MOCK_CONFIRMATION)); search = mock.Mock(side_effect=self.ad_search)   # positive control
+        self.assertTrue(guard_mod.live_allowed(cfg, self.tos))
+        self.go(n=2, cfg=cfg, adapters={"contextdev": {"search": search}}); self.assertEqual(search.call_count, 2)
+    def test_ac6a_default_config_zero_calls(self):   # AC6a (a): closed gate fixture (R25), key set
+        cfg = mocks.mock_cfg(closed_cfg())
+        s = self.go(n=3, kinds=("search", "scrape"), cfg=cfg)
+        self.assertEqual([p["status"] for p in s["providers"]], ["skipped_no_vendor_confirmation"] * 2); self.assertEqual(self.calls, [])
+        self.assertFalse(list(self.spend.glob("contextdev-*"))); self.assertFalse((self.tmp / "runs").exists())
+    def test_ac6a_flag_true_confirmation_null_zero_calls(self):   # AC6a (b)
+        s = self.go(cfg=self.cfg_with(vendor_confirmation=None))
+        self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        s = self.go(cfg=self.cfg_with(live_run_allowed=False)); self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+    def test_ac6a_both_set_adapter_reachable(self):   # AC6a (c)
+        s = self.go(n=2); self.assertEqual((self.prov(s)["status"], len(self.calls)), ("ran", 2))
+    def test_ac6a_gate_does_not_stop_other_providers(self):
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        s = self.go(providers=self.prov_def() + [other], cfg=mocks.mock_cfg(closed_cfg()), pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"},
+                    adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]))
+        self.assertEqual((self.prov(s)["status"], self.prov(s, "mockp")["status"], self.calls), ("skipped_no_vendor_confirmation", "ran", []))
+    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), closed config fixture (R25), key set, any network call fails the test
+        import shutil
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        root = mktmp(self) / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        (root / "bench/config.yaml").write_text(json.dumps(closed_cfg(load_yaml(root / "bench/config.yaml"))))   # R25: explicit closed fixture
+        t = load_yaml(root / "bench/tos_matrix.yaml"); t["providers"] = closed_tos(t["providers"]); (root / "bench/tos_matrix.yaml").write_text(json.dumps(t))
+        news = sorted(f.stem for f in (root / "bench/sets").glob("news_*.jsonl"))[-1]
+        snap = lambda: sorted((str(f.relative_to(root)), hashlib.sha256(f.read_bytes()).hexdigest()) for d in ("data", "bench/runs", "bench/spend") if (root / d).exists() for f in (root / d).rglob("*") if f.is_file())
+        before = snap(); printed = []
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "contextdev", "--only-sets", news]), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")), mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), \
+             mock.patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))):
+            self.assertEqual(B.main(), 0)
+        self.assertEqual(snap(), before)   # no run-log lines, no counter, no latest.json change
+        sk = [json.loads(l) for l in printed if l.startswith("{")]
+        self.assertEqual([(p["provider"], p["status"]) for p in sk], [("contextdev", "skipped_no_vendor_confirmation")] * 2)
+        self.assertFalse(list((root / "bench/runs").rglob("contextdev")) and [d for d in (root / "bench/runs").rglob("contextdev") if d not in set((SITE / "bench/runs").rglob("contextdev"))])
+        self.assertFalse(list((root / "data/spend").glob("contextdev-*")))
+
+    def test_ac25_l2_monday_news_job_open_gate_attempts_contextdev(self):   # Weatherman L2: same job with an open fixture gate; contextdev no longer sits out
+        import shutil
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        root = mktmp(self) / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        c = closed_cfg(load_yaml(root / "bench/config.yaml")); c["free_tier_guard"]["contextdev"].update(live_run_allowed=True, vendor_confirmation=dict(X_REPLY_CONFIRMATION))
+        (root / "bench/config.yaml").write_text(json.dumps(c))
+        t = load_yaml(root / "bench/tos_matrix.yaml"); t["providers"] = closed_tos(t["providers"]); t["providers"]["contextdev"]["vendor_confirmation"] = dict(X_REPLY_CONFIRMATION)
+        (root / "bench/tos_matrix.yaml").write_text(json.dumps(t))
+        news = sorted(f.stem for f in (root / "bench/sets").glob("news_*.jsonl"))[-1]
+        printed = []; urls = []
+        def no_net(req, *a, **k): urls.append(getattr(req, "full_url", req)); raise OSError("mock: network blocked")
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "contextdev", "--only-sets", news]), \
+             mock.patch("urllib.request.urlopen", side_effect=no_net), mock.patch.object(B, "contextdev_meter", return_value=0), \
+             mock.patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))):
+            B.main()
+        sk = [json.loads(l) for l in printed if l.startswith("{")]
+        self.assertNotIn(("contextdev", "skipped_no_vendor_confirmation"), [(p.get("provider"), p.get("status")) for p in sk])
+        self.assertTrue(urls and all("context.dev" in str(u) for u in urls), urls)   # the gate let the runner try contextdev (mocked, no real network)
+
+class ContextDevGuard(ContextDevBase):
+    def test_ac11_stop_at_exactly_900_from_config(self):   # AC11
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["stop_at_credits"], 900)
+    def test_ac11_edge_899_plus_scrape_runs(self):   # AC11
+        self.seed(899); s = self.go(n=1, kinds=("scrape",)); p = self.prov(s)
+        self.assertEqual((p["status"], len(self.calls)), ("ran", 1)); self.assertEqual(self.counter()["attempted"], 900)
+    def test_ac11_edge_899_plus_search_markdown_stops(self):   # AC11: search 10 results with markdown = 2 credits
+        self.seed(899)
+        with mock.patch.object(guard_mod, "contextdev_request", return_value={"max_results": 10, "markdown": True}):
+            p = self.prov(self.go(n=1))
+        self.assertEqual((p["status"], self.calls, p["credits_used"], p["credits_stop_at"]), ("stale_quota", [], 899, 900)); self.assertEqual(self.counter()["attempted"], 899)
+    def test_ac11_at_900_any_call_stops_before_adapter(self):   # AC11
+        self.seed(900)
+        for kind in ("search", "scrape"):
+            p = self.prov(self.go(n=1, kinds=(kind,))); self.assertEqual((p["status"], self.calls), ("stale_quota", []), kind)
+        self.assertEqual(self.counter()["attempted"], 900)
+    def test_ac11_guard_reads_attempts_not_billed(self):   # AC11 / R1
+        self.seed(900, billed=0); self.assertEqual(self.prov(self.go(n=1))["status"], "stale_quota"); self.assertEqual(self.calls, [])
+        self.seed(0, billed=900); p = self.prov(self.go(n=1)); self.assertEqual((p["status"], len(self.calls)), ("ran", 1))
+    def test_ac12_persistence_across_runs_same_window(self):   # AC12
+        self.go(n=3); self.assertEqual(self.counter()["attempted"], 3)
+        self.go(n=3, ledger="ledger2.json", ts="2026-10-28T10:00:00+00:00", run_date="2026-10-28"); self.assertEqual(self.counter()["attempted"], 6)
+    def test_ac13_anchor_window_start_function(self):   # AC13
+        A = lambda s, d: guard_mod.anchor_window_start(dt.datetime.fromisoformat(s), d)
+        self.assertEqual(A("2026-10-14T12:00:00+00:00", 15), dt.date(2026, 9, 15)); self.assertEqual(A("2026-10-15T00:00:00+00:00", 15), dt.date(2026, 10, 15))
+        self.assertEqual(A("2026-11-01T00:30:00+00:00", 15), dt.date(2026, 10, 15))   # the 1st does not reset
+        self.assertEqual(A("2026-11-30T12:00:00+00:00", 31), dt.date(2026, 11, 30)); self.assertEqual(A("2026-11-29T12:00:00+00:00", 31), dt.date(2026, 10, 31))
+        self.assertEqual(A("2026-12-01T00:00:00+00:00", 31), dt.date(2026, 11, 30)); self.assertEqual(A("2027-02-28T09:00:00+00:00", 31), dt.date(2027, 2, 28))
+        self.assertEqual(A("2027-01-05T09:00:00+00:00", 15), dt.date(2026, 12, 15))   # year boundary
+        self.assertEqual(A("2026-10-31T23:30:00-05:00", 1), dt.date(2026, 11, 1))   # UTC date of the timestamp
+        with self.assertRaises(guard_mod.AnchorNotConfigured): A("2026-10-14T12:00:00+00:00", None)
+    def test_ac13_run_on_14th_continues_old_window(self):   # AC13
+        self.seed(100, window="2026-09-15"); s = self.go(n=3, ts="2026-10-14T10:00:00+00:00")
+        self.assertEqual(self.counter("2026-09-15")["attempted"], 103); self.assertFalse((self.spend / "contextdev-2026-10-15.json").exists())
+    def test_ac13_run_on_15th_starts_new_window_at_zero(self):   # AC13
+        self.seed(850, window="2026-09-15"); before = (self.spend / "contextdev-2026-09-15.json").read_bytes()
+        s = self.go(n=3, ts="2026-10-15T00:30:00+00:00", run_date="2026-10-15"); self.assertEqual(self.prov(s)["status"], "ran")
+        self.assertEqual(self.counter("2026-10-15")["attempted"], 3); self.assertEqual((self.spend / "contextdev-2026-09-15.json").read_bytes(), before)
+    def test_ac13_run_on_the_1st_does_not_reset(self):   # AC13
+        self.seed(150); s = self.go(n=3, ts="2026-11-01T00:30:00+00:00", run_date="2026-11-01")
+        self.assertEqual(self.counter()["attempted"], 153); self.assertFalse((self.spend / "contextdev-2026-11-01.json").exists())
+    def test_ac13_anchor_31_clamps_in_runner(self):   # AC13
+        cfg = self.cfg_with(grant_anchor_day=31)
+        self.go(n=2, cfg=cfg, ts="2026-11-30T10:00:00+00:00", run_date="2026-11-30"); self.assertEqual(self.counter("2026-11-30")["attempted"], 2)
+        self.go(n=2, cfg=cfg, ts="2026-12-01T10:00:00+00:00", run_date="2026-12-01", ledger="l2.json"); self.assertEqual(self.counter("2026-11-30")["attempted"], 4)
+    def test_ac13_anchor_null_never_resets_and_logs(self):   # AC13
+        cfg = self.cfg_with(grant_anchor_day=None)
+        s1 = self.go(n=3, cfg=cfg, ts="2026-10-14T10:00:00+00:00"); s2 = self.go(n=3, cfg=cfg, ts="2026-12-15T10:00:00+00:00", run_date="2026-12-15", ledger="l2.json")
+        f = self.spend / "contextdev-unanchored.json"; self.assertEqual(json.loads(f.read_text())["attempted"], 6)
+        self.assertEqual(sorted(x.name for x in self.spend.glob("contextdev-*.json")), ["contextdev-unanchored.json"])
+        for s in (s1, s2): self.assertIn("grant anchor not configured", self.prov(s)["guard_note"])
+        self.seed(0); self.assertNotIn("guard_note", self.prov(self.go(n=1, ts="2026-10-20T10:00:00+00:00", ledger="l3.json")))   # anchor set: no note
+    def test_ac14_corrupt_unreadable_locked_missing_fail_closed(self):   # AC14
+        f = self.spend / f"contextdev-{self.W}.json"; import fcntl
+        def corrupt(): self.seed(0); f.write_text("{not json")
+        def bad_fields(): self.seed(0); f.write_text(json.dumps({"provider": "contextdev", "window": self.W, "attempted": -1, "billed": 0}))
+        def wrong_window(): self.seed(0); f.write_text(json.dumps({"provider": "contextdev", "window": "2026-09-15", "attempted": 0, "billed": 0}))
+        def missing_but_expected(): self.seed(0, window="2026-11-15")   # a later window exists but this one's file is gone
+        for name, setup in (("corrupt", corrupt), ("bad fields", bad_fields), ("wrong window", wrong_window), ("missing", missing_but_expected)):
+            setup(); self.calls.clear(); p = self.prov(self.go(n=2))
+            self.assertEqual((p["status"], self.calls), ("stale_budget", []), name); self.assertIn("credit counter unreadable; failing closed", p["reason"], name)
+            for x in self.spend.glob("contextdev-*.json"): x.unlink()
+        self.seed(0); cfg = self.cfg_with(lock_timeout_s=0.2); lk = open(self.spend / ".contextdev.lock", "a"); fcntl.flock(lk, fcntl.LOCK_EX)
+        try: p = self.prov(self.go(n=2, cfg=cfg))
+        finally: lk.close()
+        self.assertEqual((p["status"], self.calls), ("stale_budget", [])); self.assertIn("credit counter unreadable; failing closed", p["reason"])
+    def test_ac14_permission_error_and_missing_dir(self):   # AC14
+        self.seed(5); w = dt.date(2026, 10, 15)
+        with mock.patch("pathlib.Path.read_text", side_effect=PermissionError("denied")):
+            with self.assertRaises(guard_mod.GuardUnreadable): guard_mod.CreditGuard(self.spend, "contextdev", w, 900)
+        with self.assertRaises(guard_mod.GuardUnreadable): guard_mod.CreditGuard(self.tmp / "nope", "contextdev", w, 900)
+        if os.geteuid() != 0:
+            f = self.spend / f"contextdev-{self.W}.json"; f.chmod(0)
+            try: p = self.prov(self.go(n=1))
+            finally: f.chmod(0o600)
+            self.assertEqual((p["status"], self.calls), ("stale_budget", []))
+        with mock.patch.object(guard_mod.CreditGuard, "_write", side_effect=OSError("disk")):   # the attempt cannot be counted: stop, fail closed
+            p = self.prov(self.go(n=2, ledger="l9.json", ts="2026-12-20T10:00:00+00:00"))
+        self.assertEqual(p["status"], "stale_budget")
+    def test_ac15_clean_stop_writes_lines_and_others_run(self):   # AC15
+        self.seed(897); other = {"id": "mockp", "categories": ["search"], "key_env": "K"}
+        pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        s = self.go(n=5, providers=self.prov_def() + [other], pricing=pricing, adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]),
+                    env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"})
+        p = self.prov(s); self.assertEqual((p["status"], p["calls"], len(self.calls)), ("stale_quota", 3, 3)); self.assertEqual((p["credits_used"], p["credits_stop_at"]), (900, 900))
+        self.assertIn("900", p["reason"]); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+        log = self.lines(); self.assertEqual(len(log), 3); self.assertTrue(all(r["run_status"] == "stale_quota" for r in log))
+        self.assertTrue((self.tmp / "runs/2026-10-26/_run-offset0.json").exists())
+    def test_ac16_no_paid_path(self):   # AC16
+        self.assertIs(CFG["free_tier_guard"]["contextdev"]["paid_tier"], False)
+        with self.assertRaises(runner.CapViolation): self.go(cfg=self.cfg_with(paid_tier=True))
+        self.assertEqual(self.calls, [])
+        (self.tmp / "ledger.json").write_text(json.dumps({"month": "2026-10", "used": {"contextdev": 999}, "over_free_units": 0}))
+        with mock.patch.object(runner.guard, "contextdev_billed", return_value=5):
+            with self.assertRaises(runner.CapViolation): self.go(n=1)   # billed credits past quota_credits (1000)
+        for f in (BENCH / "awibench/runner.py", BENCH / "awibench/guard.py", SITE / "collectors/benchmark.py"):
+            self.assertNotRegex(f.read_text(), r"(?i)paid_key|CONTEXT_DEV_PAID|CONTEXT_DEV_API_KEY_PAID|upgrade_plan")
+    def test_ac16_ledger_quota_follows_guard_quota_credits(self):
+        p = self.prov(self.go(n=5, cfg=self.cfg_with(quota_credits=2))); self.assertEqual((p["status"], p["quota"]), ("stale_quota", 2))
+
+class ContextDevCredits(ContextDevBase):
+    def test_ac17c_credit_cost_table(self):   # AC17c (F4)
+        c = guard_mod.contextdev_credits
+        self.assertEqual(c("scrape", {}, None), 1); self.assertEqual(c("scrape", {"browser_actions": True}, None), 2)
+        self.assertEqual(c("search", {"max_results": 10}, None), 1); self.assertEqual(c("search", {"max_results": 11}, None), 2)
+        self.assertEqual(c("search", {"max_results": 10, "markdown": True}, None), 2); self.assertEqual(c("search", {"max_results": 10, "markdown": True, "highlights": True}, None), 3)
+        self.assertEqual(c("search", {"max_results": 10}, 7), 1); self.assertEqual(c("search", {"max_results": 10, "markdown": True}, 25), 6)   # billed on returned count
+        with self.assertRaises(ValueError): c("browser", {}, None)
+
+class ContextDevBilling(ContextDevBase):
+    def one(self, fn, kind="search", n=1):
+        s = self.go(n=n, kinds=(kind,), adapters={"contextdev": {kind: fn}}); return self.prov(s), self.lines(kind), self.counter()
+    def test_ac17_function_table(self):   # AC17 (function level)
+        b = guard_mod.contextdev_billed
+        for st, want in ((200, 3), (201, 3), (404, 3), (400, 0), (422, 0), (401, 0), (403, 0), (402, 0), (408, 0), (429, 0), (500, 0), (502, 0), (503, 0), (None, 0)): self.assertEqual(b(st, {}, 3), want, st)
+        self.assertEqual(b(402, {"error_code": "USAGE_EXCEEDED"}, 3), 0); self.assertEqual(b(401, {"error_code": "USAGE_EXCEEDED"}, 3), 0)
+    def test_ac17_200_bills_credits(self):   # AC17
+        def f(key, item): return {"http_status": 200, "billed_units": 1, "results": [{"url": f"https://a.example/{i}"} for i in range(10)]}
+        p, L, c = self.one(f); self.assertEqual((L[0]["billed_units"], c["billed"], c["attempted"]), (1, 1, 1))
+        p, L, c = self.one(lambda k, i: {"http_status": 200, "text": "x", "html": "x"}, kind="scrape"); self.assertEqual((L[0]["billed_units"], c["billed"]), (1, 2))
+    def test_ac17_404_billed_scored_fail(self):   # AC17
+        p, L, c = self.one(http_err(404)); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["billed"]), (1, "fail", 1))
+    def test_ac17_400_422_validation_unbilled(self):   # AC17
+        for code in (400, 422):
+            p, L, c = self.one(http_err(code)); self.assertEqual((L[-1]["billed_units"], L[-1]["status"]), (0, "fail"), code); self.assertEqual(p["status"].split("_")[0], "stale")
+        self.assertEqual(self.counter()["billed"], 0)
+    def test_ac17_401_403_unbilled_auth_error_stop(self):   # AC17
+        for code in (401, 403):
+            self.calls.clear(); s = self.go(n=4, adapters={"contextdev": {"search": http_err(code, "bad key")}}, ledger=f"l{code}.json"); p = self.prov(s); L = self.lines()
+            self.assertEqual((p["status"], p["calls"], L[-1]["billed_units"], L[-1]["status"]), ("stale_auth_error", 1, 0, "auth_error"), code)
+    def test_ac17_408_unbilled(self):   # AC17
+        p, L, c = self.one(http_err(408, "timeout")); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["attempted"], c["billed"]), (0, "fail", 1, 0))
+    def test_ac17_429_unbilled_rate_limited(self):   # AC17
+        p, L, c = self.one(http_err(429)); self.assertEqual((L[0]["billed_units"], c["billed"]), (0, 0)); self.assertTrue(runner.is_rate_limited(L[0]))
+    def test_ac17_5xx_unbilled(self):   # AC17
+        for code in (500, 502, 503):
+            p, L, c = self.one(http_err(code)); self.assertEqual((L[-1]["billed_units"], L[-1]["status"]), (0, "fail"), code); self.assertFalse(runner.is_rate_limited(L[-1]))
+            for x in self.spend.glob("contextdev-*.json"): x.unlink()
+            (self.tmp / "ledger.json").unlink(missing_ok=True)
+    def test_ac17_no_response_unbilled(self):   # AC17
+        import urllib.error
+        def f(key, item): raise urllib.error.URLError("connection refused")
+        p, L, c = self.one(f); self.assertEqual((L[0]["billed_units"], L[0]["status"], c["attempted"], c["billed"]), (0, "unbilled_no_response", 1, 0))
+    def test_ac17a_429_retry_after_waits_and_retries_once(self):   # AC17a
+        first = [True]
+        def fn(key, item):
+            if first[0]: first[0] = False; self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; concurrency")
+            return self.ad_search(key, item)
+        made = []; real = guard_mod.CreditGuard
+        with mock.patch.object(runner.guard, "CreditGuard", side_effect=lambda *a, **k: made.append(1) or real(*a, **k)):
+            s = self.go(n=5, adapters={"contextdev": {"search": fn}})
+        self.assertEqual(self.sleeps, [1]); L = self.lines(); self.assertEqual(len(L), 6)   # item 0 twice, items 1-4 once
+        self.assertEqual([r["item_id"] for r in L[:2]], [self.rows[0]["id"]] * 2); self.assertEqual((L[0]["http_status"], L[0]["status"], L[1]["status"]), (None, "fail", "fail"))
+        self.assertTrue(runner.is_rate_limited(L[0])); self.assertEqual(self.calls.count(self.rows[0]["id"]), 2)
+        self.assertEqual(len(made), 6); self.assertEqual(self.counter()["attempted"], 6)   # each attempt its own guard entry
+        self.assertEqual(self.prov(s)["status"], "ran")
+    def test_ac17a_second_429_is_not_retried_again(self):   # AC17a
+        def fn(key, item): self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; busy")
+        self.go(n=1, adapters={"contextdev": {"search": fn}}); self.assertEqual((len(self.calls), self.sleeps), (2, [1]))
+    def test_ac17a_429_without_retry_after_is_not_retried(self):   # AC17a / AC18 support
+        self.go(n=1, adapters={"contextdev": {"search": http_err(429, "busy")}}); self.assertEqual(self.sleeps, []); self.assertEqual(self.counter()["attempted"], 1)
+    def test_ac17a_retry_blocked_by_guard_stops_clean(self):   # AC17a + AC11
+        self.seed(899)
+        def fn(key, item): self.calls.append(item["id"]); raise RuntimeError("HTTP 429: Retry-After: 1; busy")
+        p = self.prov(self.go(n=3, adapters={"contextdev": {"search": fn}})); self.assertEqual((p["status"], len(self.calls), self.sleeps), ("stale_quota", 1, [1]))
+    def test_ac17b_quota_stop_402_and_401_usage_exceeded(self):   # AC17b
+        other = {"id": "mockp", "categories": ["search"], "key_env": "K"}; pricing = self.pricing | {"mockp": {"search": mocks.pricing_fixture("credits")}}
+        for code in (402, 401):
+            self.calls.clear(); fn = http_err(code, '{"error_code":"USAGE_EXCEEDED"}')
+            s = self.go(n=4, providers=self.prov_def() + [other], pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"}, ledger=f"l{code}.json",
+                        adapters={"contextdev": {"search": fn}} | mocks.MockAdapters().table("mockp", ["search"]), run_date=f"2026-10-2{code % 10}")
+            p = self.prov(s); self.assertEqual((p["status"], p["calls"]), ("stale_quota", 1), code); self.assertEqual(self.sleeps, [])   # no retry, not auth_error
+            self.assertIn("USAGE_EXCEEDED", p["reason"]); self.assertEqual(self.prov(s, "mockp")["status"], "ran")
+            L = read_jsonl(self.tmp / f"runs/2026-10-2{code % 10}/contextdev/search_evergreen.jsonl"); self.assertEqual((len(L), L[0]["billed_units"], L[0]["status"]), (1, 0, "quota_stop"))
+        self.assertEqual(self.counter()["billed"], 0)
+    def test_ac18_guard_counts_every_attempt_billed_counts_less(self):   # AC18
+        import urllib.error
+        def md(kind, item): return {"max_results": 10, "markdown": True} if (kind == "search" and item["id"] == self.rows[0]["id"]) else ({"max_results": 10} if kind == "search" else {})
+        def s200(key, item): return {"http_status": 200, "billed_units": 2, "results": [{"url": f"https://a.example/{i}"} for i in range(10)]}
+        def sc404(key, item): raise RuntimeError("HTTP 404: not found")
+        seqs = {"search": iter([s200, http_err(429, "busy")]), "scrape": iter([sc404, http_err(500)])}
+        def mk(kind):
+            def fn(key, item): return next(seqs[kind])(key, item)
+            return fn
+        with mock.patch.object(guard_mod, "contextdev_request", side_effect=md):
+            self.go(n=2, kinds=("search", "scrape"), adapters={"contextdev": {"search": mk("search"), "scrape": mk("scrape")}})
+        c = self.counter(); self.assertEqual((c["attempted"], c["billed"]), (5, 3))   # 2 + 1 + 1 + 1 attempted; 2 + 1 billed
+        self.assertEqual(json.loads((self.tmp / "ledger.json").read_text())["used"]["contextdev"], 3)
+    def test_ac19_same_sets_and_cost_columns_hand_calc(self):   # AC19
+        fx = {"model": "credits", "credits_per_call": {"search": 1, "scrape": 1}, "free_tier": {"units_per_month": 1000, "needs_card": False, "pool": "contextdev", "note": "fixture"},
+              "tiers": {"entry": {"name": "Fixture entry", "usd_per_credit": 0.002}, "volume": {"name": "Fixture volume", "usd_per_credit": 0.001}}}
+        pricing = self.pricing | {"contextdev": {"search": fx, "scrape": fx}}
+        s = self.go(n=5, kinds=("search", "scrape"), pricing=pricing)
+        self.assertEqual({(p["category"], p["status"]) for p in s["providers"] if p["provider"] == "contextdev"}, {("search", "ran"), ("scrape", "ran")})
+        for kind, set_name in (("search", "search_evergreen"), ("scrape", "scrape_urls")):
+            L = self.lines(kind); self.assertEqual(len(L), 5, set_name)   # contextdev takes the same frozen sets; news_* sets map to kind search too (runner.set_kind)
+            c = cost.cost_columns(fx, L); scored = [l for l in L if l["status"] in ("pass", "fail")]
+            usd_entry = sum(l["billed_units"] for l in scored) * 0.002
+            self.assertAlmostEqual(c["entry_tier_cost_per_1k"], 1000 * usd_entry / len(scored)); self.assertAlmostEqual(c["volume_tier_cost_per_1k"], 1000 * (usd_entry / 2) / len(scored))
+            self.assertAlmostEqual(c["entry_tier_cost_per_1k"], 2.0)   # hand calc: 5 credits x $0.002 / 5 calls x 1000
+        self.assertEqual(runner.set_kind("news_2026-44"), "search")
+        # free credits never lower cost: the same lines priced with a free_tier note changed give the same columns
+        fx2 = json.loads(json.dumps(fx)); fx2["free_tier"]["units_per_month"] = 10**9
+        self.assertEqual(cost.cost_columns(fx, self.lines())["entry_tier_cost_per_1k"], cost.cost_columns(fx2, self.lines())["entry_tier_cost_per_1k"])
+    def test_ac20_display_rounding_is_existing_half_up(self):   # AC20
+        src = (BENCH / "awibench/guard.py").read_text(); self.assertNotRegex(src, r"\bround\(|quantize|ROUND_|Decimal")   # no new rounding code in the contextdev paths
+        self.assertEqual(tables.cost.fmt(2.0), "$2.00"); self.assertEqual(tables.cost.fmt(None), "n/a")
+
+class ContextDevConcurrency(ContextDevBase):
+    def test_ac10a_config_max_concurrent_is_one(self):   # AC10 (a)
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["max_concurrent"], 1)
+    def test_ac10b_adapter_invoked_through_semaphore(self):   # AC10 (b)
+        import threading
+        class Spy:
+            def __init__(s): s.acq = s.rel = 0; s.s = threading.BoundedSemaphore(1)
+            def acquire(s, *a): s.acq += 1; return s.s.acquire(*a)
+            def release(s): s.rel += 1; s.s.release()
+        spy = Spy(); held = []
+        def fn(key, item): held.append(spy.acq - spy.rel); return {"http_status": 200, "billed_units": 1, "results": []}
+        made = []
+        with mock.patch.object(runner.guard, "make_semaphore", side_effect=lambda n: made.append(n) or spy): self.go(n=4, adapters={"contextdev": {"search": fn}})
+        self.assertEqual((made, spy.acq, spy.rel, held), ([1], 4, 4, [1, 1, 1, 1]))
+        spy = Spy()
+        def boom(key, item): raise RuntimeError("HTTP 500: x")
+        with mock.patch.object(runner.guard, "make_semaphore", return_value=spy): self.go(n=2, adapters={"contextdev": {"search": boom}}, run_date="2026-10-27")
+        self.assertEqual((spy.acq, spy.rel), (2, 2))   # a raising adapter still releases
+    def test_ac10c_semaphore_peak_in_flight_is_one(self):   # AC10 (c)
+        import concurrent.futures, threading, time
+        sem = guard_mod.make_semaphore(CFG["free_tier_guard"]["contextdev"]["max_concurrent"]); lock = threading.Lock(); cur = [0]; peak = [0]
+        def fn(key, item):
+            with lock: cur[0] += 1; peak[0] = max(peak[0], cur[0])
+            time.sleep(0.02)
+            with lock: cur[0] -= 1
+            return {"http_status": 200}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex: list(ex.map(lambda i: guard_mod.guarded_call(sem, fn, "k", {"id": i}), range(12)))
+        self.assertEqual(peak[0], 1)
+
+class ContextDevMeter(ContextDevBase):
+    @staticmethod
+    def _fake_urlopen(seen, resp):
+        class R:
+            status = 200
+            def __init__(s, b): s.b = b
+            def read(s): return json.dumps(s.b).encode()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        def fake(req, timeout=None):
+            seen.append(req)
+            if isinstance(resp, Exception): raise resp
+            return R(resp)
+        return fake
+    def test_ac26_guard_uses_max_of_meter_and_counter(self):   # AC26
+        p = self.prov(self.go(n=2, meters={"contextdev": lambda: 900})); self.assertEqual((p["status"], self.calls), ("stale_quota", []))
+        p = self.prov(self.go(n=1, meters={"contextdev": lambda: 899}, ledger="l2.json")); self.assertEqual((p["status"], len(self.calls)), ("ran", 1))
+        self.calls.clear(); self.seed(900); p = self.prov(self.go(n=1, meters={"contextdev": lambda: 0}, run_date="2026-10-27", ledger="l3.json")); self.assertEqual((p["status"], self.calls), ("stale_quota", []))
+    def test_ac26_unreadable_meter_fails_closed(self):   # AC26
+        def boom(): raise RuntimeError("HTTP 500")
+        for m in (boom, lambda: None, lambda: float("nan"), lambda: -1):
+            self.calls.clear(); p = self.prov(self.go(n=2, meters={"contextdev": m}))
+            self.assertEqual((p["status"], self.calls), ("stale_budget", [])); self.assertIn("usage meter unreadable; failing closed", p["reason"])
+    def test_ac26_gap_logged(self):   # AC26
+        self.seed(10); p = self.prov(self.go(n=2, meters={"contextdev": lambda: 25}))
+        self.assertEqual((p["meter_credits"], p["counter_credits"], p["meter_minus_counter"]), (25, 11, 14)); self.assertEqual(self.counter()["attempted"], 12)
+    def test_ac26_meter_client_is_get_only(self):   # AC26: no POST/PUT/PATCH/DELETE from the meter client
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error
+        seen = []
+        def run_with(resp):
+            with mock.patch("urllib.request.urlopen", side_effect=self._fake_urlopen(seen, resp)): return B.contextdev_meter("secret-key-123")
+        self.assertEqual(run_with({"credits_remaining": 600, "period": {"start": "2026-10-01", "credits_used": 400}, "next_refill": "2026-11-01"}), 400)
+        r = seen[0]; self.assertEqual((r.get_method(), r.data, r.full_url), ("GET", None, "https://api.context.dev/v1/org/usage"))
+        self.assertNotIn("secret-key-123", r.full_url); self.assertEqual(r.get_header("Authorization"), "Bearer secret-key-123")
+        for bad in ({"period": None}, {"credits_remaining": 5}, {"period": {"credits_used": "x"}}, {"period": {"credits_used": -1}},
+                    urllib.error.URLError("secret-key-123 down"), urllib.error.HTTPError("u", 403, "forbidden", {}, __import__("io").BytesIO(b"logs:read"))):
+            self.assertIsNone(run_with(bad))
+        self.assertTrue(seen); self.assertTrue(all(q.get_method() not in ("POST", "PUT", "PATCH", "DELETE") and q.get_method() == "GET" and q.data is None for q in seen))
+        self.assertEqual(CFG["free_tier_guard"]["contextdev"]["meter"], "https://api.context.dev/v1/org/usage")
+    def test_ac26_main_wires_contextdev_meter(self):   # AC26
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        seen = {}
+        class Stop(Exception): pass
+        def fake_run(**kw): seen.update(kw); raise Stop()
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | {"CONTEXT_DEV_API_KEY": "mock-dummy"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "smoke", "--only-providers", "contextdev"]), \
+             mock.patch.object(B.runner, "run", fake_run), mock.patch.object(B, "contextdev_meter", return_value=42) as cm, \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")), mock.patch("builtins.print"):
+            with self.assertRaises(Stop): B.main()
+            self.assertEqual(seen["meters"]["contextdev"](), 42); self.assertEqual(seen["guard_dir"], SITE / "data" / "spend")
+        cm.assert_called_once_with("mock-dummy")
+
+class ContextDevAdapterAndSecrets(ContextDevBase):
+    def test_adapters_request_shape_and_retry_after(self):   # AC17a/AC17c support: adapter surface
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.error, io
+        seen = []
+        resp = lambda req: {"results": [{"url": "https://a.example/", "title": "T", "description": "D", "publishedDate": "2026-10-25"}]} if req.full_url.endswith("search") else {"markdown": "hello", "html": "<p>hello</p>"}
+        def fake(req, timeout=None):
+            seen.append(req)
+            class R:
+                status = 200
+                def read(s): return json.dumps(resp(req)).encode()
+                def __enter__(s): return s
+                def __exit__(s, *a): return False
+            return R()
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            so = B._contextdev_search("k-123", {"query": "q"}); sc = B._contextdev_scrape("k-123", {"url": "https://x.example/"})
+        self.assertEqual(so["results"], [{"url": "https://a.example/", "title": "T", "snippet": "D", "published_at": "2026-10-25"}]); self.assertEqual((so["http_status"], so["billed_units"], sc["billed_units"]), (200, 1, 1))
+        self.assertEqual((sc["text"], sc["html"]), ("hello", "<p>hello</p>"))
+        self.assertEqual([r.full_url for r in seen], ["https://api.context.dev/v1/web/search", "https://api.context.dev/v1/web/scrape"])
+        for r in seen: self.assertEqual(r.get_header("Authorization"), "Bearer k-123"); self.assertNotIn("k-123", r.full_url)
+        def h429(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "1"}, io.BytesIO(b"concurrency"))
+        with mock.patch("urllib.request.urlopen", side_effect=h429):
+            with self.assertRaises(RuntimeError) as cm: B._contextdev_search("k-123", {"query": "q"})
+        self.assertIn("HTTP 429: Retry-After: 1;", str(cm.exception))
+    def test_ac9_secret_canary_absent_everywhere(self):   # AC9
+        import io, random, urllib.error, itertools, contextlib
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        canary = f"awi-canary-{random.SystemRandom().getrandbits(64):016x}"
+        def echo_http(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 500, "boom", {}, io.BytesIO(f"echoed headers: Authorization: Bearer {canary}".encode()))
+        def echo_429(req, timeout=None): raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "1"}, io.BytesIO(f"echoed Authorization: Bearer {canary}".encode()))
+        def echo_url(req, timeout=None): raise urllib.error.URLError(f"connect failed; sent Authorization: Bearer {canary}")
+        def echo_generic(req, timeout=None): raise ValueError(f"bad request headers {dict(req.header_items())}")
+        cyc = itertools.cycle([echo_http, echo_429, echo_url, echo_generic]); out, err = io.StringIO(), io.StringIO()
+        def fake(req, timeout=None): return next(cyc)(req, timeout)
+        errs = []
+        with mock.patch.dict(os.environ, {"CONTEXT_DEV_API_KEY": canary}), mock.patch("urllib.request.urlopen", side_effect=fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            for f in (echo_http, echo_429, echo_url, echo_generic):
+                try: B._contextdev_search(canary, {"query": "q"}); self.fail("no error")
+                except RuntimeError as e: errs.append(str(e))
+                try: B._contextdev_scrape(canary, {"url": "https://x.example/"})
+                except RuntimeError as e: errs.append(str(e))
+            s = self.go(n=6, adapters={"contextdev": B.ADAPTERS["contextdev"]}, env={"CONTEXT_DEV_API_KEY": canary}, meters={"contextdev": lambda: B.contextdev_meter(canary)})
+            self.assertEqual(self.prov(s)["status"].split("_")[0], "stale")   # every call errored
+        blobs = [out.getvalue(), err.getvalue(), json.dumps(s), "\n".join(errs)] + [f.read_text(errors="replace") for f in self.tmp.rglob("*") if f.is_file()]
+        for b in blobs: self.assertNotIn(canary, b)
+        self.assertTrue(any("***" in e for e in errs)); self.assertTrue(list((self.tmp / "runs").rglob("*.jsonl")) or list(self.tmp.rglob("*.json")))
+        self.assertEqual(secrets_scan.scan(SITE), [])
+
+class ContextDevPublish(ContextDevBase):
+    P0 = {"model": "credits", "credits_per_call": {"search": 1, "scrape": 1}, "source_url": "https://www.context.dev/pricing", "checked_at": "2026-10-26",
+          "free_tier": {"units_per_month": 1000, "needs_card": False, "pool": "contextdev"}, "tiers": {"entry": {"name": "E", "usd_per_credit": 0.004}, "volume": {"name": "NOT CAPTURED"}}}
+    P1 = {"terms_url": "https://www.context.dev/term", "checked_at": "2026-10-26", "allowed": "yes", "verdict": "allowed", "full_read": True,
+          "benchmarking": {"status": "allowed", "quote": "q"}, "publishing_results": {"status": "allowed", "quote": "q"}, "anti_bot_scraping": {"status": "unclear", "quote": "q"}}
+    def _runs(self, tos=None, pricing=None):
+        self.go(n=5, tos=tos, pricing=pricing); return self.tmp / "runs"
+    def _built(self, runs, pricing, tos, cfg): return tables.build(runs, pricing, self.tmp / "sets", tos, cfg)
+    def _rows(self, doc): return [r for t in doc["tables"].values() for r in t if r["provider"] == "contextdev"]
+    def _gate_inputs(self): return self.pricing | {"contextdev": {"search": self.P0, "scrape": self.P0}}, self.tos | {"contextdev": self.P1}
+    def test_ac23_p0_only_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; p0, _ = self._gate_inputs()
+        self.assertEqual(self._rows(self._built(runs, p0, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", p0, self.tos)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())   # run logs written in every case
+    def test_ac23_p1_only_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; _, t1 = self._gate_inputs()
+        self.assertEqual(self._rows(self._built(runs, self.pricing, t1, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, t1)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
+    def test_ac23_neither_is_held(self):   # AC23
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}
+        self.assertEqual(self._rows(self._built(runs, self.pricing, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0])
+        self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
+    def test_ac23_both_passes_the_gate(self):   # AC23 (still held in this build by AC24)
+        runs = self._runs(); p0, t1 = self._gate_inputs()
+        self.assertTrue(tables.publish_gate("contextdev", p0, t1)[0]); self.assertTrue(self._rows(self._built(runs, p0, t1, self.cfg | {"publish_hold": []})))
+        for bad in ({"full_read": False}, {"allowed": None}, {"verdict": "unverified"}, {"publishing_results": {"status": "forbidden", "quote": "q"}}, {"benchmarking": {"status": "forbidden", "quote": "q"}}):
+            self.assertFalse(tables.publish_gate("contextdev", p0, self.tos | {"contextdev": self.P1 | bad})[0], bad)
+        for bad in ({"source_url": "NOT CAPTURED"}, {"checked_at": ""}, {"tiers": {"entry": {"name": "E", "usd_per_credit": "NOT CAPTURED"}}}):
+            self.assertFalse(tables.publish_gate("contextdev", {"contextdev": {"search": self.P0 | bad}}, t1)[0], bad)
+    def test_ac23_committed_files_keep_gate_closed(self):   # AC23: real pricing.yaml + tos_matrix.yaml
+        ok, why = tables.publish_gate("contextdev", self.pricing, self.tos); self.assertFalse(ok); self.assertEqual(why, "P0 pricing not passed; P1 terms not passed")
+        self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
+    def test_ac24_publish_hold_holds_even_when_gate_passes(self):   # AC24
+        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        self.assertEqual(self._rows(self._built(runs, p0, t1, self.cfg)), [])   # gate passes, publish_hold still holds it
+        self.assertTrue(self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})))   # control: the logs do build a row
+        self.assertIn("contextdev", tables.held_providers(self.cfg, p0, t1))
+    def test_ac24_run_logs_cost_na_when_published_unheld(self):   # AC2/AC24 support: no price -> cost n/a even if a row were built
+        runs = self._runs(); L = read_jsonl(runs / "2026-10-26/contextdev/search_evergreen.jsonl"); self.assertEqual(len(L), 5)
+        doc = self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})
+        r = self._rows(doc)[0]; self.assertEqual((r["entry_tier_cost_per_1k"]["display"], r["volume_tier_cost_per_1k"]["display"]), ("n/a", "n/a"))
+    def test_ac5_forbidden_publishing_results_or_benchmarking_excludes(self):   # AC5
+        runs = self._runs()
+        for clause in ("publishing_results", "benchmarking"):
+            tos = self.tos | {"contextdev": self.tos["contextdev"] | {clause: {"status": "forbidden", "quote": "no comparisons"}}}
+            doc = self._built(runs, self.pricing, tos, self.cfg | {"publish_hold": [], "publish_gate": []})
+            self.assertEqual(self._rows(doc), []); ex = [e for e in doc["exclusions"] if e["provider"] == "contextdev"]
+            self.assertEqual((len(ex), ex[0]["quote"], ex[0]["reason"]), (1, "no comparisons", f"terms forbid {clause.replace('_', ' ')}"))
+        tos = self.tos | {"contextdev": self.tos["contextdev"] | {"publishing_results": {"status": "forbidden", "quote": "q"}}}
+        self.calls.clear(); p = self.prov(self.go(n=2, tos=tos, run_date="2026-10-27")); self.assertEqual((p["status"], self.calls), ("excluded_tos_benchmarking", []))
+        self.assertIn("terms forbid publishing results", p["reason"]); self.assertTrue(runner.benchmark_forbidden(tos["contextdev"])); self.assertFalse(runner.benchmark_forbidden(self.tos["contextdev"]))
+        for f in (SITE / "data/benchmarks").glob("*"):   # nothing contextdev in the committed published data
+            if f.is_file(): self.assertNotIn("contextdev", f.read_text(errors="replace").lower().replace("-", ""))
+    def test_ac24_strip_held_and_fresh_data(self):   # AC24
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        row = lambda pid: {"provider": pid, "attempted": {"v": 3}}
+        doc = {"tables": {"search": [row("contextdev"), row("exa")], "scrape": [], "browser": []}, "freshness": [{"provider": "contextdev"}], "not_run_yet": [{"provider": "contextdev"}],
+               "skips": [{"provider": "contextdev"}, {"scope": "set", "set": "s"}], "run_summary": {"providers": [{"provider": "contextdev"}, {"provider": "exa"}]}}
+        tables.strip_held(doc, {"contextdev"}); self.assertNotIn("contextdev", json.dumps(doc)); self.assertEqual(len(doc["skips"]), 1)
+        s = {"providers": [{"provider": "contextdev", "status": "ran", "data_calls": 3}]}
+        self.assertTrue(B.fresh_data(s)); self.assertFalse(B.fresh_data(s, {"contextdev"}))
+
+class ContextDevDocs(unittest.TestCase):
+    def test_ac28_docs_describe_the_provider_and_match_code(self):   # AC28
+        docs = {n: (SITE / n).read_text() for n in ("README.md", "bench/README.md", "SPEC-bench.md")}
+        for n, t in docs.items():
+            for needle in ("Context.dev", "skipped_no_vendor_confirmation", "live_run_allowed", "grant-anchor", "exclude_from_also_priced", "publish_hold", "USAGE_EXCEEDED", "max_concurrent"):
+                self.assertIn(needle, t, (n, needle))
+        b = docs["bench/README.md"]
+        for needle in ("900", "cap 1", "contextdev_credits", "contextdev_billed", "anchor_window_start", "Retry-After", "publish_gate", "ceil("):
+            self.assertIn(needle, b, needle)
+        g = CFG["free_tier_guard"]["contextdev"]
+        self.assertEqual((g["max_concurrent"], g["stop_at_credits"], g["retry_after_429_s"]), (1, 900, 1))
+        for t in docs.values(): self.assertNotRegex(t, r"also_priced_line|2-slot|max_concurrent\W+\(?2\)?|Monday fallback")   # stale rev-1/rev-2 wording
+
+
+class VendorConfirmationGate(ContextDevBase):
+    """AWI-PROVIDER-CONTEXTDEV-001 R10 (AC24a-24f). MOCK ONLY."""
+    REQ = {"vendor_confirmation_required": True}
+    FULL = {"date": "2026-11-01", "sender": "A Person, a@example.invalid", "quote": "you may publish", "evidence_path": "meta/x.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+    def test_ac24a_truth_table(self):   # AC24a
+        vc = gates_mod.vendor_confirmed
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": None})); self.assertFalse(vc(self.REQ))
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "sender"}}))   # no sender
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"date": ""}}))
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k not in ("quote", "evidence_path")}}))   # neither quote nor evidence
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": "yes"}))
+        self.assertTrue(vc(self.REQ | {"vendor_confirmation": self.FULL}))
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"quote": None}}))   # R26: evidence_path alone (quote null) fails
+        self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"evidence_path": None}}))   # R26: quote alone (evidence_path null) fails
+        self.assertTrue(vc({"vendor_confirmation_required": False})); self.assertTrue(vc({})); self.assertTrue(vc(None))
+        real = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 15)
+        for pid in old:
+            self.assertTrue(gates_mod.vendor_confirmed(real[pid]), pid); self.assertNotIn("vendor_confirmation_required", real[pid], pid)
+            if pid != "contextdev": self.assertTrue(gates_mod.publishable(pid, self.pricing, real), pid)
+    def test_ac24a_gate_holds_publishing(self):   # AC24a: a gated provider publishes nothing until the record is complete; full record passes this gate only
+        runs = self.tmp / "runs"; f = runs / "2026-10-26" / "gatedp" / "search_evergreen.jsonl"; f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"ts": "2026-10-26T11:00:00+00:00", "status": "pass", "item_id": "i1", "set_sha": "x", "set_rows": 1, "latency_ms": 5, "billed_units": 1, "mock": True}) + "\n")
+        base = {"terms_url": "https://x.example/t", "checked_at": "2026-10-25", "allowed": "yes"}
+        def rows(entry): return [r for t in tables.build(runs, {}, None, {"gatedp": entry}, {})["tables"].values() for r in t]
+        self.assertEqual(rows(base | self.REQ | {"vendor_confirmation": None}), [])
+        self.assertEqual(rows(base | self.REQ | {"vendor_confirmation": {k: v for k, v in self.FULL.items() if k != "sender"}}), [])
+        self.assertEqual(len(rows(base | self.REQ | {"vendor_confirmation": self.FULL})), 1)
+        self.assertEqual(len(rows(base)), 1)   # not required: unaffected
+    def test_ac24b_committed_files_closed(self):   # AC24b: the real committed files
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; open_ = committed_consistent(self)   # R25
+        for tos in (closed_tos(committed), committed):   # closed fixture: every old assertion; committed: the same unless contextdev is consistently open
+            skip = tos is committed and open_
+            for pid in ("keenable", "contextdev"):
+                if skip and pid == "contextdev": continue
+                t = mocks.keenable_closed(None, tos)[1] if pid == "keenable" else tos   # Keenable R25: keenable closed fixture; committed keenable state checked by keenable_committed_check
+                self.assertIs(t[pid]["vendor_confirmation_required"], True); self.assertIsNone(t[pid]["vendor_confirmation"]); self.assertFalse(gates_mod.vendor_confirmed(t[pid]), pid)
+            k = tos["keenable"]
+            self.assertEqual((k["terms_url"], k["checked_at"], k["allowed"], k["benchmarking"]["status"]), ("https://keenable.ai/terms", "2026-10-25", "no", "permitted_by_ruling"))   # Keenable R4 (2): Fred's 7:35 ruling, OQ-K5 closed
+            self.assertIn("7:35", k["benchmarking"]["ruling"]); self.assertIn("OQ-K5", k["benchmarking"]["ruling"])
+            self.assertEqual(k["benchmarking"]["quote"], "to any third party the results of any benchmark tests of the Service")
+            if not skip: self.assertFalse(gates_mod.publishable("contextdev", load_yaml(BENCH / "pricing.yaml")["providers"], tos))
+        mocks.keenable_committed_check(self, CFG, committed)
+        self.assertIsNone(closed_cfg()["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        if not open_: self.assertIsNone(CFG["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+    def test_ac24b_l1_publishable_contextdev_when_open(self):   # Weatherman L1: publishable('contextdev') still checked when the gate is open
+        pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; from awibench.tables import publish_gate
+        opened = closed_tos(); opened["contextdev"]["vendor_confirmation"] = dict(X_REPLY_CONFIRMATION)
+        self.assertTrue(gates_mod.vendor_confirmed(opened["contextdev"]))
+        self.assertIs(gates_mod.publishable("contextdev", pricing, opened), publish_gate("contextdev", pricing, opened)[0])   # open: P0/P1 still decide
+        self.assertFalse(gates_mod.publishable("contextdev", pricing, closed_tos()))
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]; open_ = committed_consistent(self)
+        self.assertIs(gates_mod.publishable("contextdev", pricing, committed), bool(open_ and publish_gate("contextdev", pricing, committed)[0]))
+        for ok in (True, False):   # open record: the P0/P1 result decides; closed record: False whatever P0/P1 says
+            with mock.patch("awibench.tables.publish_gate", return_value=(ok, "mock")):
+                self.assertIs(gates_mod.publishable("contextdev", pricing, opened), ok)
+                self.assertFalse(gates_mod.publishable("contextdev", pricing, closed_tos()))
+    def test_ac24c_keenable_never_renders(self):   # AC24c: fixture logs with keenable rows + a pricing fixture entry; data JSON and a flattened CSV carry no keenable
+        runs = self.tmp / "runs"
+        for ps, st in (("keenable", "pass"), ("mockp", "pass")):
+            for sname in ("search_evergreen", "news_2026-W43"):
+                f = runs / "2026-10-26" / ps / f"{sname}.jsonl"; f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(json.dumps({"ts": "2026-10-26T11:00:00+00:00", "status": st, "item_id": "i1", "set_sha": "x", "set_rows": 1, "latency_ms": 5, "billed_units": 1, "mock": True, "results": []}) + "\n")
+        pricing = {"keenable": {"search": mocks.pricing_fixture("credits")}, "mockp": {"search": mocks.pricing_fixture("credits")}}
+        tos = mocks.keenable_closed(None, load_yaml(BENCH / "tos_matrix.yaml")["providers"])[1]   # R25: closed fixture
+        cfg = {"month1_free_tier_providers": ["keenable", "mockp"], "publish_hold": [], "publish_gate": []}
+        summary = {"providers": [{"provider": "keenable", "category": "search", "status": "skipped_no_vendor_confirmation"}, {"provider": "mockp", "category": "search", "status": "ran"}]}
+        for t in (tos, tos | {"keenable": tos["keenable"] | {"benchmarking": {"status": "allowed", "quote": "q"}, "allowed": "yes"}}):   # forbidden or not: still hidden
+            doc = tables.build(runs, pricing, self.tmp / "sets", t, cfg); self.assertNotIn("keenable", json.dumps(doc).lower())   # build() alone, before strip_held
+            doc["not_run_yet"] = tables.not_run_yet(summary, cfg, doc); doc["run_summary"] = summary; doc["skips"] = [{"provider": "keenable", "status": "x"}]
+            tables.strip_held(doc, tables.held_providers(cfg, pricing, t))
+            js = json.dumps(doc); csv = "\n".join(",".join(str(r[k]) for k in ("provider", "set", "run_date")) for tb in doc["tables"].values() for r in tb)
+            for blob in (js, csv): self.assertNotIn("keenable", blob.lower())
+            self.assertEqual({r["provider"] for tb in doc["tables"].values() for r in tb}, {"mockp"})   # others unaffected
+            self.assertNotIn("keenable", [e["provider"] for e in doc["exclusions"]])
+        # runner: a synthetic keenable run summary never reaches the published run_summary
+        s = self.go(providers=[{"id": "keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}] + self.prov_def(), env={"KEENABLE_API_KEY": "dummy-not-a-key", "CONTEXT_DEV_API_KEY": "mock-key"})
+        doc = {"tables": {}, "run_summary": s}; tables.strip_held(doc, tables.held_providers(cfg, pricing, tos)); self.assertNotIn("keenable", json.dumps(doc).lower())
+    def _code_files(self, root):
+        out = []
+        for base in (root, root.parent / "agentwebindex-site"):
+            if not base.is_dir(): continue
+            for f in base.rglob("*"):
+                if f.suffix in (".py", ".js", ".sh") and f.is_file() and not {"tests", "__pycache__", "node_modules", ".git", "dist"} & set(f.relative_to(base).parts): out.append(f)
+        return out
+    def test_ac24d_one_function(self):   # AC24d: this repo plus ../agentwebindex-site when present (skipped gracefully when absent)
+        files = self._code_files(SITE)
+        defs = [f for f in files if re.search(r"^\s*def vendor_confirmed\b", f.read_text(errors="replace"), re.M)]
+        self.assertEqual([f.name for f in defs], ["gates.py"])
+        self.assertEqual(len(re.findall(r"^\s*def vendor_confirmed\b", defs[0].read_text(), re.M)), 1)
+        for f in files:   # the key is read only inside vendor_confirmed (gates.py); every other module goes through the function
+            txt = f.read_text(errors="replace")
+            if f.name == "gates.py": self.assertEqual(len(re.findall(r"vendor_confirmation_required", txt)), 2, "docstring + the one check"); continue
+            self.assertNotRegex(txt, r"""["']vendor_confirmation_required["']""", str(f))
+        for mod in ("tables.py", "guard.py", "runner.py"): self.assertRegex((BENCH / "awibench" / mod).read_text(), r"gates|vendor_confirmed", mod)
+        self.assertRegex((SITE / "collectors/benchmark.py").read_text(), r"from awibench import .*\bgates\b")
+        self.assertIs(tables.vendor_confirmed, gates_mod.vendor_confirmed); self.assertIs(guard_mod.vendor_confirmed, gates_mod.vendor_confirmed)
+    def _cd_docs(self):   # AC24e fixtures: base = committed shape (nothing confirmed)
+        import copy
+        tos = {"providers": {"exa": {"allowed": "yes", "checked_at": "2026-10-01"},
+                             "contextdev": {"terms_url": "https://www.context.dev/term", "checked_at": "2026-10-25", "vendor_confirmation_required": True,
+                                            "benchmarking": {"status": "unclear", "quote": "No clause found in full read."}, "vendor_confirmation": None},
+                             "keenable": {"allowed": "no", "vendor_confirmation_required": True, "vendor_confirmation": None,
+                                          "benchmarking": {"status": "forbidden", "quote": "q"}}}}
+        cfg = {"free_tier_guard": {"contextdev": {"stop_at_credits": 900, "live_run_allowed": False, "vendor_confirmation": None,
+                                                  "anchor": {"date": "2026-10-01"}}}}
+        base = {"bench/tos_matrix.yaml": tos, "bench/config.yaml": cfg}
+        return base, copy.deepcopy(base)
+    REC = {"date": "2026-10-30", "sender": "A, a@context.dev", "quote": "You may benchmark and publish.", "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+    def _flip(self, head, cfg_too=True):
+        head["bench/tos_matrix.yaml"]["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
+        if cfg_too: head["bench/config.yaml"]["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
+        return head
+    def test_r26_c07_confirmation_diff_rejects_guard_field_deletion(self):   # R26 / C07: deleting live_run_allowed, the record key or the block fails, flip or not
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; import copy
+        for files in ([T, C], [T, C, "cycles/2026-10-25-provider-contextdev/decisions.md"]):
+            for name, mut in (("live_run_allowed", lambda g: g["free_tier_guard"]["contextdev"].pop("live_run_allowed")),
+                              ("vendor_confirmation", lambda g: g["free_tier_guard"]["contextdev"].pop("vendor_confirmation")),
+                              ("block", lambda g: g["free_tier_guard"].pop("contextdev")), ("free_tier_guard", lambda g: g.pop("free_tier_guard"))):
+                for flip in (False, True):
+                    base, head = self._cd_docs()
+                    if flip: self._flip(head, cfg_too=False)
+                    mut(head[C]); r = cd.check(files, base, head)
+                    self.assertTrue(any(x.startswith("R26") for x in r), (name, flip, r))
+        base, head = self._cd_docs(); self.assertEqual(cd.guard_field_deleted(base, head), [])
+        base, head = self._cd_docs(); self._flip(head); self.assertEqual(cd.check([T, C], base, head), [])   # a normal flip still passes
+    def test_ac24e_flip_only_allowlist(self):   # AC24e (R13): structural, field-level
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        base, head = self._cd_docs(); self._flip(head)
+        cyc = "agentwebindex-meta/cycles/2026-10-25-provider-contextdev/"
+        self.assertEqual(cd.check([T, C], base, head), [])                                                        # flip only (tos + config)
+        b2, h2 = self._cd_docs(); self.assertEqual(cd.check([T], b2, self._flip(h2, cfg_too=False)), [])           # tos record only
+        self.assertEqual(cd.check([T, C, cyc + "evidence/vendor-reply.eml", cyc + "summary.md", cyc + "decisions.md", "cycles/x/evidence/r.txt"], base, head), [])
+        for extra in ("bench/tests/test_bench.py", "bench/pricing.yaml", "collectors/providers.json", "README.md", "bench/README.md",
+                      "bench/awibench/runner.py", ".github/workflows/confirmation-diff.yml", "cycles/x/notes.md",
+                      cyc + "evidence/sub/reply.txt", "cycles/x/evidence/a/b.txt",
+                      "cycles/README.md", cyc + "README.md", cyc + "notes.md", "cycles/summary.md", "cycles/x/y/summary.md"):   # F12: only cycles/<slug>/{summary,decisions}.md   # M23: evidence is ONE path segment
+            r = cd.check([T, C, extra], base, head); self.assertTrue(any("flip-only" in x for x in r), extra); self.assertEqual(len(r), 1 + (extra in cd.PROTECTED), extra)   # protected files also hit SQ2
+        self.assertEqual(cd.check([T], base, base), [])                                                           # no change: nothing to check
+    def test_ac24e_kitty_probe_cases_all_fail(self):   # AC24e: every Kitty v2 probe, plus the v1 field cases, is rejected
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        def case(mut, files=(T, C), flip=True):
+            base, head = self._cd_docs()
+            if flip: self._flip(head)
+            mut(base, head); return cd.check(list(files), base, head)
+        tos = lambda d: d["bench/tos_matrix.yaml"]["providers"]; g = lambda d: d["bench/config.yaml"]["free_tier_guard"]["contextdev"]
+        probes = {
+            "flip + contextdev benchmarking.quote": lambda b, h: tos(h)["contextdev"]["benchmarking"].update(quote="Benchmarking expressly permitted"),
+            "flip + nested config date": lambda b, h: g(h)["anchor"].update(date="2026-11-01"),
+            "flip + sender in an unrelated tos record": lambda b, h: tos(h)["exa"].update(sender="b"),
+            "flip + other tos field (checked_at)": lambda b, h: tos(h)["contextdev"].update(checked_at="2026-10-30"),
+            "flip + other config field (stop_at_credits)": lambda b, h: g(h).update(stop_at_credits=990),
+            "flip + another provider's record": lambda b, h: tos(h)["keenable"].update(vendor_confirmation={"date": "2026-10-30", "sender": "s", "quote": "q", "evidence_path": "e/p.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}),
+            "flip + keenable benchmarking.quote": lambda b, h: tos(h)["keenable"]["benchmarking"].update(quote="x"),
+        }
+        for name, mut in probes.items(): self.assertEqual(len(case(mut)), 1, name)
+        # record already confirmed at base; a quote-only / date-only / sender-only edit + code is a flip and fails
+        for fld in ("quote", "date", "sender"):
+            def edit(b, h, fld=fld):
+                tos(b)["contextdev"]["vendor_confirmation"] = dict(self.REC); tos(h)["contextdev"]["vendor_confirmation"] = dict(self.REC, **{fld: "2026-10-31" if fld == "date" else "changed"})
+            self.assertEqual(len(case(edit, files=(T, "bench/awibench/x.py"), flip=False)), 1, fld)
+            self.assertEqual(case(edit, files=(T,), flip=False), [], fld)                                       # the same edit alone is flip-only
+        self.assertEqual(len(case(lambda b, h: g(h).update(live_run_allowed=True), files=(C, "bench/awibench/x.py"), flip=False)), 1)   # config flip + code
+        self.assertEqual(len(case(lambda b, h: tos(h)["contextdev"].pop("vendor_confirmation"), files=(T, "x.py"), flip=False)), 1)   # removal counts
+        # not a flip: a non-confirmation field changed with code is an ordinary PR
+        self.assertEqual(case(lambda b, h: tos(h)["contextdev"]["benchmarking"].update(quote="x"), files=(T, "x.py"), flip=False), [])
+    def test_ac24h_gate_cannot_be_lowered(self):   # AC24h: any PR; no override exists
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; files = [T, "bench/awibench/x.py"]
+        def run(mut, flip=False):
+            base, head = self._cd_docs()
+            if flip: self._flip(head)
+            mut(head[T]["providers"]); return cd.check(files if not flip else [T, C], base, head)
+        lowered = {
+            "true -> false": lambda p: p["contextdev"].update(vendor_confirmation_required=False),
+            "true -> null": lambda p: p["keenable"].update(vendor_confirmation_required=None),
+            "true -> 'true' string": lambda p: p["keenable"].update(vendor_confirmation_required="true"),
+            "key deleted": lambda p: p["keenable"].pop("vendor_confirmation_required"),
+            "entry deleted": lambda p: p.pop("keenable"),
+            "entry renamed": lambda p: p.update(context_dev=p.pop("contextdev")),
+        }
+        for name, mut in lowered.items():
+            r = run(mut); self.assertTrue(any("AC24h" in x for x in r), (name, r))
+            if name.startswith("true ->"): self.assertTrue(any("lowered from true" in x for x in r), (name, r))   # named as a lowering, not only as a change   # deleting an entry also removes its confirmation fields (flip rule fires too)
+            self.assertTrue(any("AC24h" in x for x in run(mut, flip=True)), name)           # also inside an otherwise valid flip PR
+        base, head = self._cd_docs(); head[T] = None
+        self.assertTrue(any("AC24h" in x for x in cd.check(files, base, head)))            # unparsable head: fail closed
+        # positive controls: unrelated changes pass
+        self.assertEqual(run(lambda p: p["contextdev"]["benchmarking"].update(quote="new reading")), [])
+        self.assertEqual(run(lambda p: p.update(newco={"allowed": "yes"})), [])               # adding an ungated provider
+        # Kitty v4 G10: the rule covers every base entry that HAS the flag, whatever its value (docs: "an entry that has vendor_confirmation_required at the base").
+        # Deleting a false/null flag, or the entry holding it, therefore fails; false -> true (raising) and false -> null stay allowed.
+        def flagged(v):
+            def m(p): p["exa"]["vendor_confirmation_required"] = v
+            return m
+        for v in (False, None):
+            b0, h0 = self._cd_docs(); flagged(v)(b0[T]["providers"]); flagged(v)(h0[T]["providers"])
+            h1 = __import__("copy").deepcopy(h0); h1[T]["providers"]["exa"].pop("vendor_confirmation_required")
+            self.assertTrue(any("AC24h" in x and "deleted" in x for x in cd.check(files, b0, h1)), v)
+            h2 = __import__("copy").deepcopy(h0); h2[T]["providers"].pop("exa")
+            self.assertTrue(any("AC24h" in x for x in cd.check(files, b0, h2)), v)
+            h3 = __import__("copy").deepcopy(h0); h3[T]["providers"]["exa"]["vendor_confirmation_required"] = True
+            self.assertEqual(cd.check(files, b0, h3), [], v)
+        self.assertEqual(run(lambda p: p.pop("exa")), [])                                    # deleting an entry WITHOUT the flag is not AC24h
+        self.assertEqual(run(lambda p: p.update(newgate={"vendor_confirmation_required": True, "vendor_confirmation": None})), [])   # raising the gate is fine
+        self.assertFalse(hasattr(cd, "OVERRIDE") or "override" in (BENCH / "awibench/confirmation_diff.py").read_text().lower().replace("no override", ""))
+    def test_ac24e_bootstrap_allowance_closed_defaults_only(self):   # AC24e: the PR that introduces a gated provider (entries start closed) may carry code
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        base, head = self._cd_docs(); files = [T, C, "bench/awibench/runner.py"]
+        del base[T]["providers"]["contextdev"]; del base[C]["free_tier_guard"]["contextdev"]                         # base: provider absent
+        self.assertEqual(cd.check(files, base, head), [])                                                        # new nulls/false, nothing confirmed: allowed
+        self.assertEqual(len(cd.check(files, base, self._flip(__import__("copy").deepcopy(head)))), 1)            # new provider arriving confirmed: no allowance
+        h2 = __import__("copy").deepcopy(head); h2[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)   # something else confirmed at head
+        self.assertEqual(len(cd.check(files, base, h2)), 1)
+        h3 = __import__("copy").deepcopy(head); h3[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True
+        self.assertEqual(len(cd.check(files, base, h3)), 1)                                                      # new field, but not the closed default
+        self.assertEqual(len(cd.check(files, base, {T: None, C: head[C]})), 2)                                    # unparsable head: fail closed (flip + AC24h)
+        b4 = __import__("copy").deepcopy(base); b4[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)
+        h4 = __import__("copy").deepcopy(head); h4[T]["providers"]["exa"]["vendor_confirmation"] = dict(self.REC)
+        self.assertEqual(len(cd.check(files, b4, h4)), 1)                                                        # already confirmed elsewhere (unchanged): no allowance
+        b5, h5 = self._cd_docs(); b5[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = True              # existing value changed to false
+        self.assertEqual(len(cd.check(files, b5, h5)), 1)                                                        # only NEW fields get the allowance
+        # head_confirmed
+        self.assertFalse(cd.head_confirmed(head)); self.assertTrue(cd.head_confirmed(h2)); self.assertTrue(cd.head_confirmed(h3))
+        self.assertTrue(cd.head_confirmed({T: None, C: {}}))
+        # committed repo files: nothing confirmed, values null
+        committed = {T: load_yaml(BENCH / "tos_matrix.yaml"), C: load_yaml(BENCH / "config.yaml")}; open_ = committed_consistent(self)   # R25 (contextdev)
+        k_open = mocks.keenable_committed_check(self, committed[C], committed[T]["providers"])   # Keenable R25: committed keenable state, whichever it is
+        closed = {T: committed[T] | {"providers": mocks.keenable_closed(None, closed_tos(committed[T]["providers"]))[1]}, C: mocks.keenable_closed(closed_cfg(committed[C]))[0]}
+        for docs in ((closed, committed) if not (open_ or k_open) else (closed,)):   # old closed assertions: closed fixture always, committed files when closed
+            self.assertFalse(cd.head_confirmed(docs))
+            for pid in ("keenable", "contextdev"): self.assertIsNone(docs[T]["providers"][pid]["vendor_confirmation"])
+            self.assertIsNone(docs[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"])
+        if open_ or k_open: self.assertTrue(cd.head_confirmed(committed))
+        if open_ and not k_open: self.assertIsNone(committed[T]["providers"]["keenable"]["vendor_confirmation"])
+    def test_ac24e_cli_over_git_repo(self):   # AC24e: CLI parses base (merge-base) and HEAD yaml from git, no network
+        r = self.tmp / "repo"; (r / "bench/awibench").mkdir(parents=True)
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None, "benchmarking": {"quote": "q"}}}}
+        cfg = {"free_tier_guard": {"contextdev": {"live_run_allowed": False, "vendor_confirmation": None}}}
+        w = lambda f, d: (r / f).write_text(json.dumps(d, indent=1) + "\n")
+        w("bench/tos_matrix.yaml", tos); w("bench/config.yaml", cfg); (r / "bench/awibench/gates.py").write_text("a=1\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); w("bench/tos_matrix.yaml", tos); git("commit", "-qam", "flip")
+        with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(confirmation_diff.main(["main"]), 0)
+            tos["providers"]["contextdev"]["benchmarking"]["quote"] = "edited"; w("bench/tos_matrix.yaml", tos); git("commit", "-qam", "quote")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # off-allowlist field
+            git("reset", "-q", "--hard", "HEAD~1"); (r / "bench/awibench/gates.py").write_text("a=2\n"); git("commit", "-qam", "code")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)                                                # flip + code
+            git("reset", "-q", "--hard", "HEAD~1"); sneaky = r / "cycles/s/evidence/a cycles/s/summary.md"           # Kitty v4: a space must not split one nested path into two allowed ones
+            sneaky.parent.mkdir(parents=True); sneaky.write_text("x\n"); git("add", "-A"); git("commit", "-qm", "space")
+            self.assertEqual(confirmation_diff.main(["main"]), 1)
+            git("reset", "-q", "--hard", "HEAD~1"); ok = r / "cycles/s/evidence/vendor reply.txt"                    # a one-segment evidence name with a space stays allowed
+            ok.parent.mkdir(parents=True, exist_ok=True); ok.write_text("x\n"); git("add", "-A"); git("commit", "-qm", "ok")
+            self.assertEqual(confirmation_diff.main(["main"]), 0)
+        for f in ["cycles/s/summary.md\n", "cycles/s/evidence/a\n", "bench/tos_matrix.yaml\n", "cycles/s/decisions.md\nx"]:
+            self.assertFalse(confirmation_diff.flip_allowed_path(f), repr(f))                                     # trailing newline is not slack
+        self.assertTrue(confirmation_diff.flip_allowed_path("cycles/s/evidence/vendor reply.txt"))
+    def test_ac24e_run_tests_propagates_failure(self):   # Kitty v4 F-B: a failing confirmation_diff must make run_tests.sh exit non-zero
+        src = (SITE / "run_tests.sh").read_text(); block = src[src.index("# >>> AC24e"):src.index("# <<< AC24e")]
+        stub = self.tmp / "stub"; stub.mkdir()
+        (stub / "python3").write_text(f"#!/bin/sh\necho \"ARGS:$*\"\nexit 0\n"); (stub / "python3").chmod(0o755)   # Kitty v5 V08: default base is origin/main
+        env = {k: v for k, v in os.environ.items() if k != "AWI_CONFIRMATION_BASE"}; env["PATH"] = f"{stub}:{os.environ['PATH']}"
+        p = subprocess.run(["bash", "-c", "set -eo pipefail\n" + block], cwd=SITE, capture_output=True, text=True, env=env)
+        self.assertIn("ARGS:-m awibench.confirmation_diff origin/main", p.stdout, p.stdout + p.stderr); self.assertIn("confirmation_diff OK vs origin/main", p.stdout)
+        for rc in (1, 0):
+            (stub / "python3").write_text(f"#!/bin/sh\nexit {rc}\n"); (stub / "python3").chmod(0o755)
+            p = subprocess.run(["bash", "-c", "set -eo pipefail\n" + block + "echo REACHED_END\n"], cwd=SITE, capture_output=True, text=True,
+                               env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": "HEAD"})
+            if rc: self.assertNotEqual(p.returncode, 0, p.stdout); self.assertNotIn("REACHED_END", p.stdout); self.assertIn("FAILED: confirmation_diff", p.stdout)
+            else: self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("confirmation_diff OK", p.stdout)
+    def test_r21_run_tests_warns_when_base_is_head(self):   # R21 (2): local override warns when base == head; CI never references it
+        src = (SITE / "run_tests.sh").read_text(); block = src[src.index("# >>> AC24e"):src.index("# <<< AC24e")]
+        stub = self.tmp / "stub21"; stub.mkdir(); (stub / "python3").write_text("#!/bin/sh\nexit 0\n"); (stub / "python3").chmod(0o755)
+        r = self.tmp / "r21"; (r / "bench").mkdir(parents=True)
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); (r / "a").write_text("1\n"); git("add", "-A"); git("commit", "-qm", "one"); (r / "a").write_text("2\n"); git("commit", "-qam", "two")
+        run = lambda base: subprocess.run(["bash", "-c", "set -eo pipefail\n" + block], cwd=r / "bench", capture_output=True, text=True,
+                                          env={**os.environ, "PATH": f"{stub}:{os.environ['PATH']}", "AWI_CONFIRMATION_BASE": base})
+        for base in ("HEAD", "main", git("rev-parse", "HEAD").stdout.strip()):
+            p = run(base); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("WARNING: confirmation_diff base", p.stdout, base); self.assertIn("same commit as HEAD", p.stdout)
+        p = run("HEAD~1"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertNotIn("WARNING", p.stdout)                # positive control: a real base, no warning
+        for wf in sorted((SITE / ".github/workflows").glob("*.yml")): self.assertNotIn("AWI_CONFIRMATION_BASE", wf.read_text(), wf.name)
+    def test_r21_workflows_take_shas_from_event(self):   # R21 (3): both confirmation workflows wire base and head SHAs from the event, not env, inputs or branch names
+        ev = {"AWI_BASE_REF": "${{ github.event.pull_request.base.sha }}", "AWI_HEAD_REF": "${{ github.event.pull_request.head.sha }}"}
+        for name, trig in (("confirmation-diff-base.yml", "pull_request_target"), ("confirmation-diff.yml", "pull_request")):
+            text = (SITE / ".github/workflows" / name).read_text(); doc = parse_workflow_yaml(text)
+            self.assertEqual(list(doc["on"]), [trig], name)                                                # no workflow_dispatch / inputs
+            self.assertNotRegex(text, r"inputs\.|github\.base_ref|github\.head_ref|origin/|vars\.|env\.AWI", name)
+            steps = [st for job in doc["jobs"].values() for st in job["steps"] if "awibench.confirmation_diff" in st.get("run", "")]
+            self.assertEqual(len(steps), 1, name); st = steps[0]
+            self.assertEqual({k: st["env"][k] for k in ev}, ev, name)
+            self.assertRegex(st["run"], r'awibench\.confirmation_diff "\$\{?(base|AWI_BASE_REF)\}?" "\$\{?(head|AWI_HEAD_REF)\}?"', name)
+            if "base=" in st["run"]: self.assertIn('base="$AWI_BASE_REF"; head="$AWI_HEAD_REF"', st["run"], name)
+    def test_r16_sq1_bootstrap_fails_closed(self):   # SQ1 + R17 SQ-A: base without a checker FAILS, no exemption (fake/empty/sys.exit(0) checkers too)
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        r = self.tmp / "sq1"; (r / "bench").mkdir(parents=True); (r / "bench/tos_matrix.yaml").write_text("{}\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base: no checker")
+        judge = lambda head: subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": head})
+        real = (BENCH / "awibench/confirmation_diff.py").read_text()
+        for name, body in (("other", None), ("real", real), ("fake", "print('OK')\n"), ("empty", ""), ("exit0", "import sys\nsys.exit(0)\n")):
+            git("checkout", "-q", "main"); git("checkout", "-qb", name); (r / "README.md").write_text(name + "\n")
+            if body is not None: (r / "bench/awibench").mkdir(exist_ok=True); (r / "bench/awibench/confirmation_diff.py").write_text(body)
+            git("add", "-A"); git("commit", "-qm", name); git("checkout", "-q", "main")
+            p = judge(name); self.assertEqual(p.returncode, 1, name + p.stdout); self.assertIn("SQ1: fail closed, no exemption", p.stdout, name)
+            self.assertNotIn("BOOTSTRAP", p.stdout)
+        self.assertNotIn("BOOTSTRAP", block); self.assertNotRegex(block, r"PR_NUMBER|pull_request\.number|grep -q")
+        r2 = self.tmp / "sq1b"; (r2 / "bench/awibench").mkdir(parents=True)                                                       # positive control: base WITH a checker judges normally
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r2 / "bench/awibench" / f)
+        (r2 / "bench/tos_matrix.yaml").write_text("{}\n"); (r2 / "bench/config.yaml").write_text("{}\n")
+        git2 = lambda *a: subprocess.run(["git", "-C", str(r2), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git2("init", "-q", "-b", "main"); git2("add", "-A"); git2("commit", "-qm", "base"); git2("checkout", "-qb", "doc"); (r2 / "README.md").write_text("x\n")
+        git2("add", "-A"); git2("commit", "-qm", "doc"); git2("checkout", "-q", "main")
+        p = subprocess.run(["bash", "-c", block], cwd=r2, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": "doc"})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("judging doc with the base checker", p.stdout)
+    def test_q04_diff_from_merge_base_not_base_tip(self):   # Kitty v6 Q04: a base branch that moved ahead must not count against the PR
+        cd = confirmation_diff; r = self.tmp / "mb"; (r / "bench/awibench").mkdir(parents=True)
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text("")
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}}}
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n"); git("commit", "-qam", "flip only")
+        git("checkout", "-q", "main"); (r / "README.md").write_text("main moved\n"); (r / "bench/runner.py").write_text("x=1\n")
+        moved = {"providers": {**json.loads(json.dumps(tos))["providers"], "exa": {"allowed": "yes"}}}; moved["providers"]["contextdev"]["vendor_confirmation"] = None
+        (r / "bench/tos_matrix.yaml").write_text(json.dumps(moved) + "\n")                                           # main also moved the yaml (Q04s: docs read at the merge-base)
+        with (r / "bench/awibench/gates.py").open("a") as fh: fh.write("# main moved\n")
+        git("add", "-A"); git("commit", "-qm", "main moves ahead (code + protected file)"); git("checkout", "-q", "pr")
+        with mock.patch.object(cd, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(cd.main(["main"]), 0)                                                                # judged from merge-base: flip-only
+            git("checkout", "-q", "main"); git("checkout", "-qb", "bad"); (r / "bench/runner.py").write_text("x=2\n")
+            tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); (r / "bench/tos_matrix.yaml").write_text(json.dumps(tos) + "\n")
+            git("commit", "-qam", "flip + code"); self.assertEqual(cd.main(["main"]), 1)                                   # control
+    def test_s09_type_check_sets_and_dates(self):   # Kitty v6 S09/T01: yaml !!set and dates must not equal their repr strings
+        import datetime
+        cd = confirmation_diff
+        for a, b in (({"a"}, "{'a'}"), (datetime.date(2026, 10, 30), "datetime.date(2026, 10, 30)"), (datetime.date(2026, 10, 30), "2026-10-30")):
+            self.assertFalse(cd.same(a, b), (a, b)); self.assertFalse(cd.same(b, a)); self.assertTrue(cd.same(a, a))
+        T = "bench/tos_matrix.yaml"
+        for old, new in (("{'a'}", {"a"}), ("datetime.date(2026, 10, 30)", datetime.date(2026, 10, 30))):
+            b, h = self._cd_docs(); b[T]["providers"]["contextdev"]["benchmarking"]["quote"] = old; h[T]["providers"]["contextdev"]["benchmarking"]["quote"] = new
+            self.assertTrue(cd.changed_paths(b[T], h[T]), (old, new))
+            self._flip(h); self.assertTrue(any("flip-only" in x for x in cd.check([T, "bench/config.yaml"], b, h)), (old, new))
+    def test_r19_one_record_validator(self):   # R19: one validator in gates.py; vendor_confirmed() and the CI schema check both use it
+        import datetime
+        from awibench import gates
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; R = dict(self.REC)
+        def all_paths(rec):                                                                                               # validator, vendor_confirmed, check() (non-flip and flip)
+            b, h = self._cd_docs(); h[T]["providers"]["keenable"]["vendor_confirmation"] = rec
+            b2, h2 = self._cd_docs(); h2[C]["free_tier_guard"]["contextdev"]["vendor_confirmation"] = rec
+            b3, h3 = self._cd_docs(); self._flip(h3); h3[T]["providers"]["contextdev"]["vendor_confirmation"] = rec
+            return (gates.record_error(rec), gates.vendor_confirmed({"vendor_confirmation_required": True, "vendor_confirmation": rec}),
+                    [x for x in cd.check(["README.md"], b, h) if "SQ-C" in x], [x for x in cd.check([C], b2, h2) if "SQ-C" in x],
+                    [x for x in cd.check([T, C], b3, h3) if "SQ-C" in x])
+        good = [R, dict(R, date="2024-02-29"),
+                dict(R, recorded_pr="https://github.com/hazeydata/agentwebindex-meta/pull/1")]
+        for rec in good:                                                                                                  # positive controls
+            err, ok, *sqc = all_paths(rec); self.assertIsNone(err, rec); self.assertTrue(ok, rec); self.assertEqual(sqc, [[], [], []], rec)
+        bad = {
+            "extra key": dict(R, note="x"), "missing recorded_pr": {k: v for k, v in R.items() if k != "recorded_pr"},
+            "missing quote key": {k: v for k, v in R.items() if k != "quote"}, "non-str key": dict(R, **{}) | {1: "x"},
+            "unquoted yaml date": dict(R, date=datetime.date(2026, 10, 30)), "invalid date": dict(R, date="2026-02-30"),
+            "bad date format": dict(R, date="2026-10-3"), "basic iso date": dict(R, date="20261030"), "week date": dict(R, date="2026-W44-5"), "date with time": dict(R, date="2026-10-30T00:00"), "date int": dict(R, date=20261030),
+            "empty sender": dict(R, sender=" "), "sender int": dict(R, sender=7), "sender set (K8-02n)": dict(R, sender={"a"}),
+            "http url": dict(R, recorded_pr="http://github.com/x/pull/1"), "int PR (Z02)": dict(R, recorded_pr=27), "bare https": dict(R, recorded_pr="https://"),
+            "PR not url": dict(R, recorded_pr="#27"), "PR with space": dict(R, recorded_pr="https://x y"),
+            "both null": dict(R, quote=None, evidence_path=None), "both empty": dict(R, quote="", evidence_path=" "),
+            "quote null (R26)": dict(R, quote=None), "evidence_path null (R26)": dict(R, evidence_path=None), "quote empty (R26)": dict(R, quote=""), "evidence_path empty (R26)": dict(R, evidence_path=" "),
+            "quote list": dict(R, quote=["q"]), "quote int, path ok": dict(R, quote=1), "evidence_path set (K8-02n)": dict(R, evidence_path={"p"}),
+            "quote false": dict(R, quote=False), "link string": "https://example.invalid/reply", "empty mapping": {}, "list": [R],
+        }
+        for name, rec in bad.items():
+            err, ok, *sqc = all_paths(rec)
+            self.assertTrue(err, name); self.assertFalse(ok, name)
+            for hits in sqc: self.assertTrue(hits, (name, sqc))
+        self.assertIn("real calendar date", gates.record_error(bad["invalid date"]))
+        self.assertIn("https://", gates.record_error(bad["int PR (Z02)"])); self.assertIn("extra", gates.record_error(bad["extra key"]))
+        self.assertIn("quoted", gates.record_error(bad["unquoted yaml date"]))
+        with mock.patch.object(gates, "record_error", return_value="sentinel") as m:                                      # one implementation: both callers go through it
+            self.assertFalse(gates.vendor_confirmed({"vendor_confirmation_required": True, "vendor_confirmation": R}))
+            self.assertEqual(cd.record_shape_error(R), "sentinel"); self.assertEqual(m.call_count, 2)
+        src = (BENCH / "awibench/confirmation_diff.py").read_text()
+        self.assertNotRegex(src, r"recorded_pr\"|\"sender\"|RECORD_|https://\"")                                         # no second copy of the rules
+        self.assertEqual(gates.RECORD_KEYS, ("date", "sender", "quote", "evidence_path", "recorded_pr"))
+    def test_r17_sqc_schema_types_every_pr(self):   # R17 SQ-C + R18: types and record shape on every PR, tested through check()
+        import datetime
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        def sqc(edit, files=("README.md",)):                                                                              # a non-flip PR (K7-11): check() must still report SQ-C
+            b, h = self._cd_docs(); edit(h); r = cd.check(list(files), b, h); return [x for x in r if "SQ-C" in x], r
+        hits, r = sqc(lambda h: None); self.assertEqual(r, [])                                                             # positive control: valid types, nothing confirmed
+        hits, r = sqc(lambda h: self._flip(h), files=(T, C)); self.assertEqual(r, [])                                      # positive control: full valid record (flip-only PR)
+        for k in ("quote", "evidence_path"):                                                                               # R26: both required
+            rec = dict(self.REC, **{k: None}); hits, r = sqc(lambda h: self._flip(h) and h[T]["providers"]["contextdev"].update(vendor_confirmation=rec), files=(T, C))
+            self.assertTrue(hits, k)
+        hits, r = sqc(lambda h: h[C]["free_tier_guard"]["contextdev"].update(live_run_allowed=0), files=(C,))
+        self.assertTrue(any("live_run_allowed must be bool" in x for x in hits), r)                                       # data-only false -> 0
+        for bad in ("true", 1, None):
+            hits, r = sqc(lambda h: h[T]["providers"]["keenable"].update(vendor_confirmation_required=bad))
+            self.assertTrue(any("vendor_confirmation_required must be bool" in x for x in hits), (bad, r))
+        partial = [{k: v for k, v in self.REC.items() if k != drop} for drop in ("date", "sender", "recorded_pr")]
+        partial += [{k: v for k, v in self.REC.items() if k not in ("quote", "evidence_path")}, {"evidence_path": "https://example.invalid/reply"},
+                    dict(self.REC, date=""), dict(self.REC, sender=None), dict(self.REC, date=datetime.date(2026, 10, 30))]
+        bads = ["yes", "https://example.invalid/reply", "", 0, False, True, {}, [], ["x"], {"a"}, frozenset({"date"}), 1.0] + partial  # K7-02 set, K7-04 falsy, link, partial
+        for where in ("tos", "cfg"):
+            for v in bads:
+                def edit(h, v=v):
+                    (h[T]["providers"]["keenable"] if where == "tos" else h[C]["free_tier_guard"]["contextdev"])["vendor_confirmation"] = v
+                hits, r = sqc(edit); self.assertTrue(any("vendor_confirmation" in x for x in hits), (where, v, r))
+                hits, r = sqc(edit, files=(T, C)); self.assertTrue(hits, (where, v, r))
+        self.assertIsNone(cd.record_shape_error(None)); self.assertIsNone(cd.record_shape_error(dict(self.REC)))
+        live = {f: cd.parse((SITE / f).read_text()) for f in cd.DATA_FILES}; self.assertEqual(cd.schema_errors(live), [])   # the committed data passes
+    def test_r16_sq2_protected_files(self):   # SQ2: the base checker fails any diff touching gates.py, confirmation_diff.py or the workflows
+        cd = confirmation_diff; base, head = self._cd_docs()
+        for f in cd.PROTECTED:
+            r = cd.check([f], base, head); self.assertTrue(any(x.startswith("SQ2") and f in x for x in r), f)
+            self.assertTrue(any(x.startswith("SQ2") for x in cd.check([f], base, head, base_has=list(cd.PROTECTED))), f)
+            self.assertEqual(cd.check([f], base, head, base_has=[]), [], f)                                               # absent at base: SQ2 n/a (with no base checker, SQ1 fails closed)
+        self.assertEqual(cd.check(["bench/awibench/runner.py", "README.md"], base, head), [])                                 # positive control
+        r = self.tmp / "sq2"; (r / "bench/awibench").mkdir(parents=True)                                                      # CLI: base_has comes from git at the merge-base
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text(""); (r / "bench/tos_matrix.yaml").write_text("{}\n"); (r / "bench/config.yaml").write_text("{}\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+        with (r / "bench/awibench/gates.py").open("a") as fh: fh.write("# harmless-looking edit\n")
+        git("commit", "-qam", "edit gates.py only")
+        with mock.patch.object(cd, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+            self.assertEqual(cd.main(["main"]), 1)
+            git("checkout", "-q", "main"); git("checkout", "-qb", "ok"); (r / "README.md").write_text("x\n"); git("add", "-A"); git("commit", "-qm", "docs")
+            self.assertEqual(cd.main(["main"]), 0)                                                                        # positive control over git
+        self.assertEqual(set(cd.PROTECTED), {"bench/awibench/gates.py", "bench/awibench/confirmation_diff.py",
+                                              ".github/workflows/confirmation-diff.yml", ".github/workflows/confirmation-diff-base.yml",
+                                              ".github/workflows/benchmark.yml"})   # Keenable R5 (1)
+        self.assertNotIn("run_tests.sh", cd.PROTECTED)
+    def test_r16_sq3_strict_type_and_value(self):   # SQ3: false->0/'false'/null and true->1/'true' are changes
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; files = [T, C, "bench/awibench/runner.py"]
+        for old, news in ((False, (0, "false", None, 0.0)), (True, (1, "true", None, 1.0))):
+            for new in news:
+                self.assertFalse(cd.same(old, new), (old, new)); self.assertTrue(cd.same(old, old))
+                b, h = self._cd_docs(); b[T]["providers"]["exa"]["vendor_confirmation_required"] = old; h[T]["providers"]["exa"]["vendor_confirmation_required"] = new
+                self.assertTrue(any("AC24h" in x for x in cd.check(files, b, h)), (old, new))                               # the flag
+                b, h = self._cd_docs(); b[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = old; h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = new
+                self.assertTrue(cd.changed_paths(b[C], h[C]), (old, new))
+                self.assertTrue(any("flip-only" in x for x in cd.check(files, b, h)), (old, new))                          # a confirmation field + code
+        b, h = self._cd_docs(); b[T]["providers"]["exa"]["vendor_confirmation_required"] = False; h[T]["providers"]["exa"]["vendor_confirmation_required"] = True
+        self.assertEqual(cd.check(files, b, h), [])                                                                        # positive control: raising false -> true
+        b, h = self._cd_docs(); self.assertEqual(cd.check(files, b, h), [])                                                 # identical values: no change
+        b, h = self._cd_docs(); del b[T]["providers"]["contextdev"]; del b[C]["free_tier_guard"]["contextdev"]
+        h[C]["free_tier_guard"]["contextdev"]["live_run_allowed"] = 0
+        self.assertTrue(cd.check(files, b, h))                                                                             # bootstrap allowance is strict: 0 is not false
+    def test_ac24h_base_judged_ci_r15(self):   # R15: the BASE checker judges the PR; a PR that rewrites the checker, the flag name and the key still fails
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        self.assertRegex(wf, r"(?m)^on:\n  pull_request_target:"); self.assertIn("ref: \"${{ github.event.pull_request.base.sha }}\"", wf)
+        self.assertIn("persist-credentials: false", wf); self.assertEqual(wf.count("pull_request.head.sha"), 1); self.assertIn('AWI_HEAD_REF: "${{ github.event.pull_request.head.sha }}"', wf); self.assertNotIn("head.ref", wf)   # PR head is data (a SHA), never checked out
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        r = self.tmp / "bj"; (r / "bench/awibench").mkdir(parents=True)
+        for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+        (r / "bench/awibench/__init__.py").write_text("")
+        tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}, "exa": {"allowed": "yes"}}}
+        w = lambda d: (r / "bench/tos_matrix.yaml").write_text(json.dumps(d, indent=1) + "\n")
+        (r / "bench/config.yaml").write_text("{}\n"); w(tos)
+        git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+        git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base")
+        judge = lambda head: subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": head})
+        git("checkout", "-qb", "ok"); tos["providers"]["exa"]["allowed"] = "no"; w(tos); git("commit", "-qam", "unrelated")
+        p = judge("ok"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("flag name from base gates.py: vendor_confirmation_required", p.stdout)   # positive control
+        git("checkout", "-q", "main"); git("checkout", "-qb", "attack")                                           # combined attack, all in one PR:
+        g = r / "bench/awibench/gates.py"; g.write_text(g.read_text().replace("vendor_confirmation_required", "vendor_confirmation_requirement"))   # 1. rename REQUIRED_FLAG
+        c = r / "bench/awibench/confirmation_diff.py"; c.write_text(c.read_text().replace("    return 1 if probs else 0", "    return 0"))     # 2. edit the checker
+        tos["providers"]["exa"]["allowed"] = "yes"; cd_e = tos["providers"]["contextdev"]; del cd_e["vendor_confirmation_required"]
+        cd_e["vendor_confirmation_requirement"] = False; w(tos); git("commit", "-qam", "attack")                    # 3. rename the key, set to false
+        own = subprocess.run([sys.executable, "-m", "awibench.confirmation_diff", "main"], cwd=r / "bench", capture_output=True, text=True)
+        self.assertEqual(own.returncode, 0, own.stdout)                                                            # the PR's own checker would pass it...
+        git("checkout", "-q", "main")                                                                              # CI has only the base checked out
+        p = judge("attack"); self.assertNotEqual(p.returncode, 0, p.stdout); self.assertIn("AC24h", p.stdout)        # ...the base-judged path fails it (head read as data)
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")                         # judging never checked anything out
+        p = judge("ok"); self.assertEqual(p.returncode, 0, p.stdout + p.stderr)                                   # and the clean PR still passes from a base checkout
+    def test_ac24e_move_into_evidence_fails_both_checkers(self):   # Kitty v5: `git mv X cycles/s/evidence/X` in a flip PR must fail (old path counts)
+        wf = (SITE / ".github/workflows/confirmation-diff-base.yml").read_text()
+        block = "\n".join(l.strip() for l in wf[wf.index("# >>> base-judge"):wf.index("# <<< base-judge")].splitlines())
+        for src in ("bench/tests/test_bench.py", "run_tests.sh", ".github/workflows/confirmation-diff.yml"):
+            r = self.tmp / ("mv-" + src.replace("/", "_")); (r / "bench/awibench").mkdir(parents=True)
+            for f in ("confirmation_diff.py", "gates.py"): shutil.copy(BENCH / "awibench" / f, r / "bench/awibench" / f)
+            (r / "bench/awibench/__init__.py").write_text("")
+            tos = {"providers": {"contextdev": {"vendor_confirmation_required": True, "vendor_confirmation": None}}}
+            w = lambda d: (r / "bench/tos_matrix.yaml").write_text(json.dumps(d, indent=1) + "\n")
+            w(tos); (r / "bench/config.yaml").write_text("{}\n")
+            (r / src).parent.mkdir(parents=True, exist_ok=True); shutil.copy(SITE / src, r / src)   # real content, so git would see a 100% rename
+            git = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], check=True, capture_output=True, text=True)
+            git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "base"); git("checkout", "-qb", "pr")
+            tos["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC); w(tos)
+            (r / "cycles/s/evidence").mkdir(parents=True); git("mv", src, "cycles/s/evidence/" + Path(src).name); git("add", "-A"); git("commit", "-qm", "flip + move")
+            self.assertIn("R", git("diff", "--name-status", "-M", "main..pr").stdout)                              # git itself sees a rename here
+            with mock.patch.object(confirmation_diff, "Path", lambda _f: type("P", (), {"resolve": lambda s: type("Q", (), {"parents": {2: r}})()})()):
+                self.assertEqual(confirmation_diff.main(["main"]), 1, src)                                         # PR checker
+            git("checkout", "-q", "main")
+            p = subprocess.run(["bash", "-c", block], cwd=r, capture_output=True, text=True, env={**os.environ, "AWI_BASE_REF": "main", "AWI_HEAD_REF": "pr"})
+            self.assertNotEqual(p.returncode, 0, src + p.stdout); self.assertIn(src, p.stdout)                       # base-judged path names the old path
+    def test_ac24e_ci_wiring(self):   # AC24e CI half: run_tests.sh and a pull_request workflow both run the checker
+        self.assertIn("python3 -m awibench.confirmation_diff", (SITE / "run_tests.sh").read_text())
+        wf = (SITE / ".github/workflows/confirmation-diff.yml").read_text()   # text checks: workflow YAML is not JSON-style, PyYAML is optional
+        self.assertRegex(wf, r"(?m)^on:\n  pull_request:"); self.assertIn("fetch-depth: 0", wf)
+        self.assertIn('python -m awibench.confirmation_diff "$AWI_BASE_REF" "$AWI_HEAD_REF"', wf); self.assertNotIn("base_ref", wf)
+    def test_ac11_creditguard_allows_is_the_stop_check(self):   # AC11 (kills mutant K1: allows <= -> <)
+        d = self.tmp / "cg"; d.mkdir(); g = guard_mod.CreditGuard(d, "contextdev", None, 900)
+        try:
+            g.record(899, 0)
+            self.assertTrue(g.allows(1)); self.assertFalse(g.allows(2))              # 899 + 1 = 900 runs, 901 stops
+            self.assertTrue(g.allows(0, meter=900)); self.assertFalse(g.allows(1, meter=900))   # meter above the counter wins
+            self.assertFalse(g.allows(1, meter=None) and g.allows(1, meter=950))
+        finally: g.release()
+        src = (BENCH / "awibench/runner.py").read_text()
+        self.assertIn("cg.allows(est, mv)", src); self.assertNotIn('eff + est > fg["stop_at_credits"]', src)   # runner has no second copy of the check
+    def test_ac24f_keenable_no_adapter_zero_calls(self):   # AC24f
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+        # AWI-PROVIDER-KEENABLE-001 K1 supersedes AC24f's "no adapter, providers.json, pricing or config entry": they now exist, default-closed (K1* classes below)
+        prov = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": "KEENABLE_API_KEY"}
+        ccfg = mocks.keenable_closed(CFG)[0]; mocks.keenable_committed_check(self, CFG, load_yaml(BENCH / "tos_matrix.yaml")["providers"])   # R25
+        self.assertIs(ccfg["free_tier_guard"]["keenable"]["live_run_allowed"], False); self.assertIsNone(ccfg["free_tier_guard"]["keenable"]["vendor_confirmation"])
+        self.assertNotIn("keenable", load_yaml(BENCH / "pricing.yaml")["providers"])
+        self.assertEqual(B.keyed_providers([p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"], {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])
+        adapters = {"keenable": {"search": self.ad_search}}   # even a (synthetic) adapter must not be reached
+        pricing = self.pricing | {"keenable": {"search": mocks.pricing_fixture("credits")}}
+        for cfg in (mocks.mock_cfg(ccfg), mocks.keenable_closed(self.cfg)[0]):
+            s = self.go(providers=[prov], adapters=adapters, pricing=pricing, cfg=cfg, tos=mocks.keenable_closed(None, self.tos)[1], env={"KEENABLE_API_KEY": "dummy-not-a-key"})
+            self.assertEqual((self.prov(s, "keenable")["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        self.assertFalse(guard_mod.live_allowed({"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": "x"}}}, self.tos, "keenable"))
+        self.assertFalse((self.tmp / "runs").exists())
+
+    # R33: Kitty's three surviving mutants of #40's checker (evidence awi-r32-gate t1-20261026-2247, MUTANTS-B8.txt M10/M11/M12), one test each
+    def test_r33_m10_head_confirmed_not_forced_false(self):   # M10: head_confirmed() forced to False would grant the bootstrap allowance to a confirmed head
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; code = "bench/awibench/runner.py"
+        b, h = self._cd_docs()
+        self.assertFalse(cd.head_confirmed(h))
+        for docs in (b, h):   # keenable already confirmed at base AND head (unchanged), so the head counts as confirmed
+            docs[T]["providers"]["keenable"]["vendor_confirmation"] = dict(self.REC)
+            docs[C]["free_tier_guard"]["keenable"] = {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
+        self.assertTrue(cd.head_confirmed(h))
+        self.assertTrue(cd.head_confirmed({T: {"providers": {}}, C: {"free_tier_guard": {"x": {"live_run_allowed": True, "vendor_confirmation": None}}}}))   # live_run_allowed true alone
+        self.assertTrue(cd.head_confirmed({T: {"providers": {"x": {"vendor_confirmation": {"date": "bad"}}}}, C: {}}))   # an incomplete record still counts
+        h[T]["providers"]["exa"]["vendor_confirmation"] = None   # NEW confirmation field at the closed default, plus code
+        probs = cd.check([T, code], b, h)
+        self.assertTrue(any("flip-only" in x and code in x for x in probs), probs)   # no bootstrap allowance while anything is confirmed
+        b2, h2 = self._cd_docs(); h2[T]["providers"]["exa"]["vendor_confirmation"] = None
+        self.assertEqual(cd.check([T, code], b2, h2), [])   # control: nothing confirmed, the allowance applies
+    def test_r33_m11_sq3_strict_type_compare(self):   # M11: same() without the type check (json.dumps only) must be rejected
+        import datetime
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for a, b in (("false", False), ("true", True), (1, True), (0, False), (None, False), ("1", 1), (1, 1.0),   # string vs bool/int, int vs bool/float
+                     (["x"], ("x",)), ({"a"}, "{'a'}"), (datetime.date(2026, 10, 30), "datetime.date(2026, 10, 30)")):   # same json.dumps text, different type
+            self.assertFalse(cd.same(a, b), (a, b)); self.assertFalse(cd.same(b, a), (b, a)); self.assertTrue(cd.same(a, a)); self.assertTrue(cd.same(b, b))
+        b, h = self._cd_docs()
+        h[C]["free_tier_guard"]["contextdev"]["stop_at_credits"] = 900.0   # int -> float, same number
+        self.assertEqual([p for p, _, _ in cd.changed_paths(b[C], h[C])], [("free_tier_guard", "contextdev", "stop_at_credits")])
+        b, h = self._cd_docs()
+        b[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ["HTTP 402"]; h[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ("HTTP 402",)   # list -> tuple
+        self._flip(h)
+        probs = cd.check([T, C], b, h)
+        self.assertTrue(any("flip-only" in x and "free_tier_guard.contextdev.quota_stop_errors" in x for x in probs), probs)
+    def test_r33_m12_r26_guard_field_deletion_fails(self):   # M12: dropping the R26 guard must fail; a data-only deletion is caught by nothing else
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for drop in ("live_run_allowed", "vendor_confirmation", None):
+            b, h = self._cd_docs()
+            if drop: del h[C]["free_tier_guard"]["contextdev"][drop]
+            else: del h[C]["free_tier_guard"]["contextdev"]
+            want = f"free_tier_guard.contextdev.{drop} deleted" if drop else "free_tier_guard.contextdev deleted or renamed"
+            probs = cd.check([C], b, h)
+            self.assertTrue(any(x.startswith("R26") and want in x for x in probs), (drop, probs))
+            if drop: self.assertEqual([x for x in probs if not x.startswith("R26")], [], (drop, probs))   # a key deletion: only R26 catches it
+    def test_r35_committed_gate_open_only_with_valid_record(self):   # R35 (replaces the R33 closed-value test): checks for a valid record, not a value
+        cfg, tos = load_yaml(BENCH / "config.yaml"), load_yaml(BENCH / "tos_matrix.yaml")
+        self.assertEqual(r35_gate_errors(cfg, tos), [], "committed live gate: live_run_allowed true needs a vendor_confirmation that passes gates.record_error; false needs null records (R34/R35)")
+
+
+R35_GATED = ("contextdev", "keenable")
+def r35_gate_errors(cfg, tos):
+    """R35: per gated provider, in config.yaml (free_tier_guard) and tos_matrix.yaml (providers). live_run_allowed true is allowed
+    only when the config vendor_confirmation passes gates.record_error (no error) and the tos_matrix vendor_confirmation, if set,
+    passes it too; false is allowed with null records (R34 closed state). Anything else (non-bool, missing key or block) is an error."""
+    out = []
+    for pid in R35_GATED:
+        g = (cfg.get("free_tier_guard") or {}).get(pid); t = (tos.get("providers") or {}).get(pid)
+        if not isinstance(g, dict) or "live_run_allowed" not in g: out.append(f"{pid}: config live_run_allowed missing"); continue
+        if not isinstance(t, dict): out.append(f"{pid}: tos_matrix entry missing"); continue
+        lra = g["live_run_allowed"]
+        if lra is True:
+            e = gates_mod.record_error(g.get("vendor_confirmation"))
+            if e is not None: out.append(f"{pid}: live_run_allowed true but config vendor_confirmation is not a valid record ({e})")
+            if t.get("vendor_confirmation") is not None and (e2 := gates_mod.record_error(t["vendor_confirmation"])) is not None:
+                out.append(f"{pid}: live_run_allowed true but tos_matrix vendor_confirmation is not a valid record ({e2})")
+        elif lra is False:
+            for where, rec in (("config", g.get("vendor_confirmation")), ("tos_matrix", t.get("vendor_confirmation"))):
+                if rec is not None: out.append(f"{pid}: live_run_allowed false but {where} vendor_confirmation is not null (R34 closed state)")
+        else: out.append(f"{pid}: live_run_allowed is {lra!r}, not a bool")
+    return out
+
+R35_VALID = {"date": "2026-10-26", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "You may benchmark and publish.",
+             "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+R35_CASES = [   # (id, live_run_allowed, vendor_confirmation in config and tos; "DROP" deletes the key, expected pass)
+    ("true_no_record", True, None, False), ("true_record_key_missing", True, "DROP", False),
+    ("true_invalid_string", True, "yes", False), ("true_invalid_empty", True, {}, False),
+    ("true_invalid_partial", True, {k: v for k, v in R35_VALID.items() if k != "quote"}, False),
+    ("true_invalid_bad_url", True, R35_VALID | {"recorded_pr": "#27"}, False),
+    ("true_valid_record", True, R35_VALID, True), ("false_null", False, None, True)]
+
+@pytest.mark.parametrize("pid", R35_GATED)
+@pytest.mark.parametrize("live,rec,ok", [c[1:] for c in R35_CASES], ids=[c[0] for c in R35_CASES])
+def test_r35_gate_fixture(pid, live, rec, ok):   # R35 fixtures over copies of the committed files; one provider set at a time
+    import copy
+    cfg, tos = copy.deepcopy(load_yaml(BENCH / "config.yaml")), copy.deepcopy(load_yaml(BENCH / "tos_matrix.yaml"))
+    g, t = cfg["free_tier_guard"][pid], tos["providers"][pid]; g["live_run_allowed"] = live
+    for d in (g, t):
+        if rec == "DROP": d.pop("vendor_confirmation", None)
+        else: d["vendor_confirmation"] = copy.deepcopy(rec)
+    errs = [e for e in r35_gate_errors(cfg, tos) if e.startswith(f"{pid}:")]   # this provider only
+    if ok:
+        assert errs == [], errs
+        if live: assert gates_mod.record_error(rec) is None and guard_mod.live_allowed(cfg, tos["providers"], pid)
+    else:
+        assert errs, errs
+        assert not guard_mod.live_allowed(cfg, tos["providers"], pid)
+
+class SnapshotPricesGate(unittest.TestCase):
+    def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
+        sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
+        ids = [p["id"] for p in S.snapshot_providers(provs, closed_tos(committed))]   # R25: closed fixture
+        self.assertNotIn("contextdev", ids)
+        self.assertEqual(len(ids), 15)
+        cids = [p["id"] for p in S.snapshot_providers(provs, committed)]   # committed: closed unless consistently open
+        if committed_consistent(self): self.assertEqual(sorted(cids), sorted(ids + ["contextdev"]))
+        else: self.assertEqual(cids, ids)
+    def test_ac24g_snapshot_skip_follows_vendor_confirmed(self):   # AC24g (R12): skip iff gates.vendor_confirmed is false; main() uses it
+        sys.path.insert(0, str(SITE / "collectors")); import snapshot_prices as S
+        provs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        tos = {"a": {"vendor_confirmation_required": True, "vendor_confirmation": None},
+               "b": {"vendor_confirmation_required": True, "vendor_confirmation": {"date": "2026-11-01", "sender": "s", "quote": "q", "evidence_path": "e/p.md", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}}}
+        self.assertEqual([p["id"] for p in S.snapshot_providers(provs, tos)], ["b", "c"])   # unflagged c unaffected
+        self.assertIn("provs=snapshot_providers(", (SITE / "collectors/snapshot_prices.py").read_text())
+        self.assertIn("snapshot_prices", (BENCH / "README.md").read_text())   # documented (docs match code)
+
+class NoVendorMailPath(unittest.TestCase):
+    def test_ac27a_no_mail_send_path(self):   # AC27a (R12): no code path sends the vendor email
+        pat = re.compile(r"smtplib|sendmail|send_mail|SMTP\(|mailto:|hello@context\.dev|gmail|sendgrid|mailgun|postmark|/messages/send", re.I)
+        hits = []
+        for f in list(SITE.glob("bench/awibench/*.py")) + list(SITE.glob("collectors/*.py")) + list(SITE.glob(".github/workflows/*.yml")) + list(SITE.glob("*.sh")):
+            hits += [f"{f.name}:{i}" for i, l in enumerate(f.read_text(errors="replace").splitlines(), 1) if pat.search(l)]
+        self.assertEqual(hits, [])
+        # positive control: the same pattern catches each mail-send form it is meant to catch
+        for bad in ("import smtplib", "os.system('sendmail x')", "send_mail(to)", "smtplib.SMTP('h')", "href='mailto:x'", "to='hello@context.dev'",
+                    "gmail.users().messages().send()", "import sendgrid", "requests.post(mailgun)", "postmark.send()", "POST /messages/send"):
+            self.assertRegex(bad, pat, bad)
+        self.assertNotRegex("vendor_confirmation_required = True", pat)
+
+
 class StopOnHttp(unittest.TestCase):
     """AWI-RUN-2026-10-26: stop a provider at the first HTTP 402 and after N consecutive HTTP 429s (config stop_on_http)."""
     PROV = [{"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}]
@@ -2357,3 +3785,334 @@ class ApifyT3Fixes(unittest.TestCase):
         self.assertLess(ov["cumulative_usd"], ov["stop_usd"])
         self.assertEqual(self.lines()[0]["cap_overrun"], ov)
         log = json.loads((self.tmp / "spend" / "apify-cap-overrun-2026-10.json").read_text()); self.assertEqual(log["records"], [ov])
+
+
+# ===== AWI-PROVIDER-KEENABLE-001 K1 tests (moved from tests/test_keenable.py per Keenable R6: the benchmark.yml unit-test step runs tests/test_bench.py) =====
+# """AWI-PROVIDER-KEENABLE-001 phase K1 (ACs 1-8, 17-23; R1-R3). MOCK ONLY: urlopen is always patched; nothing calls Keenable."""
+import ast, copy, datetime as dt, json, re, sys, unittest, urllib.error
+from pathlib import Path
+from unittest import mock
+BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
+from awibench import runner, tables, guard, gates, confirmation_diff as cd
+from awibench.util import load_yaml, read_jsonl, SITE
+import mocks
+
+FX = Path(__file__).parent / "fixtures" / "keenable"
+CFG = load_yaml(BENCH / "config.yaml"); TOS_DOC = load_yaml(BENCH / "tos_matrix.yaml"); TOS = TOS_DOC["providers"]
+PRICING_DOC = load_yaml(BENCH / "pricing.yaml")
+REC = {"date": "2026-10-25", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "mock quote", "evidence_path": "mock/evidence.json", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/0"}
+CCFG, CTOS = mocks.keenable_closed(CFG, TOS)   # R25: explicit closed fixtures for gate behavior (committed state is checked by keenable_committed_check)
+PROV = {"id": "keenable", "name": "Keenable", "categories": ["search"], "key_env": None}
+SENTINELS = ("keensent-url-1.example", "keensent-url-2.example", "KEENSENT-SNIPPET", "KEENSENT-T")
+sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
+
+
+class Base(unittest.TestCase):
+    TS = "2026-10-26T10:00:00+00:00"
+    def setUp(self):
+        self.tmp = self.tmp_path; self.spend = self.tmp / "spend"; self.spend.mkdir(); self.calls = []; self.sleeps = []
+        self.cfg = mocks.mock_cfg(CFG); self.cfg["free_tier_guard"]["keenable"].update(live_run_allowed=True, vendor_confirmation=dict(REC))
+        self.tos = copy.deepcopy(TOS); self.tos["keenable"]["vendor_confirmation"] = dict(REC)
+        self.tos["keenable"]["benchmarking"] = {"status": "allowed", "quote": "fixture: CEO ruling OQ-K5 (committed tos: permitted_by_ruling, Keenable R4 (2))"}
+        sd = self.tmp / "sets"; mocks.make_sets(sd); self.rows = read_jsonl(sd / "search_evergreen.jsonl")
+        self.pricing = {"keenable": {"search": mocks.pricing_fixture("credits")}}
+    def ok(self, key, item):
+        self.calls.append(item["id"]); d = json.loads((FX / "search_public_ok.json").read_text())
+        return {"http_status": 200, "billed_units": 0, "results": [{"url": r["url"], "title": r["title"], "snippet": r["snippet"], "published_at": r["published_at"]} for r in d["results"]]}
+    def go(self, n=3, fn=None, cfg=None, tos=None, rows=None, ts=None):
+        return runner.run(providers=[PROV], sets={"search_evergreen": {"rows": rows or self.rows[:n], "sha": "x"}}, pricing=self.pricing, tos=self.tos if tos is None else tos,
+                          adapters={"keenable": {"search": fn or self.ok}}, cfg=cfg or self.cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "ledger.json",
+                          run_date="2026-10-26", env={}, mock=True, spend_dir=self.spend, now_fn=lambda: dt.datetime.fromisoformat(ts or self.TS), sleep=self.sleeps.append)
+    def prov(self, s): return next(p for p in s["providers"] if p["provider"] == "keenable")
+    def cfg_with(self, **g): c = copy.deepcopy(self.cfg); c["free_tier_guard"]["keenable"].update(g); return c
+    def lines(self): return read_jsonl(self.tmp / "runs/2026-10-26/keenable/search_evergreen.jsonl")
+
+
+class K1Committed(Base):
+    def test_ac1_tos_closed(self):
+        k = CTOS["keenable"]; self.assertIs(k[gates.REQUIRED_FLAG], True); self.assertIsNone(k["vendor_confirmation"]); self.assertFalse(gates.vendor_confirmed(k))
+        mocks.keenable_committed_check(self, CFG, TOS)
+    def test_ac2_config_mirrors_contextdev(self):
+        g, c = CCFG["free_tier_guard"]["keenable"], CFG["free_tier_guard"]["contextdev"]
+        self.assertIs(g["live_run_allowed"], False); self.assertIsNone(g["vendor_confirmation"]); mocks.keenable_committed_check(self, CFG, TOS)
+        self.assertEqual({k: v for k, v in CFG["free_tier_guard"]["keenable"].items() if k not in ("live_run_allowed", "vendor_confirmation")},
+                         {k: v for k, v in g.items() if k not in ("live_run_allowed", "vendor_confirmation")})   # every other committed field is pinned below; self.assertEqual(g["max_concurrent"], c["max_concurrent"])
+        self.assertEqual(g["max_concurrent"], 1); self.assertIs(g["paid_usage_allowed"], False); self.assertIs(g["paid_tier"], False); self.assertIs(g["publish_raw_results"], False)
+        self.assertEqual((g["quota_credits"], g["stop_at_credits"], g["window"]), (900, 899, "utc_hour"))
+        self.assertEqual(g["rate_limit"], {"max_per_second": 9, "max_per_hour": 899}); self.assertLess(g["rate_limit"]["max_per_hour"], 900)
+        self.assertEqual(g["endpoint"], "https://api.keenable.ai/v1/search/public"); self.assertIn("keenable", CFG["month1_free_tier_providers"])
+    def test_ac3_live_allowed_generalized(self):
+        la = guard.live_allowed; ok = {"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": dict(REC), "paid_usage_allowed": False}}}
+        self.assertFalse(la(CCFG, CTOS, "keenable")); self.assertFalse(la(ok, {}, "keenable")); self.assertFalse(la(CCFG, self.tos, "keenable"))
+        self.assertTrue(la(ok, self.tos, "keenable")); self.assertTrue(la(ok, CTOS, "keenable"))   # null tos record: only the config record counts (R22)
+        for k, v in (("live_run_allowed", "true"), ("live_run_allowed", 1), ("live_run_allowed", False), ("vendor_confirmation", "yes"), ("vendor_confirmation", {}),
+                     ("vendor_confirmation", None), ("paid_usage_allowed", True), ("paid_usage_allowed", "false"), ("paid_usage_allowed", 0), ("paid_usage_allowed", None)):
+            c = copy.deepcopy(ok); c["free_tier_guard"]["keenable"][k] = v; self.assertFalse(la(c, self.tos, "keenable"), (k, v))
+        c = copy.deepcopy(ok); del c["free_tier_guard"]["keenable"]["paid_usage_allowed"]; self.assertFalse(la(c, self.tos, "keenable"))   # R1: missing fails closed
+        for t in ({}, None, {"keenable": None}, {"keenable": self.tos["keenable"] | {gates.REQUIRED_FLAG: False}}, {"keenable": {k: v for k, v in self.tos["keenable"].items() if k != gates.REQUIRED_FLAG}},
+                  {"keenable": self.tos["keenable"] | {"vendor_confirmation": "yes"}}):
+            self.assertFalse(la(ok, t, "keenable"), t)
+        # R30: contextdev is checked on fixtures, strict both ways, independent of the committed confirmation (#28 flips it)
+        cd_tos = {"contextdev": {gates.REQUIRED_FLAG: True, "vendor_confirmation": None}}
+        cd_ok = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(REC)}}}
+        cd_none = copy.deepcopy(cd_ok); cd_none["free_tier_guard"]["contextdev"]["vendor_confirmation"] = None
+        self.assertFalse(la(cd_none, cd_tos)); self.assertFalse(la(cd_none, cd_tos, "contextdev"))   # no confirmation record: closed
+        self.assertTrue(la(cd_ok, cd_tos)); self.assertTrue(la(cd_ok, cd_tos, "contextdev"))   # valid record: open (default id is contextdev)
+        self.assertIs(la(CFG, TOS, "keenable"), mocks.keenable_committed_check(self, CFG, TOS))   # committed: open only with a valid record   # contextdev default id unchanged
+    def test_ac5_committed_config_zero_calls(self):
+        fn = mock.Mock(side_effect=self.ok)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")) as net:
+            s = self.go(fn=fn, cfg=mocks.mock_cfg(CCFG), tos=CTOS)
+        self.assertEqual(self.prov(s)["status"], "skipped_no_vendor_confirmation"); fn.assert_not_called(); net.assert_not_called()
+        self.assertFalse((self.tmp / "runs").exists()); self.assertFalse(list(self.spend.glob("keenable-*")))
+        s = self.go(fn=fn, cfg=mocks.mock_cfg(CCFG), tos=self.tos)   # tos record set, config gate still closed
+        self.assertEqual(self.prov(s)["status"], "skipped_no_vendor_confirmation"); fn.assert_not_called()
+        self.assertEqual(B.keyed_providers([p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"], {}), [])   # never picked for a live run in K1
+    def test_ac7_publish_gate_real_files(self):
+        held = tables.held_providers(CCFG, PRICING_DOC["providers"], CTOS); self.assertIn("keenable", held)
+        if not mocks.keenable_committed_check(self, CFG, TOS): self.assertIn("keenable", tables.held_providers(CFG, PRICING_DOC["providers"], TOS))
+        self.assertNotIn("keenable", PRICING_DOC["providers"])   # AC21: price record kept outside providers -> never a Prices row or cost column
+        latest = json.loads((SITE / "data/benchmarks/latest.json").read_text()); self.assertNotIn("keenable", json.dumps(latest).lower())
+        for f in (SITE / "data").rglob("*"):
+            if f.is_file() and f.suffix in (".json", ".csv"): self.assertNotIn("keenable", f.read_text(errors="replace").lower(), f)
+        for f in (SITE / "dist").rglob("*") if (SITE / "dist").is_dir() else []:
+            if f.is_file() and f.suffix in (".json", ".csv", ".html", ".js"): self.assertNotIn("keenable", f.read_text(errors="replace").lower(), f)
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        names = tables.also_priced_providers(PRICING_DOC["providers"], latest, provs); self.assertNotIn("Keenable", names)
+        unflagged = [{k: v for k, v in p.items() if k != "exclude_from_also_priced"} for p in provs]
+        self.assertNotIn("Keenable", tables.also_priced_providers(PRICING_DOC["providers"], latest, unflagged))   # not in pricing providers either: two independent locks
+        self.assertIs(next(p for p in provs if p["id"] == "keenable")["exclude_from_also_priced"], True)
+    def test_ac22_no_price_snapshot_even_when_confirmed(self):
+        import snapshot_prices as SP
+        provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
+        tos = copy.deepcopy(TOS); tos["keenable"]["vendor_confirmation"] = dict(REC)   # even after a K2 flip
+        self.assertNotIn("keenable", [p["id"] for p in SP.snapshot_providers(provs, tos)])
+    def test_ac21_price_record(self):
+        r = PRICING_DOC["keenable_price_record"]
+        self.assertEqual((r["usd_per_1k_requests"], r["source_url"], r["checked_at"]), (4.0, "https://keenable.ai/pricing", "2026-10-26"))
+        self.assertIn("$4 / 1000 requests", r["quote"])
+
+
+class K1Adapter(Base):
+    SRC = (SITE / "collectors/benchmark.py").read_text()
+    def _kfuncs(self):
+        tree = ast.parse(self.SRC); return [n for n in tree.body if isinstance(n, ast.FunctionDef) and "keenable" in n.name]
+    def test_ac6_ac18_ac22_only_public_post(self):
+        self.assertEqual(B.KEENABLE_SEARCH_URL, "https://api.keenable.ai/v1/search/public"); self.assertEqual(B.ADAPTERS["keenable"], {"search": B._keenable_search})
+        src = "\n".join(ast.get_source_segment(self.SRC, f) for f in self._kfuncs())
+        self.assertEqual(re.findall(r'method="(\w+)"', src), ["POST"]); self.assertNotRegex(src, r"\b(PUT|PATCH|DELETE)\b")
+        self.assertEqual(re.findall(r"https?://[^\s\"']+", src), [])   # no URL literal inside the adapter: only the module constant
+        urls = set(re.findall(r"https?://[^\s\"')]*keenable[^\s\"')]*", "\n".join(l for l in self.SRC.splitlines() if not l.lstrip().startswith("#"))))
+        self.assertEqual(urls, {"https://api.keenable.ai/v1/search/public"})   # no keyed /v1/search, no x402, no keenable.ai page
+        self.assertNotRegex(src, r"X-API-Key|Authorization|environ|getenv")   # keyless: no key read at all (AC18 supersedes AC6's env var)
+        seen = []
+        class R:
+            status = 200
+            def read(s): return (FX / "search_public_ok.json").read_bytes()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        with mock.patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: seen.append(req) or R()):
+            out = B._keenable_search("keyless", {"id": "i", "query": "q1"})
+        (req,) = seen; self.assertEqual((req.full_url, req.get_method()), ("https://api.keenable.ai/v1/search/public", "POST"))
+        self.assertEqual(req.get_header("X-keenable-title"), "AgentWebIndex"); self.assertIsNone(req.get_header("X-api-key")); self.assertIsNone(req.get_header("Authorization"))
+        self.assertEqual(json.loads(req.data), {"query": "q1"}); self.assertEqual(len(out["results"]), 2); self.assertNotIn("usage", out)
+    def test_ac20_adapter_surfaces_usage_block(self):
+        class R:
+            status = 200
+            def read(s): return (FX / "search_billed.json").read_bytes()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        with mock.patch("urllib.request.urlopen", return_value=R()): out = B._keenable_search("keyless", {"id": "i", "query": "q"})
+        self.assertTrue(out["usage"]["paid"]); self.assertTrue(guard.paid_stop("keenable", 200, out))
+    def test_adapter_http_error_has_no_vendor_text(self):
+        e = urllib.error.HTTPError(B.KEENABLE_SEARCH_URL, 429, "x", {"Retry-After": "2"}, None); e.read = lambda *a: b"KEENSENT-SNIPPET leaked"
+        with mock.patch("urllib.request.urlopen", side_effect=e), self.assertRaises(RuntimeError) as cm: B._keenable_search("keyless", {"id": "i", "query": "q"})
+        self.assertEqual(str(cm.exception), "HTTP 429: Retry-After: 2; keenable error")
+
+
+class K1Guard(Base):
+    def test_ac4_serial_semaphore_and_peak_one(self):
+        made = []; real = guard.make_semaphore
+        with mock.patch.object(runner.guard, "make_semaphore", side_effect=lambda n: made.append(n) or real(n)): s = self.go(n=4)
+        self.assertEqual((made, self.prov(s)["status"], len(self.calls)), ([1], "ran", 4))
+        import concurrent.futures, threading, time
+        sem = guard.make_semaphore(CFG["free_tier_guard"]["keenable"]["max_concurrent"]); lock = threading.Lock(); cur = [0]; peak = [0]
+        def fn(k, i):
+            with lock: cur[0] += 1; peak[0] = max(peak[0], cur[0])
+            time.sleep(0.01)
+            with lock: cur[0] -= 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex: list(ex.map(lambda i: guard.guarded_call(sem, fn, "k", i), range(10)))
+        self.assertEqual(peak[0], 1)
+    def test_ac4_counter_per_utc_hour_and_unreadable_fails_closed(self):
+        self.go(n=3); f = self.spend / "keenable-2026-10-26T10.json"; self.assertEqual(json.loads(f.read_text())["attempted"], 3)
+        f.write_text("{not json"); n0 = len(self.calls); s = self.go(n=2)
+        self.assertEqual((self.prov(s)["status"], len(self.calls) - n0), ("stale_budget", 0))
+        f.write_text(json.dumps({"provider": "keenable", "window": "2026-10-26T10", "attempted": 898, "billed": 0})); n0 = len(self.calls); s = self.go(n=3)
+        self.assertEqual((self.prov(s)["status"], len(self.calls) - n0), ("stale_quota", 1))   # 899th allowed, 900th never
+        s = self.go(n=2, ts="2026-10-26T11:00:00+00:00"); self.assertEqual(self.prov(s)["status"], "ran")   # next UTC hour: fresh counter
+    def test_r1_paid_usage_flag_missing_or_nonbool_zero_calls(self):
+        for v in (True, "false", 0, None, ...):
+            c = self.cfg_with() if v is ... else self.cfg_with(paid_usage_allowed=v)
+            if v is ...: del c["free_tier_guard"]["keenable"]["paid_usage_allowed"]
+            fn = mock.Mock(side_effect=self.ok); s = self.go(fn=fn, cfg=c)
+            self.assertEqual(self.prov(s)["status"], "stopped_paid_usage", v); fn.assert_not_called()
+    def _stop_case(self, first):
+        n = [0]
+        def fn(key, item):
+            n[0] += 1
+            return first(key, item) if n[0] == 2 else self.ok(key, item)
+        s = self.go(n=6, fn=fn); return s, n[0]
+    def test_ac20_billed_response_stops_all_calls(self):
+        s, n = self._stop_case(lambda k, i: {"http_status": 200, "results": [], "usage": {"sku": "search.pro", "credits": 1, "paid": True}})
+        self.assertEqual((self.prov(s)["status"], n), ("stopped_paid_usage", 2)); self.assertEqual(self.lines()[-1]["status"], "paid_usage_stop")
+        self.assertTrue(all(l["run_status"] == "stopped_paid_usage" for l in self.lines()))
+        s, n = self._stop_case(lambda k, i: {"http_status": 200, "results": [], "billed_units": 1}); self.assertEqual((self.prov(s)["status"], n), ("stopped_paid_usage", 2))
+    def test_ac20_exhausted_quota_402_stops_all_calls(self):
+        def e402(k, i): raise RuntimeError("HTTP 402: keenable error")
+        s, n = self._stop_case(e402); self.assertEqual((self.prov(s)["status"], n), ("stopped_paid_usage", 2))
+        self.assertIn("402", self.prov(s)["reason"])
+    def test_ac19_429_one_retry_then_rate_limited(self):
+        calls = []
+        def r429(k, i): calls.append(i["id"]); raise RuntimeError("HTTP 429: Retry-After: 3; keenable error")
+        s = self.go(n=4, fn=r429); self.assertEqual((self.prov(s)["status"], len(calls)), ("rate_limited", 2)); self.assertEqual(self.sleeps, [3])
+        calls.clear(); self.sleeps.clear()
+        def bare429(k, i): calls.append(1); raise RuntimeError("HTTP 429: keenable error")
+        s = self.go(n=4, fn=bare429, ts="2026-10-26T12:00:00+00:00"); self.assertEqual((self.prov(s)["status"], len(calls), self.sleeps), ("rate_limited", 1, []))
+        seq = iter([RuntimeError("HTTP 429: Retry-After: 1; keenable error")])
+        def once(k, i):
+            e = next(seq, None)
+            if e: raise e
+            return self.ok(k, i)
+        s = self.go(n=5, fn=once, ts="2026-10-26T13:00:00+00:00"); self.assertEqual(self.prov(s)["status"], "ran")   # retry succeeded: run completes (1 of 6 lines is a 429, under the 20% quota-degraded rule)
+    def test_ac19_limiter_per_second_and_hour(self):
+        t = [0.0]; slept = []
+        lim = guard.RateLimiter(9, 899, clock=lambda: t[0], sleep=slept.append)
+        for _ in range(9): self.assertTrue(lim.acquire())
+        self.assertEqual(slept, []); self.assertTrue(lim.acquire()); self.assertAlmostEqual(slept[0], 1.0)   # 10th waits a full second
+        stamps = sorted(lim.t); self.assertTrue(all(sum(1 for y in stamps if x <= y < x + 1.0) <= 9 for x in stamps))
+        lim = guard.RateLimiter(9, 899, clock=lambda: t[0], sleep=lambda s: None)
+        got = sum(lim.acquire() for _ in range(1000)); self.assertEqual(got, 899)   # stops before 900 (and well before 1,000) per rolling hour
+        stamps = sorted(lim.t); self.assertTrue(all(sum(1 for y in stamps if x <= y < x + 1.0) <= 9 for x in stamps))
+        t[0] = stamps[0] + lim.skew + 3600.01; self.assertTrue(lim.acquire())   # the oldest call left the rolling hour
+        for bad in (0, -1, 1.5, None): self.assertRaises(ValueError, guard.RateLimiter, bad, 899)
+    def test_ac19_runner_stops_before_hourly_cap(self):
+        c = self.cfg_with(rate_limit={"max_per_second": 9, "max_per_hour": 5}); s = self.go(n=8, cfg=c)
+        self.assertEqual((self.prov(s)["status"], len(self.calls)), ("rate_limited", 5)); self.assertIn("rolling hour", self.prov(s)["reason"])
+        self.assertTrue(self.sleeps == [] or all(x > 0 for x in self.sleeps))
+
+
+class K1PublicOutputs(Base):
+    def test_ac23_no_raw_urls_or_snippets_in_public_outputs(self):
+        s = self.go(n=4); self.assertEqual(self.prov(s)["status"], "ran")
+        blob = (self.tmp / "runs").rglob("*")
+        logs = "\n".join(f.read_text() for f in blob if f.is_file())
+        for x in SENTINELS: self.assertNotIn(x, logs)   # run logs (bench/runs is a public repo path) carry counts + hashes only
+        self.assertTrue(all(l["results_count"] == 2 and "results" not in l for l in self.lines()))
+        cfg = {"month1_free_tier_providers": ["keenable"], "publish_hold": [], "publish_gate": []}
+        doc = tables.build(self.tmp / "runs", self.pricing, self.tmp / "sets", self.tos, cfg); doc["run_summary"] = s
+        tables.strip_held(doc, tables.held_providers(cfg, self.pricing, self.tos))
+        csv = "\n".join(",".join(str(v) for v in r.values()) for tb in doc.get("tables", {}).values() for r in tb)
+        for x in SENTINELS: self.assertNotIn(x, json.dumps(doc, default=str)); self.assertNotIn(x, csv)
+        for x in SENTINELS: self.assertNotIn(x, json.dumps(s, default=str))
+    def test_r5_publish_raw_results_only_exact_true(self):   # Keenable R5 (3): absent / non-bool True values redact; only bool True keeps raw results
+        for v in (False, None, "true", 1, "yes", [], {}):
+            for absent in ((True, False) if v is False else (False,)):
+                cfg = self.cfg_with(publish_raw_results=v)
+                if absent: del cfg["free_tier_guard"]["keenable"]["publish_raw_results"]
+                import shutil; shutil.rmtree(self.tmp / "runs", ignore_errors=True)
+                s = self.go(n=2, cfg=cfg); self.assertEqual(self.prov(s)["status"], "ran", (v, absent))
+                self.assertTrue(all("results" not in l and l["results_count"] == 2 for l in self.lines()), (v, absent))
+        import shutil; shutil.rmtree(self.tmp / "runs", ignore_errors=True)
+        s = self.go(n=2, cfg=self.cfg_with(publish_raw_results=True)); self.assertTrue(all("results" in l for l in self.lines()))   # positive control
+    def test_r5_keyless_missing_config_fails_closed(self):   # Keenable R5 (2): the keyless placeholder never bypasses live_allowed()
+        cases = {}
+        c = copy.deepcopy(self.cfg); c.pop("free_tier_guard"); cases["free_tier_guard missing"] = c
+        c = copy.deepcopy(self.cfg); c["free_tier_guard"] = {}; cases["free_tier_guard {}"] = c
+        c = copy.deepcopy(self.cfg); del c["free_tier_guard"]["keenable"]; cases["provider block missing"] = c
+        c = copy.deepcopy(self.cfg); c["free_tier_guard"]["keenable"] = {}; cases["provider block {}"] = c
+        c = copy.deepcopy(self.cfg); del c["free_tier_guard"]["keenable"]["live_run_allowed"]; cases["live_run_allowed key missing"] = c
+        for name, cfg in cases.items():
+            self.calls.clear(); fn = mock.Mock(side_effect=self.ok)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as net:
+                s = self.go(n=2, cfg=cfg, fn=fn)
+            self.assertEqual((self.prov(s)["status"], fn.call_count), ("skipped_no_vendor_confirmation", 0), name); net.assert_not_called()
+            self.assertFalse(list(self.spend.glob("keenable-*")), name); self.assertFalse(guard.live_allowed(cfg, self.tos, "keenable"), name)
+        self.assertIn("keenable", guard.LIVE_GATED)
+    def test_contextdev_still_keeps_results(self):   # the redaction is keenable-only
+        c = mocks.mock_cfg(CFG); self.assertNotIn("publish_raw_results", c["free_tier_guard"]["contextdev"])
+
+
+class K1ConfirmationDiff(unittest.TestCase):
+    def test_ac8_fixture_cases_all_fail(self):
+        base = {cd.TOS: copy.deepcopy(TOS_DOC), cd.CFG: copy.deepcopy(CFG)}
+        self.assertEqual(cd.check([cd.TOS, cd.CFG], base, copy.deepcopy(base)), [])   # control
+        for c in json.loads((FX / "confirmation_cases.json").read_text())["cases"]:
+            head = copy.deepcopy(base); node = head[c["file"]]
+            for k in c["path"][:-1]: node = node[k]
+            if c["op"] == "delete": del node[c["path"][-1]]
+            else: node[c["path"][-1]] = c["value"]
+            self.assertNotEqual(cd.check([cd.TOS, cd.CFG], base, head), [], c["name"])
+    def test_ac8_schema_covers_keenable_entries(self):
+        head = {cd.TOS: copy.deepcopy(TOS_DOC), cd.CFG: copy.deepcopy(CFG)}; self.assertEqual(cd.schema_errors(head), [])
+        head[cd.CFG]["free_tier_guard"]["keenable"]["vendor_confirmation"] = {"date": "2026-10-25"}
+        self.assertTrue(any("keenable" in e for e in cd.schema_errors(head)))
+
+
+if __name__ == "__main__": unittest.main()
+
+
+class K3KeylessEligibility(Base):   # AWI-PROVIDER-KEENABLE-001 AC24: keyless = eligible with no env key, gated only by guard.live_allowed() (all mocked)
+    PROVS = [p for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"] if p["id"] == "keenable"]
+    def run_pr(self): return {"keenable": B.run_pricing(PRICING_DOC)["keenable"]}
+    def test_ac24_free_tier_entry_from_evidence(self):
+        ft = PRICING_DOC["keenable_price_record"]["free_tier"]
+        self.assertEqual((ft["endpoint"], ft["units_per_hour"], ft["max_rps_per_ip"], ft["metered"], ft["needs_card"]), ("/v1/search/public", 1000, 10, False, False))
+        self.assertEqual(ft["source_url"], "https://docs.keenable.ai/rate-limits.md"); self.assertIn("1,000 requests per hour, max 10 requests per second (per IP)", ft["quote"])
+        self.assertNotIn("keenable", PRICING_DOC["providers"])   # AC21 lock unchanged
+        self.assertEqual(runner.eligibility("keenable", self.run_pr()["keenable"]["search"], self.cfg), (True, "free tier (keyless, unmetered)"))
+    def test_ac24_gates_open_no_key_is_eligible_and_runs(self):
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, self.tos), ["keenable"])
+        self.pricing = self.run_pr()
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")) as net:
+            s = self.go(n=3)
+        st = self.prov(s)["status"]; self.assertNotEqual(st, "skipped_no_free_tier"); self.assertNotEqual(st, "skipped_no_key")
+        self.assertEqual(st, "ran"); self.assertEqual(len(self.calls), 3); net.assert_not_called()
+    def test_ac24_gates_closed_zero_calls(self):
+        self.pricing = self.run_pr()
+        no_block = copy.deepcopy(self.cfg); del no_block["free_tier_guard"]["keenable"]
+        closed = (self.cfg_with(live_run_allowed=False), self.cfg_with(vendor_confirmation=None), no_block)   # explicit closed fixtures (state-independent, R25)
+        for cfg in closed:
+            self.assertEqual(B.keyed_providers(self.PROVS, {}, cfg, self.tos), [])
+            self.calls.clear(); s = self.go(n=3, cfg=cfg)
+            self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        self.assertEqual(B.keyed_providers(self.PROVS, {"KEENABLE_API_KEY": "dummy-not-a-key"}), [])   # no cfg/tos -> fail closed
+        req_off = copy.deepcopy(self.tos); req_off["keenable"]["vendor_confirmation_required"] = False
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, req_off), [])   # tos entry not requiring confirmation -> closed (R26)
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, {}), [])   # no tos entry -> closed
+        tos_yes = copy.deepcopy(self.tos); tos_yes["keenable"]["vendor_confirmation_required"] = "yes"   # t3: a truthy non-True flag stays closed
+        for t in (tos_yes, {**tos_yes, "keenable": {**tos_yes["keenable"], "vendor_confirmation": None}}):   # with and without a record (g4)
+            self.assertEqual(B.keyed_providers(self.PROVS, {}, self.cfg, t), [])
+            self.calls.clear(); s = self.go(n=3, tos=t); self.assertEqual((self.prov(s)["status"], self.calls), ("skipped_no_vendor_confirmation", []))
+        self.assertEqual(B.keyed_providers(self.PROVS, {}, CFG, TOS), ["keenable"] if guard.live_allowed(CFG, TOS, "keenable") else [])   # committed state, whichever it is
+
+
+class K3T3Mutants(Base):   # Kitty t3 survivors t5, t8, t17, i6, i19
+    def test_t5_payment_required_text_stops(self):
+        self.assertIsNotNone(guard.paid_stop("keenable", 200, {"error": "Payment Required: free allowance exhausted"}))
+        self.assertIsNone(guard.paid_stop("keenable", 200, {"error": "other"}))
+    def test_t8_tables_drop_stopped_and_rate_limited_logs(self):
+        for st in ("rate_limited", "stopped_paid_usage", "stale_budget"):
+            d = self.tmp_path / st / "runs/2026-10-26/keenable"; d.mkdir(parents=True)
+            (d / "search_evergreen.jsonl").write_text(json.dumps({"id": "a", "status": "pass", "run_status": st, "set_rows": 1}) + "\n")
+            self.assertEqual(tables.collect(d.parent.parent), {}, st)
+    def test_t17_hour_window_converts_to_utc(self):
+        ts = dt.datetime(2026, 10, 26, 6, 30, tzinfo=dt.timezone(dt.timedelta(hours=-4)))
+        self.assertEqual(guard.hour_window(ts), "2026-10-26T10")
+    def test_i6_config_has_no_duplicate_keys(self):
+        def hook(pairs):
+            keys = [k for k, _ in pairs]; self.assertEqual(len(keys), len(set(keys)), keys); return dict(pairs)
+        text = "\n".join(l for l in (SITE / "bench/config.yaml").read_text().splitlines() if not l.lstrip().startswith("#"))
+        g = json.loads(text, object_pairs_hook=hook)["free_tier_guard"]["keenable"]; self.assertEqual(g["max_concurrent"], 1)
+    def test_i19_stop_statuses_are_stale(self):
+        for st in guard.STOP_STATUSES: self.assertTrue(B.is_stale({"status": st}), st)
+        self.assertTrue(B.is_stale({"status": "rate_limited"})); self.assertFalse(B.is_stale({"status": "ran"}))
