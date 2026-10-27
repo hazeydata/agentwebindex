@@ -49,3 +49,9 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 
 ## README split (Spec R9, option a)
 - README.md:73-74 (the Keenable bullet and the vendor-confirmation gate bullet) stays stale in #36. It is fixed in a follow-up PR (number TBD, owner implement), docs-only, against `feat/awi-provider-contextdev-001`, opened after #36 merges. Split forced by R13: its flip-only allowlist rejects README in a flip PR (Spec R9). That README PR must merge before the chain merges to main.
+
+## R36: #36 retargeted to main (2026-10-26)
+- Ruling: Spec R36, relayed by chief at 11:59 PM ET, picked option (2). #36 is retargeted from `feat/awi-provider-contextdev-001` to `main` (`gh pr edit 36 --base main`), and main `8fc842223f10bc30e555e347d43b945716036bf1` was merged into this branch with a normal merge commit (no rebase, no force-push). #36 is the R33 (2c) keenable flip into main. Sequence (2b contextdev #41, then 2c keenable) approved by Lucille 2 (AWI owner) at 11:52 PM ET via chief; agent-asserted.
+- Merge conflicts (bench/config.yaml, bench/tos_matrix.yaml, bench/tests/test_bench.py) came from #27's branch history, not from #36's own diff. They were resolved to main's content plus only #36's keenable confirmation fields. The diff vs main is flip-only: keenable `live_run_allowed` and `vendor_confirmation` in config.yaml, keenable `vendor_confirmation` in tos_matrix.yaml, and this cycle folder (docs, evidence, SHA256SUMS). `recorded_pr` stays https://github.com/hazeydata/agentwebindex/pull/36.
+- Supersedes the "README split" entry above as to base: the README follow-up PR targets `main`, not `feat/awi-provider-contextdev-001`, and opens after #36 merges. No README lines are in #36 (R13 rejects them in a flip PR).
+- Merges only on its own Weatherman SHIP. Live runs still need Fred's go.
