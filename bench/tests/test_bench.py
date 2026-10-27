@@ -1,5 +1,6 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
 import contextlib, datetime as dt, hashlib, json, math, os, re, shutil, subprocess, sys, unittest
+import pytest
 from pathlib import Path
 from unittest import mock
 BENCH = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(BENCH)); sys.path.insert(0, str(Path(__file__).parent))
@@ -2213,6 +2214,18 @@ class RegradeFromStoredResults(unittest.TestCase):
         self.assertEqual((want["old_pass"], want["new_pass"]), (5, 8))
     def test_non_search_rows_keep_stored_grade(self):
         self.assertEqual(tables.regrade("newsfetch_2026-43", [(1, {"status": "fail"})], BENCH / "sets"), ([(1, {"status": "fail"})], None))
+    def test_graded_non_search_row_comes_back_byte_for_byte(self):
+        # A fully graded scrape/browser row whose item exists in the sets dir and whose stored results would fail
+        # the search grader: regrade() must leave it exactly as logged (search-only scope, R1).
+        import tempfile
+        for set_name in ("scrape_urls", "browser_tasks"):
+            with tempfile.TemporaryDirectory() as sd:
+                Path(sd, f"{set_name}.jsonl").write_text(json.dumps({"id": "x-001", "check": {"type": "url_exact", "value": "https://a.example/"}}) + "\n")
+                row = {"status": "pass", "pass": True, "item_id": "x-001", "reason": "url_exact in top10", "results": [{"url": "https://b.example/"}], "latency_ms": 5}
+                raw = json.dumps(row, sort_keys=True).encode()
+                lines, gv = tables.regrade(set_name, [(1, row)], sd)
+                self.assertEqual(json.dumps(lines[0][1], sort_keys=True).encode(), raw)
+                self.assertEqual((lines, gv), ([(1, row)], None))
     def test_error_lines_are_not_regraded(self):
         e = [(1, {"status": "fail", "item_id": "news-2026-W43-001", "results": [], "reason": "RuntimeError: HTTP 500: x"})]
         self.assertEqual(tables.regrade("news_2026-43", e, BENCH / "sets")[0], e)
@@ -3564,6 +3577,98 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(guard_mod.live_allowed({"free_tier_guard": {"keenable": {"live_run_allowed": True, "vendor_confirmation": "x"}}}, self.tos, "keenable"))
         self.assertFalse((self.tmp / "runs").exists())
 
+    # R33: Kitty's three surviving mutants of #40's checker (evidence awi-r32-gate t1-20261026-2247, MUTANTS-B8.txt M10/M11/M12), one test each
+    def test_r33_m10_head_confirmed_not_forced_false(self):   # M10: head_confirmed() forced to False would grant the bootstrap allowance to a confirmed head
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"; code = "bench/awibench/runner.py"
+        b, h = self._cd_docs()
+        self.assertFalse(cd.head_confirmed(h))
+        for docs in (b, h):   # keenable already confirmed at base AND head (unchanged), so the head counts as confirmed
+            docs[T]["providers"]["keenable"]["vendor_confirmation"] = dict(self.REC)
+            docs[C]["free_tier_guard"]["keenable"] = {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}
+        self.assertTrue(cd.head_confirmed(h))
+        self.assertTrue(cd.head_confirmed({T: {"providers": {}}, C: {"free_tier_guard": {"x": {"live_run_allowed": True, "vendor_confirmation": None}}}}))   # live_run_allowed true alone
+        self.assertTrue(cd.head_confirmed({T: {"providers": {"x": {"vendor_confirmation": {"date": "bad"}}}}, C: {}}))   # an incomplete record still counts
+        h[T]["providers"]["exa"]["vendor_confirmation"] = None   # NEW confirmation field at the closed default, plus code
+        probs = cd.check([T, code], b, h)
+        self.assertTrue(any("flip-only" in x and code in x for x in probs), probs)   # no bootstrap allowance while anything is confirmed
+        b2, h2 = self._cd_docs(); h2[T]["providers"]["exa"]["vendor_confirmation"] = None
+        self.assertEqual(cd.check([T, code], b2, h2), [])   # control: nothing confirmed, the allowance applies
+    def test_r33_m11_sq3_strict_type_compare(self):   # M11: same() without the type check (json.dumps only) must be rejected
+        import datetime
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for a, b in (("false", False), ("true", True), (1, True), (0, False), (None, False), ("1", 1), (1, 1.0),   # string vs bool/int, int vs bool/float
+                     (["x"], ("x",)), ({"a"}, "{'a'}"), (datetime.date(2026, 10, 30), "datetime.date(2026, 10, 30)")):   # same json.dumps text, different type
+            self.assertFalse(cd.same(a, b), (a, b)); self.assertFalse(cd.same(b, a), (b, a)); self.assertTrue(cd.same(a, a)); self.assertTrue(cd.same(b, b))
+        b, h = self._cd_docs()
+        h[C]["free_tier_guard"]["contextdev"]["stop_at_credits"] = 900.0   # int -> float, same number
+        self.assertEqual([p for p, _, _ in cd.changed_paths(b[C], h[C])], [("free_tier_guard", "contextdev", "stop_at_credits")])
+        b, h = self._cd_docs()
+        b[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ["HTTP 402"]; h[C]["free_tier_guard"]["contextdev"]["quota_stop_errors"] = ("HTTP 402",)   # list -> tuple
+        self._flip(h)
+        probs = cd.check([T, C], b, h)
+        self.assertTrue(any("flip-only" in x and "free_tier_guard.contextdev.quota_stop_errors" in x for x in probs), probs)
+    def test_r33_m12_r26_guard_field_deletion_fails(self):   # M12: dropping the R26 guard must fail; a data-only deletion is caught by nothing else
+        cd = confirmation_diff; T, C = "bench/tos_matrix.yaml", "bench/config.yaml"
+        for drop in ("live_run_allowed", "vendor_confirmation", None):
+            b, h = self._cd_docs()
+            if drop: del h[C]["free_tier_guard"]["contextdev"][drop]
+            else: del h[C]["free_tier_guard"]["contextdev"]
+            want = f"free_tier_guard.contextdev.{drop} deleted" if drop else "free_tier_guard.contextdev deleted or renamed"
+            probs = cd.check([C], b, h)
+            self.assertTrue(any(x.startswith("R26") and want in x for x in probs), (drop, probs))
+            if drop: self.assertEqual([x for x in probs if not x.startswith("R26")], [], (drop, probs))   # a key deletion: only R26 catches it
+    def test_r35_committed_gate_open_only_with_valid_record(self):   # R35 (replaces the R33 closed-value test): checks for a valid record, not a value
+        cfg, tos = load_yaml(BENCH / "config.yaml"), load_yaml(BENCH / "tos_matrix.yaml")
+        self.assertEqual(r35_gate_errors(cfg, tos), [], "committed live gate: live_run_allowed true needs a vendor_confirmation that passes gates.record_error; false needs null records (R34/R35)")
+
+
+R35_GATED = ("contextdev", "keenable")
+def r35_gate_errors(cfg, tos):
+    """R35: per gated provider, in config.yaml (free_tier_guard) and tos_matrix.yaml (providers). live_run_allowed true is allowed
+    only when the config vendor_confirmation passes gates.record_error (no error) and the tos_matrix vendor_confirmation, if set,
+    passes it too; false is allowed with null records (R34 closed state). Anything else (non-bool, missing key or block) is an error."""
+    out = []
+    for pid in R35_GATED:
+        g = (cfg.get("free_tier_guard") or {}).get(pid); t = (tos.get("providers") or {}).get(pid)
+        if not isinstance(g, dict) or "live_run_allowed" not in g: out.append(f"{pid}: config live_run_allowed missing"); continue
+        if not isinstance(t, dict): out.append(f"{pid}: tos_matrix entry missing"); continue
+        lra = g["live_run_allowed"]
+        if lra is True:
+            e = gates_mod.record_error(g.get("vendor_confirmation"))
+            if e is not None: out.append(f"{pid}: live_run_allowed true but config vendor_confirmation is not a valid record ({e})")
+            if t.get("vendor_confirmation") is not None and (e2 := gates_mod.record_error(t["vendor_confirmation"])) is not None:
+                out.append(f"{pid}: live_run_allowed true but tos_matrix vendor_confirmation is not a valid record ({e2})")
+        elif lra is False:
+            for where, rec in (("config", g.get("vendor_confirmation")), ("tos_matrix", t.get("vendor_confirmation"))):
+                if rec is not None: out.append(f"{pid}: live_run_allowed false but {where} vendor_confirmation is not null (R34 closed state)")
+        else: out.append(f"{pid}: live_run_allowed is {lra!r}, not a bool")
+    return out
+
+R35_VALID = {"date": "2026-10-26", "sender": "@example_vendor_ceo (Example Person, CEO)", "quote": "You may benchmark and publish.",
+             "evidence_path": "cycles/x/evidence/reply.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/999"}
+R35_CASES = [   # (id, live_run_allowed, vendor_confirmation in config and tos; "DROP" deletes the key, expected pass)
+    ("true_no_record", True, None, False), ("true_record_key_missing", True, "DROP", False),
+    ("true_invalid_string", True, "yes", False), ("true_invalid_empty", True, {}, False),
+    ("true_invalid_partial", True, {k: v for k, v in R35_VALID.items() if k != "quote"}, False),
+    ("true_invalid_bad_url", True, R35_VALID | {"recorded_pr": "#27"}, False),
+    ("true_valid_record", True, R35_VALID, True), ("false_null", False, None, True)]
+
+@pytest.mark.parametrize("pid", R35_GATED)
+@pytest.mark.parametrize("live,rec,ok", [c[1:] for c in R35_CASES], ids=[c[0] for c in R35_CASES])
+def test_r35_gate_fixture(pid, live, rec, ok):   # R35 fixtures over copies of the committed files; one provider set at a time
+    import copy
+    cfg, tos = copy.deepcopy(load_yaml(BENCH / "config.yaml")), copy.deepcopy(load_yaml(BENCH / "tos_matrix.yaml"))
+    g, t = cfg["free_tier_guard"][pid], tos["providers"][pid]; g["live_run_allowed"] = live
+    for d in (g, t):
+        if rec == "DROP": d.pop("vendor_confirmation", None)
+        else: d["vendor_confirmation"] = copy.deepcopy(rec)
+    errs = [e for e in r35_gate_errors(cfg, tos) if e.startswith(f"{pid}:")]   # this provider only
+    if ok:
+        assert errs == [], errs
+        if live: assert gates_mod.record_error(rec) is None and guard_mod.live_allowed(cfg, tos["providers"], pid)
+    else:
+        assert errs, errs
+        assert not guard_mod.live_allowed(cfg, tos["providers"], pid)
 
 class SnapshotPricesGate(unittest.TestCase):
     def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
@@ -3747,7 +3852,12 @@ class K1Committed(Base):
         for t in ({}, None, {"keenable": None}, {"keenable": self.tos["keenable"] | {gates.REQUIRED_FLAG: False}}, {"keenable": {k: v for k, v in self.tos["keenable"].items() if k != gates.REQUIRED_FLAG}},
                   {"keenable": self.tos["keenable"] | {"vendor_confirmation": "yes"}}):
             self.assertFalse(la(ok, t, "keenable"), t)
-        self.assertFalse(la(CFG, TOS)); self.assertFalse(la(CFG, TOS, "contextdev"))
+        # R30: contextdev is checked on fixtures, strict both ways, independent of the committed confirmation (#28 flips it)
+        cd_tos = {"contextdev": {gates.REQUIRED_FLAG: True, "vendor_confirmation": None}}
+        cd_ok = {"free_tier_guard": {"contextdev": {"live_run_allowed": True, "vendor_confirmation": dict(REC)}}}
+        cd_none = copy.deepcopy(cd_ok); cd_none["free_tier_guard"]["contextdev"]["vendor_confirmation"] = None
+        self.assertFalse(la(cd_none, cd_tos)); self.assertFalse(la(cd_none, cd_tos, "contextdev"))   # no confirmation record: closed
+        self.assertTrue(la(cd_ok, cd_tos)); self.assertTrue(la(cd_ok, cd_tos, "contextdev"))   # valid record: open (default id is contextdev)
         self.assertIs(la(CFG, TOS, "keenable"), mocks.keenable_committed_check(self, CFG, TOS))   # committed: open only with a valid record   # contextdev default id unchanged
     def test_ac5_committed_config_zero_calls(self):
         fn = mock.Mock(side_effect=self.ok)
