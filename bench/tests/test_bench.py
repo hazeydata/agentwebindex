@@ -4709,25 +4709,34 @@ class R41PreRun(unittest.TestCase):
             self.assertEqual(rep_["refused"], bad, thr); self.assertFalse(x.get("cap_breach"), thr)
             if bad: self.assertIn("floor_credits must be greater than auto_recharge_threshold_default", x["reason"], thr)
             else: self.assertIsNone(x["reason"], thr)
-    def test_no_recharge_or_top_up_call_is_ever_made(self):   # spec R45.2: AWI never triggers, enables or changes an auto-recharge
-        for f in [SITE / "collectors" / "benchmark.py", *sorted((BENCH / "awibench").glob("*.py"))]:   # no such endpoint anywhere in the code
+    def test_no_recharge_or_top_up_call_is_ever_made(self):   # spec R45.2 (Kitty t7 a2b): AWI never triggers, enables or changes an auto-recharge
+        for f in [SITE / "collectors" / "benchmark.py", *sorted((BENCH / "awibench").glob("*.py"))]:   # no such literal endpoint anywhere in the code
             for u in re.findall(r"https?://[^\s\"']+", f.read_text()): self.assertNotRegex(u, self.RECHARGE, f"{f.name}: {u}")
-        seen = []
+        METER, SEARCH = "https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v1/search"
         class R:
             def __init__(s, body): s.status, s.body = 200, json.dumps(body).encode()
-            def read(s): return s.body
+            def read(s, *a): return s.body
             def __enter__(s): return s
             def __exit__(s, *a): return False
-        def net(req):   # the whole firecrawl path end to end (pre-run meter, per-call meter, search); every request recorded
-            u = req.full_url; seen.append((req.get_method(), u))
-            if u == "https://api.firecrawl.dev/v2/team/credit-usage": return R({"data": {"remainingCredits": 100000}})
-            if u == "https://api.firecrawl.dev/v1/search": return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
-            raise OSError(f"mock: unexpected URL {u}")
-        rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
-        self.assertEqual(rc, 0); self.assertTrue(seen)
-        self.assertIn(("GET", "https://api.firecrawl.dev/v2/team/credit-usage"), seen)
-        self.assertLessEqual({u for _, u in seen}, {"https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v1/search"})
-        for m, u in seen: self.assertNotRegex(u, self.RECHARGE); self.assertTrue(m == "GET" or u.endswith("/v1/search"), (m, u))
+        # healthy balance, pre-run below the floor, per-call below the floor (the 2nd meter read), unreadable balance:
+        # a top-up on any of these paths (built at runtime, string or Request URL, error swallowed) is still recorded and fails
+        for label, bal, want in (("healthy", lambda n: 100000, []), ("prerun-low", lambda n: 9000, ["skipped_floor"]),
+                                 ("percall-low", lambda n: 100000 if n <= 1 else 9000, ["skipped_floor"]), ("unknown", lambda n: None, ["skipped_balance_unknown"])):
+            seen = []; reads = [0]
+            def net(req):   # every urlopen call is recorded (method, URL) before it is answered
+                u = getattr(req, "full_url", req); seen.append((req.get_method() if hasattr(req, "get_method") else "GET", str(u)))
+                if u == METER:
+                    reads[0] += 1; b = bal(reads[0]); return R({"data": {"remainingCredits": b}} if b is not None else {"data": {}})
+                if u == SEARCH: return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
+                raise OSError(f"mock: unexpected URL {u}")
+            shutil.rmtree(self.tmp / "site", ignore_errors=True)
+            rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
+            rows = [json.loads(l) for f in (self.tmp / "site" / "bench" / "runs").glob(f"*/{runner.SKIPPED_CAP_FILE}") for l in f.read_text().splitlines()]
+            self.assertEqual(rc, 0, label); self.assertEqual([r["status"] for r in rows], want, label)
+            if label == "percall-low": self.assertTrue(rows[0]["where"].startswith("before call"), rows)   # the per-call path really ran
+            self.assertEqual(len(urls), len(seen), label); self.assertIn(("GET", METER), seen, label)
+            self.assertLessEqual({str(u) for u in urls}, {METER, SEARCH}, label)   # every urlopen call: only the meter GET and the search
+            for m, u in seen: self.assertNotRegex(u, self.RECHARGE, label); self.assertTrue((m, u) == ("GET", METER) or u == SEARCH, (label, m, u))
     def test_exa_every_full_fits_its_quota_worst_week(self):   # Exa: 5 untrimmed worst-case fulls fit 1,428 units; per-full rows not trimmed
         kw = self._news50(self._captured(["--mode", "full", "--only-providers", "exa"])); sch = CFG["run_schedule"]
         self.assertNotIn("exa", sch["full_limits"])
