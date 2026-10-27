@@ -39,6 +39,7 @@ def make_sets(d):
 def mock_cfg(base_cfg):
     c = json.loads(json.dumps(base_cfg)); c["task_site_allowlist"] = [DEMO]; c.pop("freeze_manifest", None)
     c["month1_free_tier_providers"] = None   # mock provider ids aren't real; month-one list is tested separately
+    c["known_providers"] = None   # R41.2: likewise; the runner accepts null only in mock runs (tested separately)
     return c
 
 def pricing_fixture(model, **tiers_override):

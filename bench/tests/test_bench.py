@@ -326,20 +326,45 @@ class T(unittest.TestCase):
         self.assertTrue(tables.untraced_cells(doc2, kw["runs_dir"].parent))
     def test_ac11_halts_before_quota_and_zero_billed(self):
         kw, ad, _ = self._setup_run(units_per_month=21)       # search: 2 credits/call -> 10 calls then halt (next would hit 22)
-        s = runner.run(**kw); sp = next(p for p in s["providers"] if p["provider"] == "mocksearch")
+        s = runner.run(**kw, preflight=False); sp = next(p for p in s["providers"] if p["provider"] == "mocksearch")
         self.assertEqual(sp["status"], "stale_quota"); self.assertEqual(sp["calls"], 10); self.assertLessEqual(sp["quota_used"], 21)
         br = next(p for p in s["providers"] if p["provider"] == "mockbrowser")
         self.assertEqual(br["status"], "stale_quota"); self.assertLessEqual(br["quota_used"], 21)   # 120s timeout -> 2 min estimate
         led = json.loads(kw["ledger_path"].read_text()); self.assertEqual(led["over_free_units"], 0)
         # a second run the same month resumes from the ledger and halts immediately
-        s2 = runner.run(**kw); self.assertEqual(next(p for p in s2["providers"] if p["provider"] == "mocksearch")["calls"], 0)
+        s2 = runner.run(**kw, preflight=False); self.assertEqual(next(p for p in s2["providers"] if p["provider"] == "mocksearch")["calls"], 0)
     def test_ac11_billed_over_quota_fails(self):
         kw, ad, _ = self._setup_run(units_per_month=5)
         bad = mocks.MockAdapters(units=50); kw["adapters"]["mocksearch"] = {"search": bad.search}   # vendor bills more than estimated
-        with self.assertRaises(runner.CapViolation): runner.run(**kw)
+        with self.assertRaises(runner.CapViolation): runner.run(**kw, preflight=False)
     def test_ac11_nonzero_cap_refused(self):
         kw, _, _ = self._setup_run(); kw["env"] = dict(kw["env"], MONTHLY_CAP_USD="5")
         with self.assertRaises(runner.CapViolation): runner.run(**kw)
+    # R42.3: a free-quota provider ($0 USD cap) is checked by planned calls against its REMAINING free quota before any call.
+    # mockscrape: per_request, 1 unit/call; scrape_urls has 150 rows, 30 anti_bot ToS-skipped -> 120 planned calls.
+    MS = [{"id": "mockscrape", "categories": ["scrape"], "key_env": "MOCK_SCRAPE_KEY"}]
+    def _r42(self, quota, **kw2):
+        kw, ad, _ = self._setup_run(units_per_month=quota, providers=self.MS); kw.update(kw2); return kw, ad
+    def test_r42_free_quota_under_runs(self):
+        kw, ad = self._r42(121); s = runner.run(**kw)
+        self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])
+    def test_r42_free_quota_exactly_at_quota_runs(self):
+        kw, ad = self._r42(120); s = runner.run(**kw)
+        self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])
+    def test_r42_free_quota_plus_one_refuses_whole_run(self):
+        kw, ad = self._r42(119)
+        with self.assertRaises(runner.RunRefused) as e: runner.run(**kw)
+        r = e.exception.report; p = r["providers"][0]
+        self.assertEqual((p["provider"], p["planned_calls"], p["remaining_units"], p["cap"]["kind"]), ("mockscrape", 120, "119", "free_quota_units"))
+        self.assertIn("planned 120 units > remaining 119 free units", p["reason"])
+        self.assertFalse(kw["ledger_path"].exists()); self.assertFalse(kw["runs_dir"].exists())   # 0 calls, nothing written
+    def test_r42_free_quota_counts_month_to_date_ledger(self):   # remaining = quota minus this month's ledger units
+        kw, ad = self._r42(240); runner.run(**kw)   # 120 used
+        s = runner.run(**kw); self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])   # 120 left: exactly at quota
+        kw3, _ = self._r42(359)
+        kw3["ledger_path"].parent.mkdir(parents=True, exist_ok=True); kw3["ledger_path"].write_text(kw["ledger_path"].read_text())   # 240 used, 119 left
+        with self.assertRaises(runner.RunRefused) as e: runner.run(**kw3)
+        self.assertIn("remaining 119 free units", e.exception.report["reason"])
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
@@ -418,7 +443,7 @@ class T(unittest.TestCase):
         sets["browser_tasks"] = {"rows": tasks, "sha": "x"}
         ad = mocks.MockAdapters(); adapters = {}
         for p in provs: adapters.update(ad.table(p["id"], p["categories"]))
-        return runner.run(providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
+        return runner.run(preflight=False, providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
                           ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True, meters={"apify": lambda: 0.0},
                           now_fn=lambda: dt.datetime.fromisoformat("2026-10-19T11:23:00+00:00")), pricing, tos
     def test_d1_brave_excluded_from_runner_and_tables(self):
@@ -510,14 +535,14 @@ class T(unittest.TestCase):
                 calls.append(item["id"]); out = super().scrape(key, item); out["billed_units"] = 2; return out
         sd = self.tmp / "ws"; mocks.make_sets(sd)
         sets = {"scrape_urls": {"rows": read_jsonl(sd / "scrape_urls.jsonl"), "sha": "x"}}
-        s = runner.run(providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": Spy().scrape}},
+        s = runner.run(preflight=False, providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": Spy().scrape}},
                        cfg=cfg, runs_dir=self.tmp / "wr", ledger_path=self.tmp / "wl.json", run_date="2026-10-19", env={"APIFY_API_TOKEN": "mock-not-a-key"}, mock=True)
         ap = next(p for p in s["providers"] if p["category"] == "scrape")
         self.assertEqual(ap["status"], "stale_quota"); self.assertEqual(ap["calls"], 12); self.assertEqual(len(calls), 12)
         self.assertEqual(ap["quota_used"], 24); self.assertIn("~2 units would exceed free quota 25", ap["reason"])
         self.assertEqual(json.loads((self.tmp / "wl.json").read_text())["over_free_units"], 0)
         # same data with the guard removed would allow 25 one-unit estimates: proves the halt comes from config, not code
-        s2 = runner.run(providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": mocks.MockAdapters(units=1).scrape}},
+        s2 = runner.run(preflight=False, providers=[p for p in allp if p["id"] == "apify"], sets=sets, pricing=pricing, tos=tos, adapters={"apify": {"scrape": mocks.MockAdapters(units=1).scrape}},
                         cfg=dict(cfg, worst_case_units_per_call={}), runs_dir=self.tmp / "wr2", ledger_path=self.tmp / "wl2.json", run_date="2026-10-19",
                         env={"APIFY_API_TOKEN": "x"}, mock=True)
         self.assertEqual(next(p for p in s2["providers"] if p["category"] == "scrape")["calls"], 25)
@@ -561,7 +586,7 @@ class T(unittest.TestCase):
         c = cost.cost_columns(bb, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])
         self.assertIsNone(c["entry_tier_cost_per_1k"]); self.assertEqual(c["entry_tier_na_reason"], "lower bound n/a (not published)")
         kw, _, sd = self._setup_run(units_per_month=100000, providers=[{"id": "mockbrowser", "categories": ["browser"], "key_env": "K"}])
-        kw["pricing"]["mockbrowser"]["browser"]["tiers"]["entry"].update(min_minutes="NOT CAPTURED", rounding_minutes="NOT CAPTURED"); runner.run(**kw)
+        kw["pricing"]["mockbrowser"]["browser"]["tiers"]["entry"].update(min_minutes="NOT CAPTURED", rounding_minutes="NOT CAPTURED"); runner.run(**kw, preflight=False)
         cell = tables.build(kw["runs_dir"], kw["pricing"], sd)["tables"]["browser"][0]["entry_tier_cost_per_1k"]
         self.assertIsNone(cell["v"]); self.assertEqual(cell["display"], "lower bound n/a (not published)")
     def test_browserbase_min_rounding_published_path(self):
@@ -859,7 +884,7 @@ class Rulings3(unittest.TestCase):
             return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) <= 3 else "https://b.example/y", "title": "x"}]}
         def tavily(key, item): raise RuntimeError("HTTP 500: upstream error")   # every call errors, none is an auth error
         led = tmp / "quota.json"; led.write_text(json.dumps({"month": "2026-10", "used": {"exa": 33, "tavily": 66}, "over_free_units": 0}))
-        s = runner.run(providers=providers, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+        s = runner.run(preflight=False, providers=providers, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
                        adapters={"exa": {"search": exa}, "tavily": {"search": tavily}}, cfg={},
                        runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d", "TAVILY_API_KEY": "d"}, mock=True)
         p = {x["provider"]: x for x in s["providers"]}
@@ -888,7 +913,7 @@ class Rulings3(unittest.TestCase):
             n.append(1)
             if fail_at is not None and len(n) == fail_at: raise RuntimeError(f"HTTP {code}: invalid api key")
             return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) % 2 else "https://b.example/y", "title": "x"}]}
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
                        adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
                        run_date=day, env={"EXA_API_KEY": "d"}, mock=True)
         return s, len(n)
@@ -930,7 +955,7 @@ class Rulings3(unittest.TestCase):
             return {"billed_units": 1, "results": [{"url": "https://a.example/x" if len(n) % 2 else "https://b.example/y", "title": "x"}]}
         pricing = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": quota, "needs_card": False}}}}
         kw = {"clock": clock} if clock else {}
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS, "sha": "x"}}, pricing=pricing, tos={},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS, "sha": "x"}}, pricing=pricing, tos={},
                        adapters={"exa": {"search": exa}}, cfg=cfg or {}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
                        run_date=day, env={"EXA_API_KEY": "d"}, mock=True, **kw)
         return s["providers"][0], len(n), json.loads((tmp / "quota.json").read_text())["used"].get("exa", 0)
@@ -964,7 +989,7 @@ class Rulings3(unittest.TestCase):
             if len(n) <= n429: raise RuntimeError('HTTP 429: {"error":"Rate limit"}')
             return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
         pricing = {"exa": {"search": {"model": "credits", "free_tier": {"units_per_month": 1000, "needs_card": False}}}}
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={},
                        adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=tmp / "quota.json",
                        run_date=day, env={"EXA_API_KEY": "d"}, mock=True)
         return s["providers"][0], json.loads((tmp / "quota.json").read_text())["used"]["exa"]
@@ -1028,7 +1053,7 @@ class Rulings3(unittest.TestCase):
             n.append(1)
             if len(n) in exc_at: raise exc() if callable(exc) else exc
             return {"billed_units": 1, "results": [{"url": "https://a.example/x", "title": "x"}]}
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": self.ROWS[:n_rows], "sha": "x"}}, pricing=self.PRICING, tos={},
                        adapters={"exa": {"search": exa}}, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"EXA_API_KEY": "d"}, mock=True)
         f = tmp / "runs" / "2026-10-19" / "exa" / "search_evergreen.jsonl"
         return s["providers"][0], (read_jsonl(f) if f.exists() else []), led
@@ -1072,7 +1097,7 @@ class Rulings3(unittest.TestCase):
         pr = {pid: {kind: {"model": "credits", "free_tier": {"units_per_month": 10**6, "needs_card": False}}}}
         sets = {"search_evergreen": {"rows": self.ROWS[:1], "sha": "x"}} if kind == "search" else {"browser_tasks": {"rows": [{"id": "b1", "start_url": "https://a.example/", "timeout_s": 30}], "sha": "x"}}
         with mock.patch("urllib.request.urlopen", urlopen):
-            runner.run(providers=prov, sets=sets, pricing=pr, tos={}, adapters=B.ADAPTERS, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"K": "d"}, mock=True)
+            runner.run(preflight=False, providers=prov, sets=sets, pricing=pr, tos={}, adapters=B.ADAPTERS, cfg={}, runs_dir=tmp / "runs", ledger_path=led, run_date="2026-10-19", env={"K": "d"}, mock=True)
         return json.loads(led.read_text())["used"].get(pid, 0) if led.exists() else 0
 
     @staticmethod
@@ -1299,7 +1324,7 @@ class BrightDataBudget(unittest.TestCase):
         f = self.tmp / "spend" / f"brightdata-{month}.json"; return json.loads(f.read_text()) if f.exists() else None
 
     def _run(self, n, fn=None, now=None, env=None, tag="", run_date=None, providers=None, adapters=None, pricing=None):
-        s = runner.run(providers=providers or self.PROV, sets={"scrape_urls": {"rows": self._rows(n), "sha": "x"}}, pricing=pricing or self.PRICING, tos={},
+        s = runner.run(preflight=False, providers=providers or self.PROV, sets={"scrape_urls": {"rows": self._rows(n), "sha": "x"}}, pricing=pricing or self.PRICING, tos={},
                        adapters=adapters or {"brightdata": {"scrape": fn or self._ok}}, cfg={"spend_budget": CFG["spend_budget"], "challenge_signatures": []},
                        runs_dir=self.tmp / f"runs{tag}", ledger_path=self.tmp / f"quota{tag}.json", run_date=run_date or (now or self.OCT).date().isoformat(),
                        env={"BRIGHTDATA_API_KEY": "d"} if env is None else env, mock=True, now_fn=lambda: now or self.OCT, spend_dir=self.tmp / "spend")
@@ -1940,7 +1965,7 @@ class ApifyMeterGuard(unittest.TestCase):
     def _run(self, meter, ledger_cents=0, n=5):
         (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": ledger_cents}, "over_free_units": 0}))
         rows = [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
                        cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": meter})
         return s["providers"][0]
@@ -1960,7 +1985,7 @@ class ApifyMeterGuard(unittest.TestCase):
             self.called = []; p = self._run(m)
             self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
             self.assertIn("usage meter unreadable; failing closed (rule 6)", p["reason"])
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": [{"id": "n0", "query": "q", "check": {}}], "sha": "x"}}, pricing=self.PRICING, tos={},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": [{"id": "n0", "query": "q", "check": {}}], "sha": "x"}}, pricing=self.PRICING, tos={},
                        adapters={"apify": {"search": self._fn}}, cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / "r2", ledger_path=self.tmp / "q2.json",
                        run_date="2026-10-20", env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
         self.assertEqual(s["providers"][0]["status"], "stopped_budget")
@@ -1975,7 +2000,7 @@ class ApifyMeterGuard(unittest.TestCase):
         mb = CFG["meter_budget"] | {"apify": CFG["meter_budget"]["apify"] | {"ledger_unit_usd": 0.0}}
         (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 0}, "over_free_units": 0}))
         rows = [{"id": "n0", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}}]
-        s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
                        cfg={"meter_budget": mb}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-20",
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 4.0})
         self.assertEqual((s["providers"][0]["status"], self.called), ("stopped_budget", []))
@@ -1985,7 +2010,7 @@ class ApifyMeterGuard(unittest.TestCase):
         rows = lambda n: [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
         def go(date, n, ledger):
             self.called = []
-            s = runner.run(providers=self.PROV, sets={"search_evergreen": {"rows": rows(n), "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+            s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows(n), "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
                            cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / f"runs-{date}", ledger_path=ledger, run_date=date,
                            env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 0.0})
             return s["providers"][0]
@@ -2016,7 +2041,7 @@ class ApifyStopRulesSpec(unittest.TestCase):
         if "browser" in cats: sets["newsfetch_2026-44"] = {"rows": [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}} for i in range(n)], "sha": "x"}
         if "search" in cats: sets["search_evergreen"] = {"rows": [{"id": f"q{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)], "sha": "y"}
         with mock.patch.object(runner.time, "sleep", self.slept.append):
-            s = runner.run(providers=[{"id": "apify", "categories": list(cats), "key_env": "APIFY_API_TOKEN"}], sets=sets, pricing=pricing or self.PRICING, tos={},
+            s = runner.run(preflight=False, providers=[{"id": "apify", "categories": list(cats), "key_env": "APIFY_API_TOKEN"}], sets=sets, pricing=pricing or self.PRICING, tos={},
                            adapters=adapters or {"apify": {c: self._fn(answers) for c in cats}}, cfg={"stop_on_http": CFG["stop_on_http"], "meter_budget": CFG["meter_budget"]},
                            runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26", env={"APIFY_API_TOKEN": "mock"}, mock=True,
                            spend_dir=self.tmp / "spend", meters={"apify": meter})
@@ -2384,7 +2409,7 @@ class ContextDevBase(unittest.TestCase):
         ts = ts or self.TS
         sets = sets or ({"search_evergreen": {"rows": self.rows[:n], "sha": "x"}} if "search" in kinds else {}) | ({"scrape_urls": {"rows": self.srows[:n], "sha": "x"}} if "scrape" in kinds else {})
         ad = adapters or {"contextdev": {"search": self.ad_search, "scrape": self.ad_scrape}}
-        return runner.run(providers=providers or self.prov_def(kinds), sets=sets, pricing=pricing or self.pricing, tos=tos if tos is not None else self.tos, adapters=ad,
+        return runner.run(preflight=False, providers=providers or self.prov_def(kinds), sets=sets, pricing=pricing or self.pricing, tos=tos if tos is not None else self.tos, adapters=ad,
                           cfg=cfg or self.cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / ledger, run_date=run_date, env=env or {"CONTEXT_DEV_API_KEY": "mock-key"},
                           mock=True, spend_dir=self.spend, meters=meters, now_fn=lambda: dt.datetime.fromisoformat(ts), sleep=self.sleeps.append)
     def prov(self, s, pid="contextdev", cat=None): return next(p for p in s["providers"] if p["provider"] == pid and (cat is None or p["category"] == cat))
@@ -2629,10 +2654,14 @@ class ContextDevLiveGate(ContextDevBase):
              mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", "--only-providers", "contextdev", "--only-sets", news]), \
              mock.patch("urllib.request.urlopen", side_effect=no_net), mock.patch.object(B, "contextdev_meter", return_value=0), \
              mock.patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))):
-            B.main()
+            rc = B.main()
         sk = [json.loads(l) for l in printed if l.startswith("{")]
         self.assertNotIn(("contextdev", "skipped_no_vendor_confirmation"), [(p.get("provider"), p.get("status")) for p in sk])
-        self.assertTrue(urls and all("context.dev" in str(u) for u in urls), urls)   # the gate let the runner try contextdev (mocked, no real network)
+        # the gate let contextdev through to the R41 pre-run projection; contextdev has no list price (pricing.yaml NOT CAPTURED), so R41.1
+        # refuses the run before any call: exit 2, over_cap_projected.json names contextdev, no network
+        art = json.loads((root / "alerts" / "over_cap_projected.json").read_text())
+        self.assertEqual((rc, urls), (2, [])); self.assertEqual([p["provider"] for p in art["providers"]], ["contextdev"])
+        self.assertIn("contextdev: list price missing", art["reason"])
 
 class ContextDevGuard(ContextDevBase):
     def test_ac11_stop_at_exactly_900_from_config(self):   # AC11
@@ -3716,7 +3745,7 @@ class StopOnHttp(unittest.TestCase):
             if isinstance(a, Exception): raise a
             return {"dom_text": "Headline", "billed_units": 0.155}
         rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(n)]
-        s = runner.run(providers=self.PROV, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"browser": fn}},
+        s = runner.run(preflight=False, providers=self.PROV, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"browser": fn}},
                        cfg={"stop_on_http": CFG["stop_on_http"]} if cfg is None else cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend")
         return s["providers"][0]
@@ -3739,7 +3768,7 @@ class StopOnHttp(unittest.TestCase):
         def fn(key, item):
             called.append(item["id"]); raise RuntimeError("HTTP 429: slow down")
         rows = [{"id": f"t{i}", "start_url": "https://a.example/", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30} for i in range(5)]
-        s = runner.run(providers=prov, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={}, adapters={"hyperbrowser": {"browser": fn}},
+        s = runner.run(preflight=False, providers=prov, sets={"newsfetch_2026-44": {"rows": rows, "sha": "x"}}, pricing=pricing, tos={}, adapters={"hyperbrowser": {"browser": fn}},
                        cfg={"stop_on_http": CFG["stop_on_http"]}, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-10-26",
                        env={"HB_KEY": "mock"}, mock=True, spend_dir=self.tmp / "spend")
         p = s["providers"][0]
@@ -3820,7 +3849,7 @@ class Base(unittest.TestCase):
         self.calls.append(item["id"]); d = json.loads((FX / "search_public_ok.json").read_text())
         return {"http_status": 200, "billed_units": 0, "results": [{"url": r["url"], "title": r["title"], "snippet": r["snippet"], "published_at": r["published_at"]} for r in d["results"]]}
     def go(self, n=3, fn=None, cfg=None, tos=None, rows=None, ts=None):
-        return runner.run(providers=[PROV], sets={"search_evergreen": {"rows": rows or self.rows[:n], "sha": "x"}}, pricing=self.pricing, tos=self.tos if tos is None else tos,
+        return runner.run(preflight=False, providers=[PROV], sets={"search_evergreen": {"rows": rows or self.rows[:n], "sha": "x"}}, pricing=self.pricing, tos=self.tos if tos is None else tos,
                           adapters={"keenable": {"search": fn or self.ok}}, cfg=cfg or self.cfg, runs_dir=self.tmp / "runs", ledger_path=self.tmp / "ledger.json",
                           run_date="2026-10-26", env={}, mock=True, spend_dir=self.spend, now_fn=lambda: dt.datetime.fromisoformat(ts or self.TS), sleep=self.sleeps.append)
     def prov(self, s): return next(p for p in s["providers"] if p["provider"] == "keenable")
@@ -4116,3 +4145,221 @@ class K3T3Mutants(Base):   # Kitty t3 survivors t5, t8, t17, i6, i19
     def test_i19_stop_statuses_are_stale(self):
         for st in guard.STOP_STATUSES: self.assertTrue(B.is_stale({"status": st}), st)
         self.assertTrue(B.is_stale({"status": "rate_limited"})); self.assertFalse(B.is_stale({"status": "ran"}))
+
+class R40ReEnableACs(unittest.TestCase):
+    """Spec AWI-PROVIDER-CONTEXTDEV-001 R40.4 (benchmark workflow re-enable): pins the ACs the committed code already meets.
+    The workflow's Actions state (disabled_manually) is a repo setting, not code; these tests do not and cannot enable it."""
+    WF = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
+    def test_r40_schedule_on_in_workflow(self):   # R40.4: the workflow schedule is on (in the file)
+        lines = self.WF.splitlines(); i = lines.index("on:")
+        self.assertEqual(lines[i + 1].strip(), "schedule:")
+        crons = re.findall(r'^\s+- cron: "([^"]+)"', self.WF, re.M)
+        self.assertEqual(crons, ["41 10 * * *", "23 11 * * 1", "23 17 * * 1", "23 11 * * 2", "23 11 * * 4"])
+        self.assertIn("python collectors/benchmark.py $ARGS", self.WF)
+    def test_r40_caps_unchanged(self):   # R40.4: the caps are unchanged in config (and the workflow's $0 cap)
+        self.assertEqual(CFG["monthly_cap_usd"], 0); self.assertIn('MONTHLY_CAP_USD: "0"', self.WF)
+        self.assertEqual(CFG["ceo_free_tier_allowlist"], [])
+        self.assertEqual(CFG["month1_free_tier_providers"], ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless", "contextdev", "keenable"])
+        g = CFG["free_tier_guard"]
+        self.assertEqual((g["contextdev"]["quota_credits"], g["contextdev"]["stop_at_credits"]), (1000, 900))
+        self.assertEqual((g["keenable"]["quota_credits"], g["keenable"]["stop_at_credits"], g["keenable"]["rate_limit"]), (900, 899, {"max_per_second": 9, "max_per_hour": 899}))
+        self.assertIs(g["keenable"]["paid_usage_allowed"], False)
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0})
+        self.assertEqual({k: CFG["spend_budget"]["brightdata"][k] for k in ("stop_usd", "cap_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0})
+    def test_r40_unlisted_provider_gets_no_call(self):   # R40.4 / R41.2: a provider not in config known_providers stops the run, 0 calls
+        calls = []
+        with tmpd(self) as d:
+            d = Path(d)
+            with self.assertRaises(runner.RunRefused) as e:
+                runner.run(providers=[{"id": "newprov", "categories": ["search"], "key_env": "NEWPROV_KEY"}],
+                           sets={"search_evergreen": {"rows": [{"id": "i1", "query": "q"}], "sha": "x"}}, pricing={}, tos={},
+                           adapters={"newprov": {"search": lambda k, it: calls.append(it) or {"results": []}}}, cfg=dict(CFG),
+                           runs_dir=d / "runs", ledger_path=d / "l.json", run_date="2026-10-27", env={"NEWPROV_KEY": "x"}, mock=True,
+                           spend_dir=d / "spend", guard_dir=d / "guard")
+            self.assertFalse((d / "runs").exists())
+        self.assertEqual(calls, []); self.assertIn("newprov: unknown provider", e.exception.report["reason"])
+
+
+class R41PreRun(unittest.TestCase):
+    """R41.1: one pre-run projection per run, before any provider call (exact Decimal; exactly at the cap runs). R41.2: unknown provider
+    or a live provider with no cap entry stops the run; a known provider that is off for month one is skipped_not_month1."""
+    BD = {"id": "brightdata", "categories": ["scrape"], "key_env": "BRIGHTDATA_API_KEY"}
+    BD_PRICE = {"brightdata": {"scrape": {"model": "per_request", "tiers": {"entry": {"name": "list", "unit_price": 0.0015}},
+                                          "free_tier": {"units_per_month": 5000, "needs_card": False, "pool": "brightdata"}}}}
+    NOW = dt.datetime(2026, 10, 27, 10, 30, tzinfo=dt.timezone.utc)
+
+    def setUp(self): self.tmp = mktmp(self); self.calls = []; (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir()
+    def _ok(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 1, "text": "hello world page"}
+    def _kok(self, key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 0, "results": [{"url": "https://k.example/", "title": "t", "snippet": "s"}]}
+    def _mtd(self, usd):
+        (self.tmp / "spend" / "brightdata-2026-10.json").write_text(json.dumps({"provider": "brightdata", "month": "2026-10", "usd_per_1k": 1.5, "requests": 0, "est_usd": usd}))
+    def _bd(self, n, pricing=None, providers=None, cfg=None, tag=""):
+        rows = [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(n)]
+        return runner.run(providers=providers or [self.BD], sets={"scrape_urls": {"rows": rows, "sha": "x"}}, pricing=self.BD_PRICE if pricing is None else pricing, tos={},
+                          adapters={"brightdata": {"scrape": self._ok}}, cfg=cfg or dict(CFG), runs_dir=self.tmp / f"runs{tag}", ledger_path=self.tmp / f"l{tag}.json",
+                          run_date="2026-10-27", env={"BRIGHTDATA_API_KEY": "mock-not-a-key"}, mock=True, now_fn=lambda: self.NOW,
+                          spend_dir=self.tmp / "spend", guard_dir=self.tmp / "guard")
+    def _refused(self, fn):
+        with self.assertRaises(runner.RunRefused) as e: fn()
+        self.assertEqual(self.calls, []); r = e.exception.report
+        self.assertTrue(r["refused"]); self.assertEqual(r["artifact"], "over_cap_projected.json"); return r
+
+    def kcfg(self, **g):
+        c = copy.deepcopy(CFG); c["free_tier_guard"]["keenable"].update(live_run_allowed=True, vendor_confirmation=dict(REC), **g); return c
+    def ktos(self):
+        t = copy.deepcopy(TOS); t["keenable"]["vendor_confirmation"] = dict(REC); t["keenable"]["benchmarking"] = {"status": "allowed", "quote": "fixture"}; return t
+    def _k(self, n, cfg=None, now=None):
+        rows = [{"id": f"k{i}", "query": f"q{i}", "check": {"type": "url_exact", "value": "https://k.example/"}} for i in range(n)]
+        return runner.run(providers=[PROV], sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing={"keenable": B.run_pricing(PRICING_DOC)["keenable"]},
+                          tos=self.ktos(), adapters={"keenable": {"search": self._kok}}, cfg=cfg or self.kcfg(), runs_dir=self.tmp / "runs",
+                          ledger_path=self.tmp / "l.json", run_date="2026-10-27", env={}, mock=True, spend_dir=self.tmp / "spend",
+                          guard_dir=self.tmp / "guard", now_fn=lambda: now or self.NOW, sleep=lambda s: None)
+
+    # ---- R41.1 projection (brightdata: spend_budget stop_usd $4.00, list $0.0015/request) ----
+    def test_under_cap_runs(self):
+        self._mtd(3.0); s = self._bd(100)
+        self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 100))
+    def test_exactly_at_cap_runs(self):   # 3.85 + 100 x 0.0015 = 4.00 exactly
+        self._mtd(3.85); s = self._bd(100)
+        self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 100))
+    def test_exactly_at_cap_float_hostile(self):   # 3.97 + 20 x 0.0015 = 4.00; in float 20*0.0015 = 0.03 > 4.0-3.97 = 0.029999999999999805
+        self.assertGreater(20 * 0.0015, 4.0 - 3.97)
+        self._mtd(3.97); s = self._bd(20); self.assertEqual(len(self.calls), 20)
+        self.calls = []; self._mtd(3.98); self._refused(lambda: self._bd(20, tag="b"))
+    def test_one_cent_over_refuses_whole_run(self):
+        self._mtd(3.86); r = self._refused(lambda: self._bd(100))
+        p = r["providers"][0]
+        self.assertEqual((p["provider"], p["planned_calls"], p["price"], p["projected_usd"], p["remaining_usd"]), ("brightdata", 100, "0.0015", "0.15", "0.14"))
+        self.assertIn("projected $0.15 > remaining $0.14", p["reason"]); self.assertIn("brightdata", r["reason"])
+        self.assertFalse((self.tmp / "runs").exists()); self.assertFalse((self.tmp / "l.json").exists())   # nothing written: no partial run
+        self.assertEqual(list((self.tmp / "guard").iterdir()), [])
+    def test_breach_on_one_provider_refuses_others_too(self):   # the WHOLE run: keenable would fit but brightdata does not
+        self._mtd(3.86); c = self.kcfg()
+        rows = [{"id": "b0", "url": "https://b0.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5}] * 100
+        self._refused(lambda: runner.run(providers=[PROV, self.BD], sets={"scrape_urls": {"rows": [dict(r, id=f"b{i}") for i, r in enumerate(rows)], "sha": "x"},
+                                                                          "search_evergreen": {"rows": [{"id": "k0", "query": "q", "check": {"type": "url_exact", "value": "https://k.example/"}}], "sha": "y"}},
+                                         pricing=self.BD_PRICE | {"keenable": B.run_pricing(PRICING_DOC)["keenable"]}, tos=self.ktos(),
+                                         adapters={"brightdata": {"scrape": self._ok}, "keenable": {"search": self._kok}}, cfg=c, runs_dir=self.tmp / "runs",
+                                         ledger_path=self.tmp / "l.json", run_date="2026-10-27", env={"BRIGHTDATA_API_KEY": "m"}, mock=True,
+                                         now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend", guard_dir=self.tmp / "guard", sleep=lambda s: None))
+    def test_missing_price_refuses(self):
+        self._mtd(0); pr = copy.deepcopy(self.BD_PRICE); del pr["brightdata"]["scrape"]["tiers"]
+        r = self._refused(lambda: self._bd(1, pricing=pr)); self.assertIn("brightdata: list price missing", r["reason"])
+    def test_missing_cap_refuses(self):   # spend_budget without stop_usd: no cap -> refuse
+        self._mtd(0); c = copy.deepcopy(CFG); del c["spend_budget"]["brightdata"]["stop_usd"]
+        r = self._refused(lambda: self._bd(1, cfg=c)); self.assertIn("cap missing", r["reason"])
+    def test_unreadable_month_to_date_refuses(self):
+        (self.tmp / "spend" / "brightdata-2026-10.json").write_text("{not json"); self._refused(lambda: self._bd(1))
+    def test_keenable_899_runs_900_refuses(self):
+        s = self._k(899); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 899))
+        self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
+        r = self._refused(lambda: self._k(900)); p = r["providers"][0]
+        self.assertEqual((p["provider"], p["planned_calls"], p["price"], p["projected_usd"]), ("keenable", 900, "0.004", "3.6"))
+    def test_keenable_counts_this_hours_calls(self):   # Kitty s9: 880 used this UTC hour -> 19 more run, 20 refuse (no partial run)
+        self._k(880); self.calls = []
+        r = self._refused(lambda: self._k(20)); self.assertIn("keenable: planned 20 units > remaining 19 free units", r["reason"])
+        self.assertEqual(r["providers"][0]["cap"]["counter_used"], 880)
+        s = self._k(19); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 19))
+        self.calls = []; s = self._k(20, now=self.NOW + dt.timedelta(hours=1)); self.assertEqual(len(self.calls), 20)   # next hour: fresh window
+    def test_unreadable_guard_counter_refuses(self):   # a corrupt credit-guard counter fails the projection closed (0 calls)
+        (self.tmp / "guard" / f"keenable-{runner.guard.hour_window(self.NOW)}.json").write_text("{not json")
+        r = self._refused(lambda: self._k(1)); self.assertIn(runner.guard.UNREADABLE, r["reason"])
+    def test_keenable_hourly_cap_alone(self):   # with quota/stop above 899, the 899/hour limit still refuses 900 (and runs 899)
+        c = self.kcfg(quota_credits=5000, stop_at_credits=4000)
+        r = self._refused(lambda: self._k(900, cfg=c)); self.assertIn("900 planned calls + 0 this UTC hour > 899 per hour", r["reason"])
+        s = self._k(899, cfg=c); self.assertEqual(len(self.calls), 899)
+        self.calls = []; r = self._refused(lambda: self._k(1, cfg=c)); self.assertIn("1 planned calls + 899 this UTC hour > 899 per hour", r["reason"])
+    # ---- Kitty t1 survivors k06/k07/k10/k14 (behaviour, not source text) ----
+    AP = {"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}
+    def _ap(self, used_cents, n=100):   # apify browser at the committed price (0.155 cents/call x $0.01/credit), meter_budget stop $4.00
+        (self.tmp / "l.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": used_cents}, "over_free_units": 0}))
+        def ok(key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 0.155, "text": "hello world page"}   # the Web Fetch event charge in cents
+        rows = [{"id": f"t{i}", "start_url": f"https://t{i}.example/", "goal": "g", "pass": {"type": "dom_text_contains", "value": "x"}, "timeout_s": 30, "category": "forms"} for i in range(n)]
+        return runner.run(providers=[self.AP], sets={"browser_tasks": {"rows": rows, "sha": "x"}}, pricing={"apify": {"browser": copy.deepcopy(PRICING_DOC["providers"]["apify"]["browser"])}},
+                          tos=TOS, adapters={"apify": {"browser": ok}}, cfg=copy.deepcopy(CFG), runs_dir=self.tmp / "runs", ledger_path=self.tmp / "l.json",
+                          run_date="2026-10-27", env={"APIFY_API_TOKEN": "mock-not-a-key"}, mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend",
+                          guard_dir=self.tmp / "guard", meters={"apify": lambda: 0.0}, sleep=lambda s: None)
+    def test_apify_meter_budget_uses_month_to_date_ledger(self):   # k06/k07: 100 x 0.155 cents = $0.155; $4.00 - 384.5 cents = $0.155 exactly at
+        s = self._ap(384.5); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 100))
+        self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
+        r = self._refused(lambda: self._ap(384.51)); p = r["providers"][0]   # 0.01 cent over: refused although the 500-cent free quota has 115 left
+        self.assertEqual((p["provider"], p["planned_calls"], p["projected_usd"], p["remaining_usd"]), ("apify", 100, "0.155", "0.1549"))
+        self.assertEqual((p["cap"]["kind"], p["cap"]["stop_usd"], p["cap"]["month_to_date_usd"]), ("usd", "4", "3.8451"))
+        self.assertIn("apify: projected $0.155 > remaining $0.1549", r["reason"]); self.assertFalse((self.tmp / "runs").exists())
+    CD = {"id": "contextdev", "categories": ["search"], "key_env": "CONTEXT_DEV_API_KEY"}
+    def _cd(self, used, n):   # contextdev (free_tier_guard: quota_credits 1000, stop_at_credits 900), synthetic credits price, counter empty
+        (self.tmp / "l.json").write_text(json.dumps({"month": "2026-10", "used": {"contextdev": used}, "over_free_units": 0}))
+        pr = copy.deepcopy(PRICING_DOC["providers"]["contextdev"]["search"]); pr["model"] = "credits"; pr["tiers"] = {"entry": {"name": "fixture", "usd_per_credit": 0.003}}
+        rows = [{"id": f"c{i}", "query": f"q{i}", "check": {"type": "url_exact", "value": "https://k.example/"}} for i in range(n)]
+        return runner.run(providers=[self.CD], sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing={"contextdev": {"search": pr}}, tos=TOS,
+                          adapters={"contextdev": {"search": self._kok}}, cfg=copy.deepcopy(CFG), runs_dir=self.tmp / "runs", ledger_path=self.tmp / "l.json",
+                          run_date="2026-10-27", env={"CONTEXT_DEV_API_KEY": "mock-not-a-key"}, mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend",
+                          guard_dir=self.tmp / "guard", meters={"contextdev": lambda: 0}, sleep=lambda s: None)
+    def test_free_tier_guard_counts_monthly_ledger(self):   # k10: 950 of 1000 used this month -> 50 left (stop_at 900 minus an empty counter would allow 900)
+        s = self._cd(950, 50); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 50))
+        self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
+        r = self._refused(lambda: self._cd(950, 51)); p = r["providers"][0]
+        self.assertEqual((p["provider"], p["remaining_units"], p["cap"]["ledger_used_units"], p["cap"]["counter_used"]), ("contextdev", "50", "950", 0))
+        self.assertIn("contextdev: planned 51 units > remaining 50 free units", r["reason"])
+    def test_reprobe_only_ids_limits_planned_calls(self):   # k14: 200 rows, the re-probe filter keeps 100 -> exactly at the $4.00 stop, runs
+        self._mtd(3.85); rows = [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(200)]
+        keep = {f"b{i}" for i in range(100)}
+        for tag, only in (("f", lambda pid, iid: pid == "brightdata" and iid in keep), ("s", keep)):   # callable (re-probe) and set forms
+            self.calls = []
+            s = runner.run(providers=[self.BD], sets={"scrape_urls": {"rows": rows, "sha": "x"}}, pricing=self.BD_PRICE, tos={}, adapters={"brightdata": {"scrape": self._ok}},
+                           cfg=dict(CFG), runs_dir=self.tmp / f"runs{tag}", ledger_path=self.tmp / f"l{tag}.json", run_date="2026-10-27", env={"BRIGHTDATA_API_KEY": "m"},
+                           mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend", guard_dir=self.tmp / "guard", only_ids=only)
+            self.assertEqual((s["providers"][0]["status"], sorted(self.calls) == sorted(keep)), ("ran", True))
+            self._mtd(3.85)   # the run's own spend file update is not under test here
+        self.calls = []; r = self._refused(lambda: self._bd(200, tag="all"))   # control: the unfiltered 200 rows project $0.30 > $0.15
+        self.assertIn("projected $0.3 > remaining $0.15", r["reason"])
+    def test_per_call_backstop_kept(self):   # the per-call guards still exist behind the projection (preflight=False only in tests)
+        src = (BENCH / "awibench" / "runner.py").read_text()
+        self.assertIn("would exceed free quota", src); self.assertIn("preflight=True", src)
+        self.assertNotIn("preflight", (SITE / "collectors" / "benchmark.py").read_text())
+
+    # ---- R41.2 ----
+    def test_known_providers_match_providers_json(self):
+        ids = [p["id"] for p in json.loads((SITE / "collectors/providers.json").read_text())["providers"]]
+        self.assertEqual(CFG["known_providers"], ids)
+    def test_unknown_name_stops(self):
+        r = self._refused(lambda: self._bd(1, providers=[self.BD, {"id": "zz_unknown", "categories": ["scrape"], "key_env": "ZZ"}]))
+        self.assertIn("zz_unknown: unknown provider", r["reason"])
+    def test_known_but_off_is_skipped_and_run_continues(self):
+        self._mtd(0); s = self._bd(2, providers=[{"id": "brave", "categories": ["search"], "key_env": "BRAVE_API_KEY"}, self.BD])
+        self.assertEqual([(p["provider"], p["status"]) for p in s["providers"]], [("brave", "skipped_not_month1"), ("brightdata", "ran")])
+        self.assertEqual(len(self.calls), 2)
+    def test_live_provider_without_cap_stops(self):
+        for drop in ("quota_credits", "stop_at_credits", "rate_limit"):
+            c = self.kcfg(); del c["free_tier_guard"]["keenable"][drop]
+            r = self._refused(lambda: self._k(1, cfg=c)); self.assertIn("keenable", r["reason"]); self.assertIn("cap", r["reason"])
+    def test_live_run_without_known_list_fails_closed(self):
+        c = copy.deepcopy(CFG); del c["known_providers"]
+        self.assertTrue(runner.provider_problems([self.BD], c, {}, mock=False))
+        self.assertEqual(runner.provider_problems([self.BD], c, {}, mock=True), [])
+
+    # ---- collector: non-zero exit + over_cap_projected.json, 0 network ----
+    def _main(self, argv, env_extra=None, pricing_edit=None):
+        import shutil
+        root = self.tmp / "site"
+        shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
+        (root / "collectors").mkdir(); shutil.copy(SITE / "collectors" / "providers.json", root / "collectors")
+        urls = []; err = []
+        def no_net(req, *a, **k): urls.append(getattr(req, "full_url", req)); raise OSError("mock: network blocked")
+        env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_API_TOKEN", "_TOKEN", "_KEY"))} | (env_extra or {})
+        with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", *argv]), mock.patch("urllib.request.urlopen", side_effect=no_net), \
+             mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), mock.patch.object(B, "apify_meter", side_effect=AssertionError("meter call")), \
+             mock.patch("builtins.print", side_effect=lambda *a, **k: err.append(" ".join(map(str, a)))):
+            rc = B.main()
+        f = root / "alerts" / "over_cap_projected.json"
+        return rc, urls, (json.loads(f.read_text()) if f.exists() else None), err
+    def test_main_unknown_only_provider_exits_nonzero(self):   # Kitty s7: was rc 0
+        rc, urls, art, err = self._main(["--only-providers", "zz_unknown"])
+        self.assertEqual((rc, urls), (2, [])); self.assertIn("zz_unknown: unknown provider", art["reason"])
+        self.assertTrue(any(l.startswith("ALERT over_cap_projected.json") for l in err))
+    def test_main_projection_refusal_writes_artifact(self):   # apify: meter_budget + 25 free units; a full scrape set projects over it
+        rc, urls, art, err = self._main(["--only-providers", "apify"], {"APIFY_API_TOKEN": "mock-not-a-key"})
+        self.assertEqual((rc, urls), (2, [])); self.assertTrue(art["refused"])
+        p = art["providers"][0]
+        self.assertTrue({"planned_calls", "price", "projected_usd", "remaining_usd", "reason"} <= p.keys()); self.assertEqual(p["provider"], "apify")

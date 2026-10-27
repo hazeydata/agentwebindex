@@ -17,8 +17,8 @@ agent-asserted), so any harness run calls it. The only thing stopping scheduled 
 disabled_manually in the repo's Actions settings (not in code). Its re-enable to run live on schedule within the caps is
 approved (spec R40), sequenced after paper desk R25 reaches Kitty. No live keenable call has been made yet
 as of this comment. Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go. Stopping
-any run that would go over a cap, or that adds a new provider (spec R40.3, detailed in spec R41), is a requirement built in
-hazeydata/agentwebindex#45, not on main until #45 merges; on main the per-call guards stop a provider mid-run. Spec R41.3: the
+any run that would go over a cap, or that adds a new provider (spec R40.3, detailed in spec R41), is runner.check_run (built in
+hazeydata/agentwebindex#45): it refuses the whole run before any provider call; these per-call guards are the mid-run backstop. Spec R41.3: the
 workflow stays disabled until R40.4 and R41 pass with Kitty and a Weatherman SHIP.
 - live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
   free_tier_guard.<pid>.paid_usage_allowed to be bool False (missing or non-bool fails closed, R1).

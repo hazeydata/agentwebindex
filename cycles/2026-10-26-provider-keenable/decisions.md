@@ -103,3 +103,6 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 
 ## Kitty t1 (A7): branch protection not visible (2026-10-27)
 - Kitty t1 (Oct 27 2026) found that neither cycle summary's Still broken list named the branch-protection gap (agentwebindex-meta#34 has it as item 9). Added to Still broken in both cycle summaries (contextdev and keenable): the branch protection API returns 403 for AWI's token and the rulesets list is `[]` on agentwebindex and agentwebindex-meta (re-checked 2026-10-27 3:05 AM ET), so protection on `main` is unverified. Owner: Fred (repo admin).
+
+## #44 merged into #45 (2026-10-27, Kitty t3)
+Appended; the entries above are not edited. The R41 wording above ("a requirement ... not on main until #45 merges") is superseded: #45 contains #44 via a merge commit, and with #45 merged, R41.1/R41.2 (`runner.check_run`, pre-run projection and provider stop) are on main. Keenable's pre-run check also counts planned calls plus this UTC hour's calls against 899. Merge order is fixed: #44, then #45, then #46.
