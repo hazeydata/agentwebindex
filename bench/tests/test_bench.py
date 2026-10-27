@@ -2661,7 +2661,7 @@ class ContextDevLiveGate(ContextDevBase):
         s = self.go(providers=self.prov_def() + [other], cfg=mocks.mock_cfg(closed_cfg()), pricing=pricing, env={"K": "x", "CONTEXT_DEV_API_KEY": "mock-key"},
                     adapters={"contextdev": {"search": self.ad_search}} | mocks.MockAdapters().table("mockp", ["search"]))
         self.assertEqual((self.prov(s)["status"], self.prov(s, "mockp")["status"], self.calls), ("skipped_no_vendor_confirmation", "ran", []))
-    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), closed config fixture (R25), key set, any network call fails the test
+    def test_ac25_monday_news_job_contextdev_sits_out(self):   # AC25: B.main(), closed config fixture (R25), key set, a urllib.request.urlopen call fails the test
         import shutil
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B
         root = mktmp(self) / "site"
@@ -4536,7 +4536,7 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(sum(len(v["rows"]) for k, v in runner.limit_sets(kw["sets"], kw["limits"]["apify"]).items() if runner.set_kind(k) == "search"), 9 * (1 + n_news))
         worst = 9 * 2 * 4.08 + (20 + 50) * 0.155   # cents: a 50-row news week (config news total) still fits
         self.assertLessEqual(worst / 100, 0.90)
-    # ---- owner calls (Lucille 2, AWI owner, 2026-10-27 5:34 AM ET): 2 = Apify out of every re-probe; 3 = quota providers kept for the fulls ----
+    # ---- owner calls (Lucille 2, AWI owner, 2026-10-27 5:33 AM ET): 2 = Apify out of every re-probe; 3 = quota providers kept for the fulls ----
     def test_reprobe_has_no_apify(self):   # owner call 2: re-probes never call Apify, so the weekly fulls get its whole budget
         for off in ("6", "24", "72"):
             kw = self._captured(["--reprobe-offset", off]); shutil.rmtree(self.tmp / "site")
@@ -4721,8 +4721,10 @@ class R41PreRun(unittest.TestCase):
             def __enter__(s): return s
             def __exit__(s, *a): return False
         # Firecrawl smoke at a healthy, pre-run-low, per-call-low (2nd meter read) and unreadable balance. urllib urlopen is answered by the
-        # mock and every call recorded (string or Request URL); every other way out of the process (socket, http.client, requests,
-        # subprocess / curl / wget, os.system, spawn, fork) is blocked and recorded, so a top-up that swallows its own error still fails.
+        # mock and every call recorded (string or Request URL). Only the functions in `guards` below are patched to record and raise;
+        # a top-up through one of them fails the test even if it swallows the error. NOT covered: ctypes, raw _socket, posix.* and
+        # os.forkpty/execv/spawnv, subprocess._fork_exec aliases bound before the patch, UDP sendto, a reload of socket, and threads,
+        # timers or atexit hooks that fire outside this block.
         for label, bal, want in (("healthy", lambda n: 100000, []), ("prerun-low", lambda n: 9000, ["skipped_floor"]),
                                  ("percall-low", lambda n: 100000 if n <= 1 else 9000, ["skipped_floor"]), ("unknown", lambda n: None, ["skipped_balance_unknown"])):
             seen = []; esc = []; reads = [0]
@@ -4733,7 +4735,11 @@ class R41PreRun(unittest.TestCase):
                 if u == SEARCH: return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
                 raise OSError(f"mock: unexpected URL {u}")
             def block(kind):
-                def f(*a, **k): esc.append((kind, repr(a)[:200])); raise OSError(f"blocked {kind}")
+                def f(*a, **k):
+                    esc.append((kind, "?"))   # record first (Kitty t9 o92/o94): repr of a half-built Popen raises
+                    try: esc[-1] = (kind, repr(a)[:200])
+                    except Exception: esc[-1] = (kind, ", ".join(f"{type(x).__name__}@{id(x):x}" for x in a))
+                    raise OSError(f"blocked {kind}")
                 return f
             guards = [(socket.socket, "connect"), (socket.socket, "connect_ex"), (socket, "create_connection"), (socket, "getaddrinfo"),
                       (http.client.HTTPConnection, "request"), (http.client.HTTPConnection, "connect"),
@@ -4746,7 +4752,7 @@ class R41PreRun(unittest.TestCase):
                     if hasattr(obj, name): st.enter_context(mock.patch.object(obj, name, block(f"{getattr(obj, '__name__', obj)}.{name}")))
                 rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key"}, fc_meter="real", net=net)
             rows = [json.loads(l) for f in (self.tmp / "site" / "bench" / "runs").glob(f"*/{runner.SKIPPED_CAP_FILE}") for l in f.read_text().splitlines()]
-            self.assertEqual(esc, [], label)   # nothing leaves the process except through the mocked urlopen
+            self.assertEqual(esc, [], label)   # no patched function (guards above) was called; routes not patched are not checked
             self.assertEqual(rc, 0, label); self.assertEqual([r["status"] for r in rows], want, label)
             if label == "percall-low": self.assertTrue(rows[0]["where"].startswith("before call"), rows)   # the per-call path really ran
             self.assertEqual(len(urls), len(seen), label); self.assertIn(("GET", METER), seen, label)
