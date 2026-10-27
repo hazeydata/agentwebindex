@@ -2,11 +2,11 @@
  "provider": "browserless",
  "name": "Browserless",
  "url": "https://www.browserless.io/pricing",
- "fetched_at": "2026-10-26T09:39:19+00:00",
+ "fetched_at": "2026-10-27T09:30:31+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "636fa32b22a5bae9256a73601fe55305592d32748307e4a1409e0a1cc24c64c9",
- "text_lines": 279,
+ "text_sha256": "59989d60f28c83b5ce22e29474bf4c3e8062ee3d0379e7e4ecbc20b429acdb0e",
+ "text_lines": 280,
  "prices_found": [
   "$ 0 /month",
   "$ 140 /month",
@@ -17,10 +17,15 @@
   "$0.0020 per unit overages"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-25T09:25:03+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-26T09:39:19+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -231,0 +232 @@",
+   "+Search API"
+  ]
  }
 }
