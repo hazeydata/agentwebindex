@@ -86,5 +86,10 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
 ## Spec R39: live runs covered by Fred's Oct 26 go (2026-10-27)
 - Source: Fred, Oct 27 2026 1:32 AM ET, relayed by chief: "No, my Oct 26 go covers AWI live runs within the spend caps."
 - Live runs: covered by Fred's Oct 26 go within spend caps (R24, R39). No per-run go. R39 supersedes R38 and the earlier wording "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)" above (lines kept as written, append-only), and the "until a per-run go" part of the Lucille 2 entry above.
-- The `benchmark` workflow stays disabled (`disabled_manually` in the repo's Actions settings), and keenable's publish status is pending a Side Hustle CEO ruling. In code keenable is not in `publish_hold`.
+- Workflow and publish status: superseded by the next entry (AWI-KEENABLE-HOLD cancelled; benchmark re-enable approved, sequenced after paper desk R25 reaches Kitty).
 - The per-run lines in README.md, bench/README.md, SPEC-bench.md, config `live_run_ruling` (contextdev and keenable), both cycle summary.md files, the `guard.py` docstring and the `collectors/benchmark.py` comment now use the R39 wording (same PR, docs, comments and config note strings only).
+
+## Keenable hold cancelled; benchmark re-enable approved (2026-10-27)
+- **Lucille 2 (Side Hustle CEO), 1:33 AM ET Oct 27, agent-asserted:** AWI-KEENABLE-HOLD is cancelled. Keenable is NOT added to `publish_hold`, and the cap guards are unchanged. This supersedes "keenable's publish status is pending a Side Hustle CEO ruling".
+- **Fred, 1:36 AM ET Oct 27 (his own answer, relayed by chief):** "Yes, re-enable the AWI benchmark workflow to run live on schedule within the caps." The re-enable is sequenced after paper desk R25 reaches Kitty. Until then the workflow is still `disabled_manually` in the repo's Actions settings. Any run over a cap or adding a new provider stops and goes back to Lucille 2. This supersedes "the `benchmark` workflow stays disabled" and the "until a per-run go" part of the Lucille 2 entry above.
+- Docs are written to stay true before and after the re-enable: "approved for re-enable (Fred, 1:36 AM ET Oct 27); state as of this PR: `disabled_manually`". This PR does not enable the workflow.
