@@ -23,7 +23,7 @@ quota_stop (contextdev HTTP 402/401 USAGE_EXCEEDED; 0 units, not scored, stops t
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
-import datetime as dt, fcntl, hashlib, json, math, os, re, time
+import calendar, datetime as dt, fcntl, hashlib, json, math, os, re, time
 from decimal import Decimal
 from pathlib import Path
 from .util import PUBLISHED_DIRS, is_under, not_captured
@@ -277,10 +277,52 @@ def call_estimate(pid, kind, item, pr, cfg, fg, mb, pool):
     return est, req
 
 class RunRefused(RuntimeError):
-    """R41: the whole run is refused before any provider call. .report is the over_cap_projected.json body."""
+    """R41 (as narrowed by R43/R44): the whole run is refused before any provider call, exit 2 in the collector, for a missing price,
+    a missing cap, an unknown provider, a live provider with no cap entry, an unknown per-call cost or an unreadable counter/spend file.
+    A projected cap breach is NOT a refusal any more (spec R44.3): only that provider is dropped (skipped_cap). .report is the
+    over_cap_projected.json body."""
     def __init__(self, report): super().__init__(report["reason"]); self.report = report
 
 OVER_CAP_FILE = "over_cap_projected.json"
+SKIPPED_CAP = "skipped_cap"   # spec R43/R44: a provider projected over its remaining month budget is dropped with 0 calls (run continues, exit 0)
+SKIPPED_RATE, SKIPPED_FLOOR, SKIPPED_BALANCE_UNKNOWN, SKIPPED_RESERVE = "skipped_rate", "skipped_floor", "skipped_balance_unknown", "skipped_reserve"   # spec R45
+SKIP_STATUSES = (SKIPPED_CAP, SKIPPED_RATE, SKIPPED_FLOOR, SKIPPED_BALANCE_UNKNOWN, SKIPPED_RESERVE)   # R44.3/R45: one provider dropped with 0 calls, the rest run, exit 0
+SKIPPED_CAP_FILE = "_skipped_cap.jsonl"   # bench/runs/<run_date>/: one row per dropped provider per run (R43.2 fields), append-only
+
+def full_reserve(cfg, now, full):
+    """Owner call (Lucille 2, AWI owner, 2026-10-27 5:33 AM ET; recorded earlier as 5:34), call 3: the quota-limited providers are always kept for the weekly
+    full runs, and every other run (daily smoke, re-probes) drops them first. Returns {pid: units} that a non-full run must leave
+    unspent: run_schedule.full_reserve_units[pid] (the worst-case units of one trimmed full run) x the weekly full runs still to come
+    this calendar month (run_schedule.full_cron_utc, the benchmark.yml full cron, strictly after now). {} for a full run."""
+    sched = cfg.get("run_schedule") or {}; per = sched.get("full_reserve_units") or {}
+    if full or not per: return {}
+    c = sched["full_cron_utc"]; now = now.astimezone(dt.timezone.utc)
+    n = sum(1 for d in range(1, calendar.monthrange(now.year, now.month)[1] + 1)
+            if dt.date(now.year, now.month, d).weekday() == c["weekday"] and dt.datetime(now.year, now.month, d, c["hour"], c["minute"], tzinfo=dt.timezone.utc) > now)
+    return {pid: u * n for pid, u in per.items()} if n else {}
+
+def worst_case_units(sq, kind, est):
+    """Owner call (Lucille 2, 2026-10-27 6:31 AM ET): AWI never makes a shared-quota call whose WORST-CASE units could take the shared
+    balance below floor_credits (10,000, above Firecrawl's documented default auto-recharge threshold of 1,000; the account's real
+    threshold is unverified, config shared_quota.firecrawl.auto_recharge_note). Worst case per call = max(the priced estimate,
+    shared_quota.<pid>.worst_case_units_per_call[kind]); a kind with no worst-case entry returns None (the caller fails closed)."""
+    w = _dec(((sq or {}).get("worst_case_units_per_call") or {}).get(kind)); e = _dec(est)
+    return None if w is None or w < 0 or e is None else max(w, e)
+
+def floor_line(pid, f):
+    """Owner call (Lucille 2, 2026-10-27 6:20 AM ET): the job-log line that tells the owner a shared-quota balance hit its floor."""
+    return f"{pid}_floor_reached: shared balance {f['balance_credits']} credits, floor {f['floor_credits']} credits, next {f['planned_units']} units; {pid} skipped ({f['where']})"
+
+def limit_sets(sets, lim):
+    """Spec R44.2 run-size limits for one provider: lim = {kind: max items per set of that kind} (0 = none). A trimmed set keeps
+    its first n rows and records sample_of (the full size), so set_rows is the sample actually run and the scorecard notes it."""
+    if not lim: return sets
+    out = {}
+    for name, s in sets.items():
+        n = lim.get(set_kind(name))
+        if n is None or n >= len(s["rows"]): out[name] = s
+        elif n > 0: out[name] = s | {"rows": s["rows"][:n], "sample_of": len(s["rows"])}
+    return out
 
 def _dec(v):
     """Exact Decimal of a config/ledger number via its shortest repr (0.1 -> Decimal('0.1')), so no float edge errors; None if not a number."""
@@ -335,7 +377,7 @@ def provider_problems(providers, cfg, tos, mock=False):
         if miss: out.append(f"{pid}: set to live with no cap entry (config free_tier_guard.{pid}.{', '.join(miss)} missing or not a positive int)")
     return out
 
-def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spend_dir, guard_dir, run_date, now, mock=False, only_ids=None):
+def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spend_dir, guard_dir, run_date, now, mock=False, only_ids=None, limits=None, meters=None, reserve=None):
     """R41, once per run before any provider call. Returns the over_cap_projected.json report; report["refused"] True = 0 calls.
     1. provider_problems (R41.2).
     2. For every provider that will make calls (gate() is None), per billing pool: planned_calls = the set items the run would call
@@ -346,7 +388,16 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
        remaining units = quota minus the ledger, and for a free_tier_guard provider also stop_at_credits minus its counter; refuse if
        planned_units > remaining units (remaining_usd = those units at list price). Exactly at the cap runs.
        Keenable (FREE_ONLY / utc_hour window) also: planned_calls + this UTC hour's counter must be <= rate_limit.max_per_hour (899).
-    3. A missing price, cap, unknown per-call cost or unreadable counter/spend file refuses the run (fail closed)."""
+    3. A missing price, cap, unknown per-call cost or unreadable counter/spend file refuses the run (fail closed): report["refused"].
+    4. Spec R44.3 (supersedes R43's whole-run skip and R41's whole-run refusal for cap breaches): a provider whose projection is over its
+       remaining cap is listed in report["skipped_cap"] (every dropped provider, each with its status) and is NOT a refusal; run() drops
+       only that provider (0 calls to it), the rest run, exit 0. Status (spec R45): skipped_cap (USD stop or free quota), skipped_rate
+       (keenable's 899/hour limit, R45 b: planned_per_hour, limit), skipped_floor (Firecrawl shared balance below floor_credits, R45.3),
+       skipped_balance_unknown (shared meter unreadable, R45.3), skipped_reserve (eats into the full-run reserve, R45.4). limits = {pid: {kind: n}} (R44.2) trims that provider's sets before planning, exactly as run() does.
+    5. Owner call 3 (2026-10-27 5:33 AM ET): reserve = {pid: units} (full_reserve) that this non-full run must leave unspent for the
+       weekly full runs still to come; a provider whose planned units would eat into it is dropped (skipped_reserve). A cfg shared_quota
+       provider (firecrawl: its key is shared with Fred's other tools) also caps remaining units at the shared meter's remaining
+       credits minus floor_credits (skipped_floor); an unreadable shared meter drops it (skipped_balance_unknown, fail closed)."""
     rep = refusal_report(run_date, now, provider_problems(providers, cfg, tos, mock))
     if not rep["problems"]:
         plan = {}
@@ -359,7 +410,7 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
                 mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None
                 row = plan.setdefault((pid, pool), {"pid": pid, "pool": pool, "fg": fg, "mb": mb, "kinds": {}, "unknown": None})
                 calls = []
-                for set_name, s in sets.items():
+                for set_name, s in limit_sets(sets, (limits or {}).get(pid)).items():
                     if set_kind(set_name) != kind: continue
                     for item in s["rows"]:
                         if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
@@ -370,19 +421,24 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
                 if calls or row["unknown"]: row["kinds"][kind] = {"calls": calls, "price": list_price_per_unit(pr), "quota": q}
         for (pid, pool), r in plan.items():
             if not r["kinds"]: continue
-            rep["providers"].append(_project(r, cfg, ledger, spend_dir, guard_dir, now))
-        bad = [x for x in rep["providers"] if x["reason"]]
+            rep["providers"].append(_project(r, cfg, ledger, spend_dir, guard_dir, now, meters, (reserve or {}).get(pid)))
+        bad = [x for x in rep["providers"] if x["reason"] and not x.get("cap_breach")]
         rep["problems"] += [f"{x['provider']}: {x['reason']}" for x in bad]
-    return refusal_report(run_date, now, rep["problems"], rep["providers"])
+    skipped = [x for x in rep["providers"] if x.get("cap_breach")]
+    return refusal_report(run_date, now, rep["problems"], rep["providers"], skipped)
 
-def refusal_report(run_date, now, problems, providers=()):
-    """The over_cap_projected.json body: refused (True when any problem), reason, problems, and per-provider projection rows
-    (planned_calls, price, projected_usd, remaining_usd, reason)."""
-    return {"artifact": OVER_CAP_FILE, "spec": "awi-provider-contextdev-001 R41", "run_date": run_date, "checked_at": now.isoformat(timespec="seconds"),
-            "refused": bool(problems), "reason": ("run refused before any provider call (R41; returns to Side Hustle CEO): " + "; ".join(problems)) if problems else None,
-            "problems": list(problems), "providers": list(providers)}
+def refusal_report(run_date, now, problems, providers=(), skipped=()):
+    """The over_cap_projected.json body: refused (True when any problem: the whole run stops, exit 2), reason, problems, skipped_cap
+    (spec R44.3: providers projected over their remaining cap, dropped with 0 calls while the rest run), and per-provider projection
+    rows (planned_calls, price, projected_usd, remaining_usd, reason)."""
+    sk = [{"provider": x["provider"], "status": x.get("skip_status", SKIPPED_CAP), "categories": x["categories"], "projected_usd": x["projected_usd"], "remaining_usd": x["remaining_usd"], "reason": x["reason"]}
+          | {k: x[k] for k in ("planned_per_hour", "limit", "reserve_units") if k in x} for x in skipped]
+    reason = ("run refused before any provider call (R41; returns to Side Hustle CEO): " + "; ".join(problems)) if problems else \
+             ("providers skipped on cap before any call (R44.3; the rest of the run continues): " + "; ".join(f"{x['provider']}: {x['reason']}" for x in sk)) if sk else None
+    return {"artifact": OVER_CAP_FILE, "spec": "awi-provider-contextdev-001 R41, R43, R44, R45", "run_date": run_date, "checked_at": now.isoformat(timespec="seconds"),
+            "refused": bool(problems), "reason": reason, "problems": list(problems), "skipped_cap": sk, "providers": list(providers)}
 
-def _project(r, cfg, ledger, spend_dir, gdir, now):
+def _project(r, cfg, ledger, spend_dir, gdir, now, meters=None, reserve=None):
     pid, pool, fg, mb = r["pid"], r["pool"], r["fg"], r["mb"]
     calls = [u for k in r["kinds"].values() for u in k["calls"]]; n = len(calls)
     units = sum((_dec(u) for u in calls), Decimal(0)) if all(_dec(u) is not None for u in calls) else None
@@ -390,6 +446,7 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
            "price": None, "price_usd_per_unit": {k: _s(v["price"]) for k, v in sorted(r["kinds"].items())},
            "projected_usd": None, "remaining_usd": None, "cap": None, "reason": None}
     def fail(why): out["reason"] = why; return out
+    def breach(why, status=SKIPPED_CAP, **extra): out.update(cap_breach=True, skip_status=status, **extra); return fail(why)   # R44.3/R45: drop this provider only, not a refusal
     if r["unknown"]: return fail(r["unknown"])
     if units is None: return fail("planned units are not numbers")
     if any(v["price"] is None for v in r["kinds"].values()):
@@ -408,7 +465,7 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
             mtd = _spend_mtd(spend_dir, pid, now.astimezone(dt.timezone.utc).strftime("%Y-%m"))
             if mtd is None: return fail(f"month-to-date spend file for {pid} unreadable or invalid; failing closed")
         usd_rem = stop - mtd; out["remaining_usd"] = _s(usd_rem); out["cap"] = {"kind": "usd", "stop_usd": _s(stop), "month_to_date_usd": _s(mtd)}
-        if proj > usd_rem: return fail(f"projected ${_s(proj)} > remaining ${_s(usd_rem)} (stop ${_s(stop)} minus month-to-date ${_s(mtd)})")
+        if proj > usd_rem: return breach(f"projected ${_s(proj)} > remaining ${_s(usd_rem)} (stop ${_s(stop)} minus month-to-date ${_s(mtd)})")
     else: usd_rem = None   # the free quota below is the cap (and, for a USD-capped provider, a second cap the per-call quota guard also enforces)
     qs = {v["quota"] for v in r["kinds"].values()}
     q = qs.pop() if len(qs) == 1 else None
@@ -421,22 +478,56 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
         cu = _counter_used(gdir, pid, fg, now)
         if cu is None: return fail(guard.UNREADABLE)
         rem_u = min(rem_u, _dec(fg["stop_at_credits"]) - cu); info |= {"quota_units": _s(cap), "stop_at_credits": fg["stop_at_credits"], "counter_used": cu}
+    sq = (cfg.get("shared_quota") or {}).get(pid)
+    if sq:   # owner call 3: a key shared with Fred's other tools; AWI never takes the shared balance below floor_credits
+        floor = _dec(sq.get("floor_credits"))
+        if floor is None or floor < 0: return fail(f"cap missing (shared_quota.{pid}.floor_credits)")
+        thr = _dec(sq.get("auto_recharge_threshold_default"))   # Firecrawl billing code default 1000 (config auto_recharge_note)
+        if (thr is None and (pid == "firecrawl" or "auto_recharge_threshold_default" in sq)) or (thr is not None and not floor > thr): return fail(f"shared_quota.{pid}.floor_credits must be greater than auto_recharge_threshold_default ({sq.get('auto_recharge_threshold_default')}); failing closed")
+        mv = read_meter(meters, pid)
+        if mv is None:
+            out["floor_reached"] = {"reached": None, "balance_credits": None, "floor_credits": _s(floor), "where": "pre-run"}
+            return breach("shared-quota meter unreadable; failing closed (R45.3: not a call)", SKIPPED_BALANCE_UNKNOWN)
+        wk = {k: [worst_case_units(sq, k, u) for u in v["calls"]] for k, v in r["kinds"].items()}
+        if any(w is None for ws in wk.values() for w in ws): return fail(f"cap missing (shared_quota.{pid}.worst_case_units_per_call for " + ", ".join(sorted(k for k, ws in wk.items() if any(w is None for w in ws))) + ")")
+        wunits = sum((w for ws in wk.values() for w in ws), Decimal(0))   # owner call 6:31 AM ET: the floor check uses worst-case units
+        mv = _dec(mv); hit = wunits > mv - floor   # owner call 2026-10-27 6:20 AM ET: skip whenever the balance is (or would go) below the floor
+        out["floor_reached"] = {"reached": hit, "balance_credits": _s(mv), "floor_credits": _s(floor), "planned_units": _s(wunits), "where": "pre-run"}
+        out["worst_case_units"] = _s(wunits)
+        rem_u = min(rem_u, mv - floor); info |= {"shared_remaining_credits": _s(mv), "shared_floor_credits": _s(floor)}
+    rv = _dec(reserve) if reserve else None
+    if rv: info |= {"reserved_for_full_runs_units": _s(rv)}
     q_rem_usd = rem_u * proj / units if units else Decimal(0)
     out["cap"] = info if usd_rem is None else out["cap"] | {"free_quota": info}; out["remaining_units"] = _s(rem_u)
     out["remaining_usd"] = _s(q_rem_usd if usd_rem is None else min(usd_rem, q_rem_usd))
-    if units > rem_u: return fail(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
-    if fg and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour"):
+    if sq and out["floor_reached"]["reached"]:
+        return breach(f"{pid}_floor_reached: shared balance {out['floor_reached']['balance_credits']} credits minus planned worst-case {out['worst_case_units']} units would go below the floor of {out['floor_reached']['floor_credits']} credits kept for Fred's other tools", SKIPPED_FLOOR)
+    hourly = bool(fg) and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour")
+    if hourly:   # spec R45 (b): keenable's 899/hour limit is a per-provider skip (skipped_rate), never a whole-run refusal
         mh = fg["rate_limit"]["max_per_hour"]; hu = _counter_used(gdir, pid, fg, now) if fg.get("window") == "utc_hour" else 0
         out["cap"] = out["cap"] | {"max_per_hour": mh, "this_hour_used": hu}
-        if n + hu > mh: return fail(f"{n} planned calls + {hu} this UTC hour > {mh} per hour")
+        rate = {"planned_per_hour": n + hu, "limit": mh}
+    if units > rem_u:
+        why = f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})"
+        if hourly and fg.get("window") == "utc_hour": return breach(why, SKIPPED_RATE, **rate)   # the utc_hour window quota is the hourly limit
+        return breach(why)
+    if hourly and n + hu > mh: return breach(f"{n} planned calls + {hu} this UTC hour > {mh} per hour", SKIPPED_RATE, **rate)
+    if rv and units > rem_u - rv: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} minus {_s(rv)} reserved for the weekly full runs left this month (owner call 3; R45.4)", SKIPPED_RESERVE, reserve_units=_s(rv))
     return out
 
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,
-        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep, preflight=True):
+        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep, preflight=True, limits=None, reserve=None):
     """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0.
     R41: unless preflight=False (tests of the per-call backstop guards only; the live collector never passes it), check_run() runs
     once before any provider call and raises RunRefused (0 calls, nothing written) on an unknown provider, a live provider with
-    no cap entry, or a projected cap breach."""
+    no cap entry, a missing price or cap, or an unreadable counter/spend file. Spec R44.3: a projected cap breach drops only that
+    provider: 0 calls to it, a skip row per category (status skipped_cap / skipped_rate / skipped_floor / skipped_balance_unknown /
+    skipped_reserve per spec R45; projected, remaining, run_id; skipped_rate adds planned_per_hour and limit), one line in
+    bench/runs/<run_date>/_skipped_cap.jsonl, a printed `skipped: <cap|rate|floor|balance_unknown|reserve> <provider> projected $X >
+    remaining $Y`, and summary["over_cap_projected"] (the collector writes alerts/over_cap_projected.json); the other providers run.
+    R45.3: the shared-quota balance is checked again before every call; below the floor or unreadable stops that provider's calls
+    (status stale_quota, so its partial lines stay unpublished, with skip skipped_floor / skipped_balance_unknown and a skip-file row).
+    limits (R44.2) trims a provider's sets."""
     if mock and (is_under(runs_dir, PUBLISHED_DIRS) or is_under(ledger_path, PUBLISHED_DIRS)):
         raise RuntimeError("mock run output must not go to published data/, dist/ or bench/runs/")
     cap = float(env.get("MONTHLY_CAP_USD", "0") or 0)
@@ -449,15 +540,37 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     if mock and is_under(gdir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
         raise RuntimeError("mock run credit counters must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
-    if preflight:   # R41.1/R41.2: once per run, before any provider call; refuses the whole run (partial runs break set comparability)
+    skipped_cap = {}; floor_hits = summary["floor_reached"] = {}
+    t_run = now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)
+    run_id = f"{run_date}-offset{offset_h}-{t_run.astimezone(dt.timezone.utc).strftime('%H%M%S')}"
+    def skip_row(row):   # R43.2/R45: one append-only line per dropped provider per run in bench/runs/<run_date>/_skipped_cap.jsonl
+        sf = Path(runs_dir) / run_date / SKIPPED_CAP_FILE; sf.parent.mkdir(parents=True, exist_ok=True)
+        with open(sf, "a") as fh: fh.write(json.dumps(row | {"run_id": run_id, "run_date": run_date, "offset_h": offset_h, "mock": mock}, sort_keys=True) + "\n")   # owner call 2026-10-27 6:20 AM ET: <pid>_floor_reached signal per shared_quota provider
+    if preflight:   # R41.1/R41.2: once per run, before any provider call; hard problems refuse the whole run, cap breaches drop one provider (R44.3)
         rep = check_run(providers=providers, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg, env=env, ledger=ledger, spend_dir=spend_dir,
-                        guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, now=(now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)))
+                        guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, limits=limits, meters=meters, reserve=reserve, now=t_run)
         if rep["refused"]: raise RunRefused(rep)
+        for x in rep["providers"]:
+            if x.get("floor_reached"):
+                floor_hits[x["provider"]] = x["floor_reached"]
+                if x["floor_reached"]["reached"]: print(floor_line(x["provider"], x["floor_reached"]))
+        if rep["skipped_cap"]:
+            summary["over_cap_projected"] = rep
+            skipped_cap = {x["provider"]: x | {"run_id": run_id} for x in rep["skipped_cap"]}
+            for x in skipped_cap.values():
+                print(f"skipped: {x['status'].removeprefix('skipped_')} {x['provider']} projected ${x['projected_usd']} > remaining ${x['remaining_usd']} ({x['reason']})")
+                skip_row({"status": x["status"], "provider": x["provider"], "projected_usd": x["projected_usd"], "remaining_usd": x["remaining_usd"], "reason": x["reason"]}
+                         | {k: x[k] for k in ("planned_per_hour", "limit", "reserve_units") if k in x})
     for p in providers:
         pid = p["id"]; pp = pricing.get(pid, {}); pstop = None
         for kind in p["categories"]:
             pr = pp.get(kind) or {}
             base = {"provider": pid, "category": kind}
+            sc = skipped_cap.get(pid)
+            if sc and kind in sc["categories"]:   # R44.3: dropped on cap before any call; the rest of the run continues
+                summary["providers"].append(base | {"status": sc["status"], "calls": 0, "data_calls": 0, "projected_usd": sc["projected_usd"],
+                                                    "remaining_usd": sc["remaining_usd"], "run_id": sc["run_id"], "reason": f"{sc['status']}: {sc['reason']}"}
+                                            | {k: sc[k] for k in ("planned_per_hour", "limit", "reserve_units") if k in sc}); continue
             if pstop:   # AC5: a 401/403/402 (or Apify payment/usage-limit error) stops the whole provider, every category
                 summary["providers"].append(base | {"status": pstop["status"], "calls": 0, "data_calls": 0, "reason": f"provider stopped earlier this run: {pstop['reason']}"}); continue
             t_e = tos.get(pid) or {}; fg = (cfg.get("free_tier_guard") or {}).get(pid)
@@ -475,13 +588,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []; run429 = 0
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
-            for set_name, s in sets.items():
+            for set_name, s in limit_sets(sets, (limits or {}).get(pid)).items():
                 if set_kind(set_name) != kind: continue
                 out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, []); reached = 0
                 for item in s["rows"]:
                     if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
                     line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
-                            "set_sha": s["sha"], "set_rows": len(s["rows"]), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
+                            "set_sha": s["sha"], "set_rows": len(s["rows"]), **({"sample_of": s["sample_of"]} if "sample_of" in s else {}), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
                     if item.get("class") == "anti_bot" or item.get("category") == "anti_bot":
                         t = tos.get(pid) or {}
                         if not anti_bot_allowed(t):
@@ -512,6 +625,21 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if ledger.used(pool) + est > quota:
                         status = stale("quota", status, f"next call ~{est} units would exceed free quota {quota} (used {ledger.used(pool)})")
                         break
+                    sq = (cfg.get("shared_quota") or {}).get(pid)
+                    if sq:   # owner call 3: before every call, the shared balance must stay at or above floor_credits after it
+                        sv = read_meter(meters, pid)
+                        if sv is None:   # R45.3: unreadable balance = skipped_balance_unknown (no call); the partial run stays unpublished (stale_quota)
+                            status = stale("quota", status, "shared-quota meter unreadable; failing closed") | {"skip": SKIPPED_BALANCE_UNKNOWN}
+                            skip_row({"status": SKIPPED_BALANCE_UNKNOWN, "provider": pid, "category": kind, "where": f"before call {item['id']} ({set_name})", "reason": "shared-quota meter unreadable; failing closed"}); break
+                        wc = worst_case_units(sq, kind, est)   # owner call 6:31 AM ET: the next call's worst-case units, never its typical cost
+                        if wc is None:
+                            status = stale("quota", status, f"shared_quota.{pid}.worst_case_units_per_call has no {kind} entry; failing closed"); break
+                        if _dec(sv) - wc < _dec(sq["floor_credits"]):
+                            floor_hits[pid] = {"reached": True, "balance_credits": str(sv), "floor_credits": str(sq["floor_credits"]), "planned_units": _s(wc), "where": f"before call {item['id']} ({set_name})"}
+                            print(floor_line(pid, floor_hits[pid]))
+                            why = f"{pid}_floor_reached: shared balance {sv} credits - next call worst case {_s(wc)} would go below the floor of {sq['floor_credits']} kept for Fred's other tools"
+                            status = stale("quota", status, why) | {"skip": SKIPPED_FLOOR}   # R45.3: stop this provider's calls; the others continue
+                            skip_row({"status": SKIPPED_FLOOR, "provider": pid, "category": kind, "balance_credits": str(sv), "floor_credits": str(sq["floor_credits"]), "where": floor_hits[pid]["where"], "reason": why}); break
                     if budget is not None and clock() - t_start > budget:
                         status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break

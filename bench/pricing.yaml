@@ -269,7 +269,19 @@
      "units_per_month": 1000,
      "needs_card": false,
      "pool": "firecrawl",
-     "note": "Free Plan: '1,000 credits / month ... no card' (500 searches or 1,000 pages)"
+     "note": "AWI's own ledger cap: 1,000 units a calendar month (sized on the public Free Plan, '1,000 credits / month ... no card', 500 searches or 1,000 pages); the account itself is on Standard (account_plan below), so this caps AWI's share, not the account"
+    },
+    "account_plan": {
+     "name": "Standard",
+     "plan_fee_usd_per_month": 99,
+     "included_credits_per_period": 100000,
+     "period": "billing period resets on the 22nd (22nd to the 21st), not the 1st",
+     "period_start_observed": "2026-10-22 9:15 AM ET (account meter, AWI firecrawl credit log)",
+     "rollover": false,
+     "auto_recharge": {"enabled": true, "usd_per_increment": 5, "credits_per_increment": 2000, "monthly_cap_usd": 50},
+     "source": "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)",
+     "corroboration": "public pricing page (research/p_firecrawl.txt in agentwebindex-meta, captured 2026-10-15; data/prices/firecrawl.json): Standard 100,000 credits / month, $99/month billed monthly, '2,000 extra credits per $5', Standard credits do not roll over; hazeydata-meta cycles/2026-10-24-treasury-status/decisions.md line 7 (George Sr., agent-written): '2026-10-23, Fred - Firecrawl moves to Standard with a $50/month auto-recharge cap'",
+     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), which keeps AWI's calls well above zero and above Firecrawl's documented default auto-recharge threshold of 1,000 (config shared_quota.firecrawl.auto_recharge_note); the account's actual auto-recharge mode and threshold are unverified."
     },
     "tiers": {
      "entry": {
@@ -303,7 +315,19 @@
      "units_per_month": 1000,
      "needs_card": false,
      "pool": "firecrawl",
-     "note": "Free Plan: '1,000 credits / month ... no card'"
+     "note": "AWI's own ledger cap: 1,000 units a calendar month (sized on the public Free Plan, '1,000 credits / month ... no card'); the account itself is on Standard (account_plan below)"
+    },
+    "account_plan": {
+     "name": "Standard",
+     "plan_fee_usd_per_month": 99,
+     "included_credits_per_period": 100000,
+     "period": "billing period resets on the 22nd (22nd to the 21st), not the 1st",
+     "period_start_observed": "2026-10-22 9:15 AM ET (account meter, AWI firecrawl credit log)",
+     "rollover": false,
+     "auto_recharge": {"enabled": true, "usd_per_increment": 5, "credits_per_increment": 2000, "monthly_cap_usd": 50},
+     "source": "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)",
+     "corroboration": "public pricing page (research/p_firecrawl.txt in agentwebindex-meta, captured 2026-10-15; data/prices/firecrawl.json): Standard 100,000 credits / month, $99/month billed monthly, '2,000 extra credits per $5', Standard credits do not roll over; hazeydata-meta cycles/2026-10-24-treasury-status/decisions.md line 7 (George Sr., agent-written): '2026-10-23, Fred - Firecrawl moves to Standard with a $50/month auto-recharge cap'",
+     "note": "The account's plan for the key shared with Fred's other tools (owner call, Lucille 2, 2026-10-27 6:31 AM ET). Not a cost input: cost columns stay at the public list-price tiers below, and AWI's own use stays capped by free_tier (1,000 units a calendar month). AWI never takes the shared balance below config shared_quota.firecrawl.floor_credits (10,000), which keeps AWI's calls well above zero and above Firecrawl's documented default auto-recharge threshold of 1,000 (config shared_quota.firecrawl.auto_recharge_note); the account's actual auto-recharge mode and threshold are unverified."
     },
     "tiers": {
      "entry": {
