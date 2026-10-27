@@ -369,7 +369,7 @@ class T(unittest.TestCase):
     def test_shared_quota_floor_checked_before_every_call(self):   # owner call 3 (firecrawl): other tools spend the shared balance mid-run
         kw, ad, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
         n = sum(len(v["rows"]) for k, v in kw["sets"].items() if runner.set_kind(k) == "search"); floor = 50
-        kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}})
+        kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": 2}}})
         kw["meters"] = {"mocksearch": lambda: floor + 2 * n - 10 * ad.calls}   # pre-run: exactly fits; then the balance falls 10 per AWI call
         out = io.StringIO()
         with contextlib.redirect_stdout(out): s = runner.run(**kw)
@@ -379,9 +379,28 @@ class T(unittest.TestCase):
         f = s["floor_reached"]["mocksearch"]; self.assertIs(f["reached"], True); self.assertTrue(f["where"].startswith("before call "))   # owner call 6:20 AM ET: the signal
         self.assertEqual([l for l in out.getvalue().splitlines() if l.startswith("mocksearch_floor_reached: ")], [runner.floor_line("mocksearch", f)])
         kw2, ad2, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
-        kw2["cfg"] = dict(kw2["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}}); kw2["meters"] = {"mocksearch": lambda: floor + 2 * n - 2 * ad2.calls}
+        kw2["cfg"] = dict(kw2["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": 2}}}); kw2["meters"] = {"mocksearch": lambda: floor + 2 * n - 2 * ad2.calls}
         s2 = runner.run(**kw2); self.assertEqual(s2["providers"][0]["status"], "ran")   # only AWI's own use: every call runs, the floor is kept
         self.assertIs(s2["floor_reached"]["mocksearch"]["reached"], False)
+    def test_shared_quota_never_below_floor_worst_case_per_call(self):   # owner call 6:31 AM ET: no AWI call can take the balance below the floor
+        P = [{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}]; floor = 50
+        for wc, spent in ((2, 2), (5, 2)):   # worst case 5 > the 2 actually spent: AWI stops earlier, never later
+            kw, ad, _ = self._setup_run(providers=P); bal = [floor + 11]
+            kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": wc}}})
+            def meter(ad=ad, spent=spent): return floor + 11 - spent * ad.calls
+            kw["meters"] = {"mocksearch": meter}
+            s = runner.run(**kw, preflight=False); p = s["providers"][0]
+            self.assertEqual(p["status"], "stale_quota"); self.assertIn(f"next call worst case {wc} would go below the floor of {floor}", p["reason"])
+            self.assertEqual(ad.calls, {2: 5, 5: 4}[wc], wc)   # wc 2: 5 calls (61 -> 51); wc 5: 4 calls (61 -> 53, then 53 - 5 < 50)
+            self.assertGreaterEqual(meter(), floor, wc)   # the balance never went below the floor
+        kw, ad, _ = self._setup_run(providers=P)
+        kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}}); kw["meters"] = {"mocksearch": lambda: 10 ** 6}
+        p = runner.run(**kw, preflight=False)["providers"][0]   # no worst-case entry for the kind: fail closed before any call
+        self.assertEqual((p["status"], ad.calls), ("stale_quota", 0)); self.assertIn("worst_case_units_per_call has no search entry", p["reason"])
+        kw, ad, _ = self._setup_run(providers=P)
+        kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor, "worst_case_units_per_call": {"search": 2}}}); kw["meters"] = {"mocksearch": lambda: 1 / 0}
+        p = runner.run(**kw, preflight=False)["providers"][0]   # balance unreadable: skip
+        self.assertEqual((p["status"], ad.calls), ("stale_quota", 0)); self.assertIn("unreadable", p["reason"])
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
@@ -4558,7 +4577,45 @@ class R41PreRun(unittest.TestCase):
     # ---- owner calls (Lucille 2, 2026-10-27 6:20 AM ET): Firecrawl floor 10,000 + firecrawl_floor_reached; Exa resized for the fulls ----
     def test_firecrawl_floor_is_the_owner_value_with_its_basis(self):
         sq = CFG["shared_quota"]["firecrawl"]; self.assertEqual(sq["floor_credits"], 10000)
-        for s in ("owner-asserted", "about 10% of the 100K plan", "CONFLICT", "1,000", "research/p_firecrawl.txt", "Firecrawl account is paid"): self.assertIn(s, sq["floor_note"], s)
+        for s in ("about 10% of the 100K plan", "Firecrawl Standard, 100,000 credits a month, $99", "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)", "account_plan"): self.assertIn(s, sq["floor_note"], s)
+    # ---- owner call (Lucille 2, 2026-10-27 6:31 AM ET): the Firecrawl plan, worst-case units vs the floor (no auto-recharge), the 22nd-21st period ----
+    def test_pricing_firecrawl_account_plan_matches_owner_call(self):
+        fc = load_yaml(BENCH / "pricing.yaml")["providers"]["firecrawl"]
+        for kind in ("search", "scrape"):
+            ap = fc[kind]["account_plan"]
+            self.assertEqual((ap["name"], ap["plan_fee_usd_per_month"], ap["included_credits_per_period"], ap["rollover"]), ("Standard", 99, 100000, False), kind)
+            self.assertEqual(ap["auto_recharge"], {"enabled": True, "usd_per_increment": 5, "credits_per_increment": 2000, "monthly_cap_usd": 50}, kind)
+            self.assertIn("resets on the 22nd", ap["period"]); self.assertEqual(ap["source"], "Fred via chief Oct 23, relayed by Lucille 2 (agent-relayed; Fred's own words not yet verified)")
+            self.assertEqual(fc[kind]["free_tier"]["units_per_month"], 1000, kind)   # AWI's own monthly ledger is unchanged
+    def test_firecrawl_adapter_worst_case_is_the_configured_units(self):   # limit 10, no scrapeOptions -> at most 2 credits (2 per 10 results)
+        seen = []
+        with mock.patch.object(B, "_post", side_effect=lambda url, h, body: seen.append(body) or (200, {"data": []})):
+            B._firecrawl_search("mock-not-a-key", {"query": "q"})
+        self.assertEqual(seen, [{"query": "q", "limit": 10}])
+        cpc = load_yaml(BENCH / "pricing.yaml")["providers"]["firecrawl"]["search"]["credits_per_call"]["search"]
+        self.assertEqual(CFG["shared_quota"]["firecrawl"]["worst_case_units_per_call"], {"search": cpc * math.ceil(seen[0]["limit"] / 10)})
+        for kind in ("scrape", "browser"): self.assertNotIn(kind, B.ADAPTERS.get("firecrawl", {}), kind)   # AWI calls firecrawl search only
+    def test_firecrawl_prerun_floor_uses_worst_case_units(self):
+        fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS); floor = 10000
+        n = self._q3(self._project(fu, meters={"firecrawl": lambda: 100000}))["firecrawl"]["planned_calls"]
+        cfg3 = json.loads(json.dumps(fu["cfg"])); cfg3["shared_quota"]["firecrawl"]["worst_case_units_per_call"] = {"search": 3}   # worst case above the priced 2
+        ok = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n}))["firecrawl"]
+        self.assertIsNone(ok["reason"]); self.assertEqual((ok["worst_case_units"], ok["planned_units"]), (str(3 * n), str(2 * n)))
+        x = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n - 1}))["firecrawl"]   # fits at 2/call, not at the worst case
+        self.assertTrue(x["cap_breach"]); self.assertIs(x["floor_reached"]["reached"], True); self.assertIn(f"planned worst-case {3 * n} units", x["reason"])
+    def test_firecrawl_worst_case_missing_fails_closed(self):
+        fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS)
+        cfg0 = json.loads(json.dumps(fu["cfg"])); del cfg0["shared_quota"]["firecrawl"]["worst_case_units_per_call"]
+        x = self._q3(self._project(fu | {"cfg": cfg0}, meters={"firecrawl": lambda: 100000}))["firecrawl"]
+        self.assertFalse(x.get("cap_breach")); self.assertEqual(x["reason"], "cap missing (shared_quota.firecrawl.worst_case_units_per_call for search)")   # red, exit 2
+    def test_firecrawl_period_calendar_ledger_cannot_bypass_live_balance(self):   # a new calendar month (empty AWI ledger) mid Firecrawl period
+        sq = CFG["shared_quota"]["firecrawl"]
+        for s in ("22nd to the 21st", "calendar month", "live shared balance", "at most 2,000 units"): self.assertIn(s, sq["period_note"], s)
+        fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS)
+        x = self._q3(self._project(fu, used={}, meters={"firecrawl": lambda: 10001}, now=dt.datetime(2026, 11, 1, 10, 41, tzinfo=dt.timezone.utc)))["firecrawl"]
+        self.assertTrue(x["cap_breach"]); self.assertIs(x["floor_reached"]["reached"], True)   # 1,000 ledger units left, but the balance decides
+        y = self._q3(self._project(fu, used={"firecrawl": 1000}, meters={"firecrawl": lambda: 100000}))["firecrawl"]
+        self.assertTrue(y["cap_breach"]); self.assertIs(y["floor_reached"]["reached"], False)   # Nov 22 reset: a full balance, AWI's own ledger still caps it
     def test_firecrawl_skipped_whenever_balance_below_floor(self):
         fu = self._captured(["--mode", "full", "--only-providers", "firecrawl"], self.QKEYS)
         for bal in (0, 1000, 9999, 10000):   # a 1,000-credit plan can never reach the floor: firecrawl is always skipped

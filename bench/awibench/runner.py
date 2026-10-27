@@ -299,6 +299,13 @@ def full_reserve(cfg, now, full):
             if dt.date(now.year, now.month, d).weekday() == c["weekday"] and dt.datetime(now.year, now.month, d, c["hour"], c["minute"], tzinfo=dt.timezone.utc) > now)
     return {pid: u * n for pid, u in per.items()} if n else {}
 
+def worst_case_units(sq, kind, est):
+    """Owner call (Lucille 2, 2026-10-27 6:31 AM ET): AWI never makes a shared-quota call whose WORST-CASE units could take the shared
+    balance below floor_credits, so AWI can never trigger the account's auto-recharge. Worst case per call = max(the priced estimate,
+    shared_quota.<pid>.worst_case_units_per_call[kind]); a kind with no worst-case entry returns None (the caller fails closed)."""
+    w = _dec(((sq or {}).get("worst_case_units_per_call") or {}).get(kind)); e = _dec(est)
+    return None if w is None or w < 0 or e is None else max(w, e)
+
 def floor_line(pid, f):
     """Owner call (Lucille 2, 2026-10-27 6:20 AM ET): the job-log line that tells the owner a shared-quota balance hit its floor."""
     return f"{pid}_floor_reached: shared balance {f['balance_credits']} credits, floor {f['floor_credits']} credits, next {f['planned_units']} units; {pid} skipped ({f['where']})"
@@ -473,8 +480,12 @@ def _project(r, cfg, ledger, spend_dir, gdir, now, meters=None, reserve=None):
         if mv is None:
             out["floor_reached"] = {"reached": None, "balance_credits": None, "floor_credits": _s(floor), "where": "pre-run"}
             return breach("shared-quota meter unreadable; failing closed")
-        mv = _dec(mv); hit = units > mv - floor   # owner call 2026-10-27 6:20 AM ET: skip whenever the balance is (or would go) below the floor
-        out["floor_reached"] = {"reached": hit, "balance_credits": _s(mv), "floor_credits": _s(floor), "planned_units": _s(units), "where": "pre-run"}
+        wk = {k: [worst_case_units(sq, k, u) for u in v["calls"]] for k, v in r["kinds"].items()}
+        if any(w is None for ws in wk.values() for w in ws): return fail(f"cap missing (shared_quota.{pid}.worst_case_units_per_call for " + ", ".join(sorted(k for k, ws in wk.items() if any(w is None for w in ws))) + ")")
+        wunits = sum((w for ws in wk.values() for w in ws), Decimal(0))   # owner call 6:31 AM ET: the floor check uses worst-case units
+        mv = _dec(mv); hit = wunits > mv - floor   # owner call 2026-10-27 6:20 AM ET: skip whenever the balance is (or would go) below the floor
+        out["floor_reached"] = {"reached": hit, "balance_credits": _s(mv), "floor_credits": _s(floor), "planned_units": _s(wunits), "where": "pre-run"}
+        out["worst_case_units"] = _s(wunits)
         rem_u = min(rem_u, mv - floor); info |= {"shared_remaining_credits": _s(mv), "shared_floor_credits": _s(floor)}
     rv = _dec(reserve) if reserve else None
     if rv: info |= {"reserved_for_full_runs_units": _s(rv)}
@@ -482,7 +493,7 @@ def _project(r, cfg, ledger, spend_dir, gdir, now, meters=None, reserve=None):
     out["cap"] = info if usd_rem is None else out["cap"] | {"free_quota": info}; out["remaining_units"] = _s(rem_u)
     out["remaining_usd"] = _s(q_rem_usd if usd_rem is None else min(usd_rem, q_rem_usd))
     if sq and out["floor_reached"]["reached"]:
-        return breach(f"{pid}_floor_reached: shared balance {out['floor_reached']['balance_credits']} credits minus planned {_s(units)} units would go below the floor of {out['floor_reached']['floor_credits']} credits kept for Fred's other tools")
+        return breach(f"{pid}_floor_reached: shared balance {out['floor_reached']['balance_credits']} credits minus planned worst-case {out['worst_case_units']} units would go below the floor of {out['floor_reached']['floor_credits']} credits kept for Fred's other tools (and could trigger auto-recharge)")
     if units > rem_u: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
     if rv and units > rem_u - rv: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} minus {_s(rv)} reserved for the weekly full runs left this month (owner call 3)")
     if fg and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour"):
@@ -598,10 +609,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         sv = read_meter(meters, pid)
                         if sv is None:
                             status = stale("quota", status, "shared-quota meter unreadable; failing closed"); break
-                        if sv - est < sq["floor_credits"]:
-                            floor_hits[pid] = {"reached": True, "balance_credits": str(sv), "floor_credits": str(sq["floor_credits"]), "planned_units": str(est), "where": f"before call {item['id']} ({set_name})"}
+                        wc = worst_case_units(sq, kind, est)   # owner call 6:31 AM ET: the next call's worst-case units, never its typical cost
+                        if wc is None:
+                            status = stale("quota", status, f"shared_quota.{pid}.worst_case_units_per_call has no {kind} entry; failing closed"); break
+                        if _dec(sv) - wc < _dec(sq["floor_credits"]):
+                            floor_hits[pid] = {"reached": True, "balance_credits": str(sv), "floor_credits": str(sq["floor_credits"]), "planned_units": _s(wc), "where": f"before call {item['id']} ({set_name})"}
                             print(floor_line(pid, floor_hits[pid]))
-                            status = stale("quota", status, f"{pid}_floor_reached: shared balance {sv} credits - next call {est} would go below the floor of {sq['floor_credits']} kept for Fred's other tools"); break
+                            status = stale("quota", status, f"{pid}_floor_reached: shared balance {sv} credits - next call worst case {_s(wc)} would go below the floor of {sq['floor_credits']} kept for Fred's other tools"); break
                     if budget is not None and clock() - t_start > budget:
                         status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break
