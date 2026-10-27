@@ -13,7 +13,7 @@ State on main:
 
 **Next action:** Kitty, then a Weatherman SHIP on #42 at its exact head. Nothing else lands on main until #42 merges (R37.1). Then #36 is re-synced with main.
 
-**Blockers:** live runs still need Fred's go (agent-asserted; spec R24/R25 record Fred's go via the CEO).
+**Blockers:** Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
 
 **Fixed:** README.md, bench/README.md and SPEC-bench.md describe contextdev as open, with the record summary; tos_matrix `providers.contextdev.note` and config `live_run_ruling` match (#42). The follow-up named in #41's docs as TBD is #42.
 
@@ -22,7 +22,7 @@ State on main:
 - Wayback backfill for the vendor post (R27(5)). Owner: implement.
 - AWI-GATES-RECORDED-PR-001 (R37.2, recorded_pr must equal the PR's own URL in CI) is not built. Until then Kitty and Weatherman check by hand. Owner: implement.
 
-**Docs match code:** yes for contextdev after #42. Keenable docs are correct for main as long as #36 is unmerged.
+**Docs match code:** yes for contextdev after #42. Keenable: the `false`/`null` live-gate and record lines match main while #36 is unmerged; the keenable terms line in README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden` (wrong since the committed status is `permitted_by_ruling`, already on main before #42) and is fixed in #42.
 
 **Locked decisions:** decisions.md (R33-R37, with entries at the end).
 
