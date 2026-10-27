@@ -277,10 +277,26 @@ def call_estimate(pid, kind, item, pr, cfg, fg, mb, pool):
     return est, req
 
 class RunRefused(RuntimeError):
-    """R41: the whole run is refused before any provider call. .report is the over_cap_projected.json body."""
+    """R41 (as narrowed by R43/R44): the whole run is refused before any provider call, exit 2 in the collector, for a missing price,
+    a missing cap, an unknown provider, a live provider with no cap entry, an unknown per-call cost or an unreadable counter/spend file.
+    A projected cap breach is NOT a refusal any more (spec R44.3): only that provider is dropped (skipped_cap). .report is the
+    over_cap_projected.json body."""
     def __init__(self, report): super().__init__(report["reason"]); self.report = report
 
 OVER_CAP_FILE = "over_cap_projected.json"
+SKIPPED_CAP = "skipped_cap"   # spec R43/R44: a provider projected over its remaining month budget is dropped with 0 calls (run continues, exit 0)
+SKIPPED_CAP_FILE = "_skipped_cap.jsonl"   # bench/runs/<run_date>/: one row per dropped provider per run (R43.2 fields), append-only
+
+def limit_sets(sets, lim):
+    """Spec R44.2 run-size limits for one provider: lim = {kind: max items per set of that kind} (0 = none). A trimmed set keeps
+    its first n rows and records sample_of (the full size), so set_rows is the sample actually run and the scorecard notes it."""
+    if not lim: return sets
+    out = {}
+    for name, s in sets.items():
+        n = lim.get(set_kind(name))
+        if n is None or n >= len(s["rows"]): out[name] = s
+        elif n > 0: out[name] = s | {"rows": s["rows"][:n], "sample_of": len(s["rows"])}
+    return out
 
 def _dec(v):
     """Exact Decimal of a config/ledger number via its shortest repr (0.1 -> Decimal('0.1')), so no float edge errors; None if not a number."""
@@ -335,7 +351,7 @@ def provider_problems(providers, cfg, tos, mock=False):
         if miss: out.append(f"{pid}: set to live with no cap entry (config free_tier_guard.{pid}.{', '.join(miss)} missing or not a positive int)")
     return out
 
-def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spend_dir, guard_dir, run_date, now, mock=False, only_ids=None):
+def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spend_dir, guard_dir, run_date, now, mock=False, only_ids=None, limits=None):
     """R41, once per run before any provider call. Returns the over_cap_projected.json report; report["refused"] True = 0 calls.
     1. provider_problems (R41.2).
     2. For every provider that will make calls (gate() is None), per billing pool: planned_calls = the set items the run would call
@@ -346,7 +362,10 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
        remaining units = quota minus the ledger, and for a free_tier_guard provider also stop_at_credits minus its counter; refuse if
        planned_units > remaining units (remaining_usd = those units at list price). Exactly at the cap runs.
        Keenable (FREE_ONLY / utc_hour window) also: planned_calls + this UTC hour's counter must be <= rate_limit.max_per_hour (899).
-    3. A missing price, cap, unknown per-call cost or unreadable counter/spend file refuses the run (fail closed)."""
+    3. A missing price, cap, unknown per-call cost or unreadable counter/spend file refuses the run (fail closed): report["refused"].
+    4. Spec R44.3 (supersedes R43's whole-run skip and R41's whole-run refusal for cap breaches): a provider whose projection is over its
+       remaining cap (USD stop, free quota, or keenable's 899/hour) is listed in report["skipped_cap"] and is NOT a refusal; run() drops
+       only that provider. limits = {pid: {kind: n}} (R44.2) trims that provider's sets before planning, exactly as run() does."""
     rep = refusal_report(run_date, now, provider_problems(providers, cfg, tos, mock))
     if not rep["problems"]:
         plan = {}
@@ -359,7 +378,7 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
                 mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None
                 row = plan.setdefault((pid, pool), {"pid": pid, "pool": pool, "fg": fg, "mb": mb, "kinds": {}, "unknown": None})
                 calls = []
-                for set_name, s in sets.items():
+                for set_name, s in limit_sets(sets, (limits or {}).get(pid)).items():
                     if set_kind(set_name) != kind: continue
                     for item in s["rows"]:
                         if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
@@ -371,16 +390,20 @@ def check_run(*, providers, sets, pricing, tos, adapters, cfg, env, ledger, spen
         for (pid, pool), r in plan.items():
             if not r["kinds"]: continue
             rep["providers"].append(_project(r, cfg, ledger, spend_dir, guard_dir, now))
-        bad = [x for x in rep["providers"] if x["reason"]]
+        bad = [x for x in rep["providers"] if x["reason"] and not x.get("cap_breach")]
         rep["problems"] += [f"{x['provider']}: {x['reason']}" for x in bad]
-    return refusal_report(run_date, now, rep["problems"], rep["providers"])
+    skipped = [x for x in rep["providers"] if x.get("cap_breach")]
+    return refusal_report(run_date, now, rep["problems"], rep["providers"], skipped)
 
-def refusal_report(run_date, now, problems, providers=()):
-    """The over_cap_projected.json body: refused (True when any problem), reason, problems, and per-provider projection rows
-    (planned_calls, price, projected_usd, remaining_usd, reason)."""
-    return {"artifact": OVER_CAP_FILE, "spec": "awi-provider-contextdev-001 R41", "run_date": run_date, "checked_at": now.isoformat(timespec="seconds"),
-            "refused": bool(problems), "reason": ("run refused before any provider call (R41; returns to Side Hustle CEO): " + "; ".join(problems)) if problems else None,
-            "problems": list(problems), "providers": list(providers)}
+def refusal_report(run_date, now, problems, providers=(), skipped=()):
+    """The over_cap_projected.json body: refused (True when any problem: the whole run stops, exit 2), reason, problems, skipped_cap
+    (spec R44.3: providers projected over their remaining cap, dropped with 0 calls while the rest run), and per-provider projection
+    rows (planned_calls, price, projected_usd, remaining_usd, reason)."""
+    sk = [{"provider": x["provider"], "categories": x["categories"], "projected_usd": x["projected_usd"], "remaining_usd": x["remaining_usd"], "reason": x["reason"]} for x in skipped]
+    reason = ("run refused before any provider call (R41; returns to Side Hustle CEO): " + "; ".join(problems)) if problems else \
+             ("providers skipped on cap before any call (R44.3; the rest of the run continues): " + "; ".join(f"{x['provider']}: {x['reason']}" for x in sk)) if sk else None
+    return {"artifact": OVER_CAP_FILE, "spec": "awi-provider-contextdev-001 R41, R43, R44", "run_date": run_date, "checked_at": now.isoformat(timespec="seconds"),
+            "refused": bool(problems), "reason": reason, "problems": list(problems), "skipped_cap": sk, "providers": list(providers)}
 
 def _project(r, cfg, ledger, spend_dir, gdir, now):
     pid, pool, fg, mb = r["pid"], r["pool"], r["fg"], r["mb"]
@@ -390,6 +413,7 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
            "price": None, "price_usd_per_unit": {k: _s(v["price"]) for k, v in sorted(r["kinds"].items())},
            "projected_usd": None, "remaining_usd": None, "cap": None, "reason": None}
     def fail(why): out["reason"] = why; return out
+    def breach(why): out["cap_breach"] = True; return fail(why)   # R44.3: drop this provider only (skipped_cap), not a refusal
     if r["unknown"]: return fail(r["unknown"])
     if units is None: return fail("planned units are not numbers")
     if any(v["price"] is None for v in r["kinds"].values()):
@@ -408,7 +432,7 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
             mtd = _spend_mtd(spend_dir, pid, now.astimezone(dt.timezone.utc).strftime("%Y-%m"))
             if mtd is None: return fail(f"month-to-date spend file for {pid} unreadable or invalid; failing closed")
         usd_rem = stop - mtd; out["remaining_usd"] = _s(usd_rem); out["cap"] = {"kind": "usd", "stop_usd": _s(stop), "month_to_date_usd": _s(mtd)}
-        if proj > usd_rem: return fail(f"projected ${_s(proj)} > remaining ${_s(usd_rem)} (stop ${_s(stop)} minus month-to-date ${_s(mtd)})")
+        if proj > usd_rem: return breach(f"projected ${_s(proj)} > remaining ${_s(usd_rem)} (stop ${_s(stop)} minus month-to-date ${_s(mtd)})")
     else: usd_rem = None   # the free quota below is the cap (and, for a USD-capped provider, a second cap the per-call quota guard also enforces)
     qs = {v["quota"] for v in r["kinds"].values()}
     q = qs.pop() if len(qs) == 1 else None
@@ -424,19 +448,22 @@ def _project(r, cfg, ledger, spend_dir, gdir, now):
     q_rem_usd = rem_u * proj / units if units else Decimal(0)
     out["cap"] = info if usd_rem is None else out["cap"] | {"free_quota": info}; out["remaining_units"] = _s(rem_u)
     out["remaining_usd"] = _s(q_rem_usd if usd_rem is None else min(usd_rem, q_rem_usd))
-    if units > rem_u: return fail(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
+    if units > rem_u: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
     if fg and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour"):
         mh = fg["rate_limit"]["max_per_hour"]; hu = _counter_used(gdir, pid, fg, now) if fg.get("window") == "utc_hour" else 0
         out["cap"] = out["cap"] | {"max_per_hour": mh, "this_hour_used": hu}
-        if n + hu > mh: return fail(f"{n} planned calls + {hu} this UTC hour > {mh} per hour")
+        if n + hu > mh: return breach(f"{n} planned calls + {hu} this UTC hour > {mh} per hour")
     return out
 
 def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, run_date, env, mock=False,
-        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep, preflight=True):
+        offset_h=0, only_ids=None, clock=time.perf_counter, now_fn=None, spend_dir=None, meters=None, guard_dir=None, sleep=time.sleep, preflight=True, limits=None):
     """sets: {set_name: {"rows": [...], "sha": str}}. Returns summary dict. Raises CapViolation on any billed $ > 0.
     R41: unless preflight=False (tests of the per-call backstop guards only; the live collector never passes it), check_run() runs
     once before any provider call and raises RunRefused (0 calls, nothing written) on an unknown provider, a live provider with
-    no cap entry, or a projected cap breach."""
+    no cap entry, a missing price or cap, or an unreadable counter/spend file. Spec R44.3: a projected cap breach drops only that
+    provider: 0 calls to it, a skipped_cap row per category (projected, remaining, run_id), one line in bench/runs/<run_date>/
+    _skipped_cap.jsonl, a printed `skipped: cap <provider> projected $X > remaining $Y`, and summary["over_cap_projected"] (the
+    collector writes alerts/over_cap_projected.json); the other providers run. limits (R44.2) trims a provider's sets."""
     if mock and (is_under(runs_dir, PUBLISHED_DIRS) or is_under(ledger_path, PUBLISHED_DIRS)):
         raise RuntimeError("mock run output must not go to published data/, dist/ or bench/runs/")
     cap = float(env.get("MONTHLY_CAP_USD", "0") or 0)
@@ -449,15 +476,29 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     if mock and is_under(gdir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
         raise RuntimeError("mock run credit counters must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
-    if preflight:   # R41.1/R41.2: once per run, before any provider call; refuses the whole run (partial runs break set comparability)
+    skipped_cap = {}
+    if preflight:   # R41.1/R41.2: once per run, before any provider call; hard problems refuse the whole run, cap breaches drop one provider (R44.3)
         rep = check_run(providers=providers, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg, env=env, ledger=ledger, spend_dir=spend_dir,
-                        guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, now=(now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)))
+                        guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, limits=limits, now=(now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)))
         if rep["refused"]: raise RunRefused(rep)
+        if rep["skipped_cap"]:
+            summary["over_cap_projected"] = rep; run_id = f"{run_date}-offset{offset_h}-{rep['checked_at'][11:19].replace(':', '')}"
+            skipped_cap = {x["provider"]: x | {"run_id": run_id} for x in rep["skipped_cap"]}
+            sf = Path(runs_dir) / run_date / SKIPPED_CAP_FILE; sf.parent.mkdir(parents=True, exist_ok=True)
+            with open(sf, "a") as fh:
+                for x in skipped_cap.values():
+                    print(f"skipped: cap {x['provider']} projected ${x['projected_usd']} > remaining ${x['remaining_usd']} ({x['reason']})")
+                    fh.write(json.dumps({"status": SKIPPED_CAP, "provider": x["provider"], "projected_usd": x["projected_usd"], "remaining_usd": x["remaining_usd"],
+                                         "run_id": run_id, "run_date": run_date, "offset_h": offset_h, "mock": mock, "reason": x["reason"]}, sort_keys=True) + "\n")
     for p in providers:
         pid = p["id"]; pp = pricing.get(pid, {}); pstop = None
         for kind in p["categories"]:
             pr = pp.get(kind) or {}
             base = {"provider": pid, "category": kind}
+            sc = skipped_cap.get(pid)
+            if sc and kind in sc["categories"]:   # R44.3: dropped on cap before any call; the rest of the run continues
+                summary["providers"].append(base | {"status": SKIPPED_CAP, "calls": 0, "data_calls": 0, "projected_usd": sc["projected_usd"],
+                                                    "remaining_usd": sc["remaining_usd"], "run_id": sc["run_id"], "reason": f"skipped_cap: {sc['reason']}"}); continue
             if pstop:   # AC5: a 401/403/402 (or Apify payment/usage-limit error) stops the whole provider, every category
                 summary["providers"].append(base | {"status": pstop["status"], "calls": 0, "data_calls": 0, "reason": f"provider stopped earlier this run: {pstop['reason']}"}); continue
             t_e = tos.get(pid) or {}; fg = (cfg.get("free_tier_guard") or {}).get(pid)
@@ -475,13 +516,13 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
             status = {"status": "ran", "calls": 0, "data_calls": 0}; pending = {}; billed = 0; short = []; recs = []; run429 = 0
             budget = (cfg.get("run_budget_s") or {}).get(pid); t_start = clock()
             mb = (cfg.get("meter_budget") or {}).get(pid); mb = mb if mb and mb.get("pool") == pool else None; m0 = None
-            for set_name, s in sets.items():
+            for set_name, s in limit_sets(sets, (limits or {}).get(pid)).items():
                 if set_kind(set_name) != kind: continue
                 out_f = Path(runs_dir) / run_date / pid / f"{set_name}.jsonl"; fh = pending.setdefault(out_f, []); reached = 0
                 for item in s["rows"]:
                     if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
                     line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
-                            "set_sha": s["sha"], "set_rows": len(s["rows"]), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
+                            "set_sha": s["sha"], "set_rows": len(s["rows"]), **({"sample_of": s["sample_of"]} if "sample_of" in s else {}), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
                     if item.get("class") == "anti_bot" or item.get("category") == "anti_bot":
                         t = tos.get(pid) or {}
                         if not anti_bot_allowed(t):

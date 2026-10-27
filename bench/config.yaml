@@ -91,6 +91,8 @@
  "meter_budget": {"apify": {"pool": "apify_usd_cents", "stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01, "meter": "https://api.apify.com/v2/users/me/limits data.current.monthlyUsageUsd",
             "period": "calendar_month", "approved": "Fred 2026-10-26 8:25 AM ET (relayed by chief): \"Approve $4 Apify cap per month.\"",
             "note": "CEO ruling 2026-10-20: before each Apify call the guard reads the live usage meter and compares max(meter, ledger) with the $4.00 stop; a refused call or an unreadable meter fails closed (stopped_budget, rule 6; spec AWI-RUN-2026-10-26-APIFY-001 AC2). Each run logs meter, ledger and the meter-minus-ledger gap to bench/spend/apify-meter-YYYY-MM.json."}},
+ "run_schedule": {"smoke_exclude": ["apify"], "full_limits": {"apify": {"search": 9}},
+   "note": "Spec R44 (awi-provider-contextdev-001): Apify is not in the daily smoke run (R44.1); in the weekly full run Apify searches only the first 9 items of each search set (evergreen and the week's news set) so one full run projects <= $0.90 and four <= $4.00 (R44.2): 18 searches x $0.0408 + up to 70 browser fetches x $0.00155 <= $0.843. Re-probes are unchanged. Apify's search rows note the reduced sample."},
  "run_notes": {"apify": {"2026-10-26": {
    "search": "Preliminary retest (AWI-RUN-2026-10-26): apify/rag-web-browser re-run with a longer 240 s timeout (rag-raw-http-t240). One run, n=21 news queries; the numbers describe this run only.",
    "browser": "Preliminary retest (AWI-RUN-2026-10-26): first run of apify/web-fetch on the newsfetch article URLs. One run, n=21; the numbers describe this run only."}}},

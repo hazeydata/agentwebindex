@@ -322,13 +322,32 @@ def load_test_set(name):
 cost_per_1k = cost.cost_columns
 freshness_score = freshness.freshness
 
-def refuse(report):
-    """R41 alert: write over_cap_projected.json to alerts/ (not committed; the job fails, so nothing is published) and print it to
-    the job log; exit code 2. No provider call was made."""
+def write_alert(report):
+    """Write over_cap_projected.json to alerts/ (not committed) and print it to the job log."""
     f = ROOT / "alerts" / runner.OVER_CAP_FILE; f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     print(f"ALERT {runner.OVER_CAP_FILE}: {report['reason']}", file=sys.stderr); print(json.dumps(report, sort_keys=True), file=sys.stderr)
-    return 2
+
+def refuse(report):
+    """R41 alert for a hard problem (missing price or cap, unknown provider, live provider with no cap, unreadable counter): write
+    over_cap_projected.json and fail the job, exit code 2. No provider call was made. A cap breach is not a refusal (R44.3)."""
+    write_alert(report); return 2
+
+def skipped_cap_month(runs_dir, month):
+    """Spec R43/R44: month-to-date count of skipped_cap runs per provider (distinct run_id in bench/runs/<month>-*/_skipped_cap.jsonl).
+    Mock rows are not counted."""
+    seen = {}
+    for f in sorted(Path(runs_dir).glob(f"{month}-*/{runner.SKIPPED_CAP_FILE}")):
+        for r in read_jsonl(f):
+            if r.get("status") == runner.SKIPPED_CAP and not r.get("mock"): seen.setdefault(r["provider"], set()).add(r["run_id"])
+    return {pid: len(ids) for pid, ids in sorted(seen.items())}
+
+def job_summary(counts, month):
+    """Spec R43: the job summary shows month-to-date skipped_cap runs per provider ($GITHUB_STEP_SUMMARY in Actions; printed always)."""
+    lines = [f"### skipped_cap runs, month to date ({month})", ""] + ([f"- {pid}: {n}" for pid, n in counts.items()] or ["- none"])
+    print("\n".join(lines))
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh: fh.write("\n".join(lines) + "\n")
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--mode", choices=["smoke", "full"], default="smoke")
@@ -380,6 +399,12 @@ def main():
       if a.only_providers:
           unknown = [f"{n}: unknown provider (not in collectors/providers.json)" for n in a.only_providers.split(",") if n not in {p["id"] for p in provs}]
           provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
+      sched = cfg.get("run_schedule") or {}; limits = None
+      if not a.reprobe_offset and a.mode == "smoke":   # R44.1: Apify is not in the daily smoke run (it projects $0 Apify)
+          out_smoke = [p["id"] for p in provs if p["id"] in sched.get("smoke_exclude", [])]
+          if out_smoke: print(f"R44.1: not in the smoke run: {', '.join(out_smoke)}")
+          provs = [p for p in provs if p["id"] not in out_smoke]
+      if not a.reprobe_offset and a.mode == "full": limits = sched.get("full_limits")   # R44.2: Apify's weekly full run is trimmed
       probs = unknown + runner.provider_problems(provs, cfg, tos)   # R41.2: before the keyless check, so an unknown provider always fails the job
       if probs: return refuse(runner.refusal_report(today, now, probs))
       if not keyed_providers(provs, os.environ, cfg, tos):   # a run without keys must never overwrite published data or run summaries
@@ -388,10 +413,12 @@ def main():
       try:
        s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
-                   offset_h=a.reprobe_offset or 0, only_ids=only,
+                   offset_h=a.reprobe_offset or 0, only_ids=only, limits=limits,
                    meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),
                            "contextdev": lambda: contextdev_meter(os.environ["CONTEXT_DEV_API_KEY"])})
-      except runner.RunRefused as e: return refuse(e.report)   # R41.1: projected over a cap (or no price/cap): 0 calls, job fails
+      except runner.RunRefused as e: return refuse(e.report)   # R41.1: no price/cap, unknown provider, live with no cap: 0 calls, job fails (exit 2)
+      if s.get("over_cap_projected"): write_alert(s["over_cap_projected"])   # R44.3: providers dropped on cap; the others ran, exit 0
+      job_summary(skipped_cap_month(BENCH / "runs", today[:7]), today[:7])
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"

@@ -150,6 +150,9 @@ def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
                                    "the run log's billed_units held the runner's unverified guard") if isinstance(ver.get(kind), (int, float)) else None}
         note = (((cfg or {}).get("run_notes") or {}).get(pid) or {}).get(run_date, {}).get(kind)
         if note: row["run_note"] = note   # owner-set label, e.g. a preliminary retest (config run_notes)
+        if main and main[0][1].get("sample_of"):   # spec R44.2: a budget-trimmed set (config run_schedule.full_limits) is labelled on the scorecard
+            row["sample_note"] = (f"reduced sample: first {main[0][1]['set_rows']} of {main[0][1]['sample_of']} items in this set, to keep the provider "
+                                  "inside its monthly cap (spec R44.2); not directly comparable with full-set rows")
         for k in ("entry", "volume"):
             for col in (f"{k}_tier_cost_per_1k", f"{k}_tier_cost_per_successful_1k"):
                 v = cc[col]; row[col] = _cell(None if v is None else ("inf" if v == float("inf") else v), _refs(rel, alln) + pref if v is not None else [],
