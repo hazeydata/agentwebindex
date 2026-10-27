@@ -4269,6 +4269,50 @@ class R41PreRun(unittest.TestCase):
         r = self._refused(lambda: self._k(900, cfg=c)); self.assertIn("900 planned calls + 0 this UTC hour > 899 per hour", r["reason"])
         s = self._k(899, cfg=c); self.assertEqual(len(self.calls), 899)
         self.calls = []; r = self._refused(lambda: self._k(1, cfg=c)); self.assertIn("1 planned calls + 899 this UTC hour > 899 per hour", r["reason"])
+    # ---- Kitty t1 survivors k06/k07/k10/k14 (behaviour, not source text) ----
+    AP = {"id": "apify", "categories": ["browser"], "key_env": "APIFY_API_TOKEN"}
+    def _ap(self, used_cents, n=100):   # apify browser at the committed price (0.155 cents/call x $0.01/credit), meter_budget stop $4.00
+        (self.tmp / "l.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": used_cents}, "over_free_units": 0}))
+        def ok(key, item): self.calls.append(item["id"]); return {"http_status": 200, "billed_units": 0.155, "text": "hello world page"}   # the Web Fetch event charge in cents
+        rows = [{"id": f"t{i}", "start_url": f"https://t{i}.example/", "goal": "g", "pass": {"type": "dom_text_contains", "value": "x"}, "timeout_s": 30, "category": "forms"} for i in range(n)]
+        return runner.run(providers=[self.AP], sets={"browser_tasks": {"rows": rows, "sha": "x"}}, pricing={"apify": {"browser": copy.deepcopy(PRICING_DOC["providers"]["apify"]["browser"])}},
+                          tos=TOS, adapters={"apify": {"browser": ok}}, cfg=copy.deepcopy(CFG), runs_dir=self.tmp / "runs", ledger_path=self.tmp / "l.json",
+                          run_date="2026-10-27", env={"APIFY_API_TOKEN": "mock-not-a-key"}, mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend",
+                          guard_dir=self.tmp / "guard", meters={"apify": lambda: 0.0}, sleep=lambda s: None)
+    def test_apify_meter_budget_uses_month_to_date_ledger(self):   # k06/k07: 100 x 0.155 cents = $0.155; $4.00 - 384.5 cents = $0.155 exactly at
+        s = self._ap(384.5); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 100))
+        self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
+        r = self._refused(lambda: self._ap(384.51)); p = r["providers"][0]   # 0.01 cent over: refused although the 500-cent free quota has 115 left
+        self.assertEqual((p["provider"], p["planned_calls"], p["projected_usd"], p["remaining_usd"]), ("apify", 100, "0.155", "0.1549"))
+        self.assertEqual((p["cap"]["kind"], p["cap"]["stop_usd"], p["cap"]["month_to_date_usd"]), ("usd", "4", "3.8451"))
+        self.assertIn("apify: projected $0.155 > remaining $0.1549", r["reason"]); self.assertFalse((self.tmp / "runs").exists())
+    CD = {"id": "contextdev", "categories": ["search"], "key_env": "CONTEXT_DEV_API_KEY"}
+    def _cd(self, used, n):   # contextdev (free_tier_guard: quota_credits 1000, stop_at_credits 900), synthetic credits price, counter empty
+        (self.tmp / "l.json").write_text(json.dumps({"month": "2026-10", "used": {"contextdev": used}, "over_free_units": 0}))
+        pr = copy.deepcopy(PRICING_DOC["providers"]["contextdev"]["search"]); pr["model"] = "credits"; pr["tiers"] = {"entry": {"name": "fixture", "usd_per_credit": 0.003}}
+        rows = [{"id": f"c{i}", "query": f"q{i}", "check": {"type": "url_exact", "value": "https://k.example/"}} for i in range(n)]
+        return runner.run(providers=[self.CD], sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing={"contextdev": {"search": pr}}, tos=TOS,
+                          adapters={"contextdev": {"search": self._kok}}, cfg=copy.deepcopy(CFG), runs_dir=self.tmp / "runs", ledger_path=self.tmp / "l.json",
+                          run_date="2026-10-27", env={"CONTEXT_DEV_API_KEY": "mock-not-a-key"}, mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend",
+                          guard_dir=self.tmp / "guard", meters={"contextdev": lambda: 0}, sleep=lambda s: None)
+    def test_free_tier_guard_counts_monthly_ledger(self):   # k10: 950 of 1000 used this month -> 50 left (stop_at 900 minus an empty counter would allow 900)
+        s = self._cd(950, 50); self.assertEqual((s["providers"][0]["status"], len(self.calls)), ("ran", 50))
+        self.tmp = mktmp(self); (self.tmp / "spend").mkdir(); (self.tmp / "guard").mkdir(); self.calls = []
+        r = self._refused(lambda: self._cd(950, 51)); p = r["providers"][0]
+        self.assertEqual((p["provider"], p["remaining_units"], p["cap"]["ledger_used_units"], p["cap"]["counter_used"]), ("contextdev", "50", "950", 0))
+        self.assertIn("contextdev: planned 51 units > remaining 50 free units", r["reason"])
+    def test_reprobe_only_ids_limits_planned_calls(self):   # k14: 200 rows, the re-probe filter keeps 100 -> exactly at the $4.00 stop, runs
+        self._mtd(3.85); rows = [{"id": f"b{i}", "url": f"https://b{i}.example/", "class": "static", "marker": {"type": "text_contains", "value": "hello world"}, "min_chars": 5} for i in range(200)]
+        keep = {f"b{i}" for i in range(100)}
+        for tag, only in (("f", lambda pid, iid: pid == "brightdata" and iid in keep), ("s", keep)):   # callable (re-probe) and set forms
+            self.calls = []
+            s = runner.run(providers=[self.BD], sets={"scrape_urls": {"rows": rows, "sha": "x"}}, pricing=self.BD_PRICE, tos={}, adapters={"brightdata": {"scrape": self._ok}},
+                           cfg=dict(CFG), runs_dir=self.tmp / f"runs{tag}", ledger_path=self.tmp / f"l{tag}.json", run_date="2026-10-27", env={"BRIGHTDATA_API_KEY": "m"},
+                           mock=True, now_fn=lambda: self.NOW, spend_dir=self.tmp / "spend", guard_dir=self.tmp / "guard", only_ids=only)
+            self.assertEqual((s["providers"][0]["status"], sorted(self.calls) == sorted(keep)), ("ran", True))
+            self._mtd(3.85)   # the run's own spend file update is not under test here
+        self.calls = []; r = self._refused(lambda: self._bd(200, tag="all"))   # control: the unfiltered 200 rows project $0.30 > $0.15
+        self.assertIn("projected $0.3 > remaining $0.15", r["reason"])
     def test_per_call_backstop_kept(self):   # the per-call guards still exist behind the projection (preflight=False only in tests)
         src = (BENCH / "awibench" / "runner.py").read_text()
         self.assertIn("would exceed free quota", src); self.assertIn("preflight=True", src)
