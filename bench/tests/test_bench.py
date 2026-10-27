@@ -3604,6 +3604,24 @@ class VendorConfirmationGate(ContextDevBase):
             probs = cd.check([C], b, h)
             self.assertTrue(any(x.startswith("R26") and want in x for x in probs), (drop, probs))
             if drop: self.assertEqual([x for x in probs if not x.startswith("R26")], [], (drop, probs))   # a key deletion: only R26 catches it
+    @staticmethod
+    def _r33_open_gates(cfg, tos):   # R33/R34: committed gate fields that are not at the closed state (false + null), per provider
+        out = []
+        for pid in ("contextdev", "keenable"):
+            g, t = (cfg.get("free_tier_guard") or {}).get(pid) or {}, (tos.get("providers") or {}).get(pid) or {}
+            if g.get("live_run_allowed", "missing") is not False: out.append(f"config free_tier_guard.{pid}.live_run_allowed={g.get('live_run_allowed', 'missing')!r}")
+            if "vendor_confirmation" not in g or g["vendor_confirmation"] is not None: out.append(f"config free_tier_guard.{pid}.vendor_confirmation not null")
+            if "vendor_confirmation" not in t or t["vendor_confirmation"] is not None: out.append(f"tos_matrix providers.{pid}.vendor_confirmation not null")
+            if guard_mod.live_allowed(cfg, tos.get("providers") or {}, pid): out.append(f"guard.live_allowed({pid}) is True")
+        return out
+    def test_r33_committed_gate_closed_catches_reflip(self):   # R33/R34: #27 ships closed; a full, valid re-flip of the committed files must fail pytest, not only the checker
+        import copy
+        cfg, tos = load_yaml(BENCH / "config.yaml"), load_yaml(BENCH / "tos_matrix.yaml")
+        self.assertEqual(self._r33_open_gates(cfg, tos), [], "the committed gate must be closed on #27 (R33/R34: live_run_allowed false, vendor_confirmation null); a flip lands only in its own flip PR")
+        c2, t2 = copy.deepcopy(cfg), copy.deepcopy(tos)   # control: a fully valid re-flip is detected
+        c2["free_tier_guard"]["contextdev"] |= {"live_run_allowed": True, "vendor_confirmation": dict(self.REC)}; t2["providers"]["contextdev"]["vendor_confirmation"] = dict(self.REC)
+        self.assertIsNone(gates_mod.record_error(self.REC)); self.assertTrue(guard_mod.live_allowed(c2, t2["providers"], "contextdev"))
+        self.assertTrue(self._r33_open_gates(c2, t2))
 
 class SnapshotPricesGate(unittest.TestCase):
     def test_r10_price_snapshot_skips_unconfirmed_providers(self):  # AC24 / R10: no context.dev page fetch, no data/prices/contextdev.json
