@@ -21,3 +21,7 @@ This PR records the vendor's written request and opens the context.dev live gate
 - Problem: `K1Committed.test_ac3_live_allowed_generalized` asserted `live_allowed(CFG, TOS, "contextdev")` (and the default id) is False on the committed config. #28 commits the contextdev confirmation, which makes it True, so the test failed on #28.
 - Ruling (R30): check contextdev on fixtures, strict both ways: no confirmation record gives False; a valid record gives True. No skip or xfail. Keenable assertions unchanged. Test files and this entry only; no PROTECTED file (`confirmation_diff.PROTECTED`, e.g. gates.py) and no config (config.yaml, tos_matrix.yaml) changed.
 - Order: this test-only PR gets its own SHIP and merge into feat/awi-provider-contextdev-001 first. Then #28 re-syncs on the new base, with `python3 -m awibench.confirmation_diff origin/feat/awi-provider-contextdev-001 HEAD` rc=0 and the full suite green, before #28 proceeds.
+
+## R33/R34: gate re-closed for #27 (2026-10-26)
+- Gate re-closed for #27 per R33; contextdev re-opens only in its flip PR (number TBD).
+- State on this branch: bench/config.yaml `free_tier_guard.contextdev.live_run_allowed` is `false` and `vendor_confirmation` is `null`; bench/tos_matrix.yaml `providers.contextdev.vendor_confirmation` is `null`. Keenable stays closed (`false`/`null`). Lines 3 and 21 above describe the #28/#38 flip and are kept as written (append-only).
