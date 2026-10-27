@@ -299,6 +299,10 @@ def full_reserve(cfg, now, full):
             if dt.date(now.year, now.month, d).weekday() == c["weekday"] and dt.datetime(now.year, now.month, d, c["hour"], c["minute"], tzinfo=dt.timezone.utc) > now)
     return {pid: u * n for pid, u in per.items()} if n else {}
 
+def floor_line(pid, f):
+    """Owner call (Lucille 2, 2026-10-27 6:20 AM ET): the job-log line that tells the owner a shared-quota balance hit its floor."""
+    return f"{pid}_floor_reached: shared balance {f['balance_credits']} credits, floor {f['floor_credits']} credits, next {f['planned_units']} units; {pid} skipped ({f['where']})"
+
 def limit_sets(sets, lim):
     """Spec R44.2 run-size limits for one provider: lim = {kind: max items per set of that kind} (0 = none). A trimmed set keeps
     its first n rows and records sample_of (the full size), so set_rows is the sample actually run and the scorecard notes it."""
@@ -466,13 +470,19 @@ def _project(r, cfg, ledger, spend_dir, gdir, now, meters=None, reserve=None):
         floor = _dec(sq.get("floor_credits"))
         if floor is None or floor < 0: return fail(f"cap missing (shared_quota.{pid}.floor_credits)")
         mv = read_meter(meters, pid)
-        if mv is None: return breach("shared-quota meter unreadable; failing closed")
-        rem_u = min(rem_u, _dec(mv) - floor); info |= {"shared_remaining_credits": _s(_dec(mv)), "shared_floor_credits": _s(floor)}
+        if mv is None:
+            out["floor_reached"] = {"reached": None, "balance_credits": None, "floor_credits": _s(floor), "where": "pre-run"}
+            return breach("shared-quota meter unreadable; failing closed")
+        mv = _dec(mv); hit = units > mv - floor   # owner call 2026-10-27 6:20 AM ET: skip whenever the balance is (or would go) below the floor
+        out["floor_reached"] = {"reached": hit, "balance_credits": _s(mv), "floor_credits": _s(floor), "planned_units": _s(units), "where": "pre-run"}
+        rem_u = min(rem_u, mv - floor); info |= {"shared_remaining_credits": _s(mv), "shared_floor_credits": _s(floor)}
     rv = _dec(reserve) if reserve else None
     if rv: info |= {"reserved_for_full_runs_units": _s(rv)}
     q_rem_usd = rem_u * proj / units if units else Decimal(0)
     out["cap"] = info if usd_rem is None else out["cap"] | {"free_quota": info}; out["remaining_units"] = _s(rem_u)
     out["remaining_usd"] = _s(q_rem_usd if usd_rem is None else min(usd_rem, q_rem_usd))
+    if sq and out["floor_reached"]["reached"]:
+        return breach(f"{pid}_floor_reached: shared balance {out['floor_reached']['balance_credits']} credits minus planned {_s(units)} units would go below the floor of {out['floor_reached']['floor_credits']} credits kept for Fred's other tools")
     if units > rem_u: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} free units (projected ${_s(proj)} > remaining ${out['remaining_usd']})")
     if rv and units > rem_u - rv: return breach(f"planned {_s(units)} units > remaining {_s(rem_u)} minus {_s(rv)} reserved for the weekly full runs left this month (owner call 3)")
     if fg and (pid in guard.FREE_ONLY or fg.get("window") == "utc_hour"):
@@ -502,11 +512,15 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     if mock and is_under(gdir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
         raise RuntimeError("mock run credit counters must not go to bench/spend or published dirs")
     ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
-    skipped_cap = {}
+    skipped_cap = {}; floor_hits = summary["floor_reached"] = {}   # owner call 2026-10-27 6:20 AM ET: <pid>_floor_reached signal per shared_quota provider
     if preflight:   # R41.1/R41.2: once per run, before any provider call; hard problems refuse the whole run, cap breaches drop one provider (R44.3)
         rep = check_run(providers=providers, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg, env=env, ledger=ledger, spend_dir=spend_dir,
                         guard_dir=gdir, run_date=run_date, mock=mock, only_ids=only_ids, limits=limits, meters=meters, reserve=reserve, now=(now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)))
         if rep["refused"]: raise RunRefused(rep)
+        for x in rep["providers"]:
+            if x.get("floor_reached"):
+                floor_hits[x["provider"]] = x["floor_reached"]
+                if x["floor_reached"]["reached"]: print(floor_line(x["provider"], x["floor_reached"]))
         if rep["skipped_cap"]:
             summary["over_cap_projected"] = rep; run_id = f"{run_date}-offset{offset_h}-{rep['checked_at'][11:19].replace(':', '')}"
             skipped_cap = {x["provider"]: x | {"run_id": run_id} for x in rep["skipped_cap"]}
@@ -585,7 +599,9 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         if sv is None:
                             status = stale("quota", status, "shared-quota meter unreadable; failing closed"); break
                         if sv - est < sq["floor_credits"]:
-                            status = stale("quota", status, f"shared balance {sv} credits - next call {est} would go below the floor of {sq['floor_credits']} kept for Fred's other tools"); break
+                            floor_hits[pid] = {"reached": True, "balance_credits": str(sv), "floor_credits": str(sq["floor_credits"]), "planned_units": str(est), "where": f"before call {item['id']} ({set_name})"}
+                            print(floor_line(pid, floor_hits[pid]))
+                            status = stale("quota", status, f"{pid}_floor_reached: shared balance {sv} credits - next call {est} would go below the floor of {sq['floor_credits']} kept for Fred's other tools"); break
                     if budget is not None and clock() - t_start > budget:
                         status = stale("timeout", status, f"run budget {budget}s used up before {item['id']} ({set_name})")
                         break

@@ -1,5 +1,5 @@
 """SPEC-bench AC tests. MOCK data only; all outputs go to a temp dir. Run: python -m unittest -v (cwd bench/)."""
-import contextlib, datetime as dt, hashlib, json, math, os, re, shutil, subprocess, sys, unittest
+import contextlib, datetime as dt, hashlib, io, json, math, os, re, shutil, subprocess, sys, unittest
 import pytest
 from pathlib import Path
 from unittest import mock
@@ -371,12 +371,17 @@ class T(unittest.TestCase):
         n = sum(len(v["rows"]) for k, v in kw["sets"].items() if runner.set_kind(k) == "search"); floor = 50
         kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}})
         kw["meters"] = {"mocksearch": lambda: floor + 2 * n - 10 * ad.calls}   # pre-run: exactly fits; then the balance falls 10 per AWI call
-        s = runner.run(**kw); p = s["providers"][0]
-        self.assertEqual(p["status"], "stale_quota"); self.assertIn(f"below the floor of {floor}", p["reason"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out): s = runner.run(**kw)
+        p = s["providers"][0]
+        self.assertEqual(p["status"], "stale_quota"); self.assertIn(f"below the floor of {floor}", p["reason"]); self.assertTrue(p["reason"].startswith("mocksearch_floor_reached: "))
         self.assertTrue(0 < p["calls"] < n); self.assertGreaterEqual(floor + 2 * n - 10 * (ad.calls - 1) - 2, floor)   # the last call kept the floor
+        f = s["floor_reached"]["mocksearch"]; self.assertIs(f["reached"], True); self.assertTrue(f["where"].startswith("before call "))   # owner call 6:20 AM ET: the signal
+        self.assertEqual([l for l in out.getvalue().splitlines() if l.startswith("mocksearch_floor_reached: ")], [runner.floor_line("mocksearch", f)])
         kw2, ad2, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
         kw2["cfg"] = dict(kw2["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}}); kw2["meters"] = {"mocksearch": lambda: floor + 2 * n - 2 * ad2.calls}
-        self.assertEqual(runner.run(**kw2)["providers"][0]["status"], "ran")   # only AWI's own use: every call runs, the floor is kept
+        s2 = runner.run(**kw2); self.assertEqual(s2["providers"][0]["status"], "ran")   # only AWI's own use: every call runs, the floor is kept
+        self.assertIs(s2["floor_reached"]["mocksearch"]["reached"], False)
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
@@ -4402,7 +4407,7 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(runner.provider_problems([self.BD], c, {}, mock=True), [])
 
     # ---- collector: non-zero exit + over_cap_projected.json, 0 network ----
-    def _main(self, argv, env_extra=None, prep=None, run_patch=None):
+    def _main(self, argv, env_extra=None, prep=None, run_patch=None, fc_meter=None):
         import shutil
         root = self.tmp / "site"
         shutil.copytree(SITE / "bench", root / "bench", ignore=shutil.ignore_patterns("__pycache__")); shutil.copytree(SITE / "data", root / "data")
@@ -4414,7 +4419,7 @@ class R41PreRun(unittest.TestCase):
         with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
              mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", *argv]), mock.patch("urllib.request.urlopen", side_effect=no_net), \
              mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), mock.patch.object(B, "apify_meter", side_effect=AssertionError("meter call")), \
-             mock.patch.object(B, "firecrawl_meter", side_effect=AssertionError("meter call")), \
+             mock.patch.object(B, "firecrawl_meter", **({"return_value": fc_meter} if fc_meter is not None else {"side_effect": AssertionError("meter call")})), \
              mock.patch("builtins.print", side_effect=lambda *a, **k: err.append(" ".join(map(str, a)))):
             with (mock.patch.object(B.runner, "run", run_patch) if run_patch else contextlib.nullcontext()): rc = B.main()
         f = root / "alerts" / "over_cap_projected.json"
@@ -4507,8 +4512,8 @@ class R41PreRun(unittest.TestCase):
         q = self._q3(self._project(kw)); self.assertEqual(sorted(q), sorted(self.Q3))
         for pid, x in q.items():
             self.assertIsNone(x["reason"], pid); self.assertLessEqual(float(x["planned_units"]), sch["full_reserve_units"][pid], pid)
-            quota = float(x["cap"]["quota_units"]); floor = CFG.get("shared_quota", {}).get(pid, {}).get("floor_credits", 0)
-            self.assertLessEqual(sch["max_full_runs_per_month"] * sch["full_reserve_units"][pid], quota - floor, pid)
+            quota = float(x["cap"]["quota_units"])   # AWI's own free-tier units; the firecrawl floor is on the shared balance (separate check)
+            self.assertLessEqual(sch["max_full_runs_per_month"] * sch["full_reserve_units"][pid], quota, pid)
         self.assertEqual(sch["max_full_runs_per_month"], 5)   # a month has at most 5 Mondays
     def test_quota_smoke_is_minimal(self):   # owner call 3: 1 item per set in smoke for the quota providers
         kw = self._captured(["--mode", "smoke"], self.QKEYS)
@@ -4526,7 +4531,7 @@ class R41PreRun(unittest.TestCase):
         def cap(argv): r = self._captured(argv); shutil.rmtree(self.tmp / "site"); return r
         sm = cap(["--mode", "smoke"]); fu = cap(["--mode", "full"]); rp = cap(["--reprobe-offset", "24"])
         self.assertEqual(fu["reserve"], {}); self.assertEqual(fu["limits"], CFG["run_schedule"]["full_limits"])
-        self.assertEqual(set(sm["reserve"]) | set(rp["reserve"]) <= set(self.Q3), True)
+        self.assertEqual(set(sm["reserve"]) | set(rp["reserve"]) <= set(self.Q3) | {"exa"}, True)
         self.assertIn("firecrawl", sm["meters"])
     def test_smoke_drops_quota_provider_before_the_full_reserve(self):   # owner call 3: smoke and re-probes drop them first; the full still runs
         sm = self._captured(["--mode", "smoke", "--only-providers", "tavily"], self.QKEYS); shutil.rmtree(self.tmp / "site")
@@ -4542,6 +4547,7 @@ class R41PreRun(unittest.TestCase):
         self.assertIsNone(self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need}))["firecrawl"]["reason"])   # exactly at the floor
         y = self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need - 1}))["firecrawl"]
         self.assertTrue(y["cap_breach"]); self.assertEqual(y["remaining_units"], str(need - 1)); self.assertEqual(y["cap"]["shared_floor_credits"], str(floor))
+        self.assertTrue(y["reason"].startswith("firecrawl_floor_reached: ")); self.assertIs(y["floor_reached"]["reached"], True)
         def down(): raise OSError("meter down")
         z = self._q3(self._project(fu, meters={"firecrawl": down}))["firecrawl"]
         self.assertTrue(z["cap_breach"]); self.assertIn("shared-quota meter unreadable", z["reason"])
@@ -4549,6 +4555,47 @@ class R41PreRun(unittest.TestCase):
     def test_full_cron_matches_workflow(self):   # full_reserve counts the same Mondays benchmark.yml runs the full on
         c = CFG["run_schedule"]["full_cron_utc"]; wf = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
         self.assertIn(f"- cron: '{c['minute']} {c['hour']} * * {(c['weekday'] + 1) % 7}'", wf.replace('"', "'"))
+    # ---- owner calls (Lucille 2, 2026-10-27 6:20 AM ET): Firecrawl floor 10,000 + firecrawl_floor_reached; Exa resized for the fulls ----
+    def test_firecrawl_floor_is_the_owner_value_with_its_basis(self):
+        sq = CFG["shared_quota"]["firecrawl"]; self.assertEqual(sq["floor_credits"], 10000)
+        for s in ("owner-asserted", "about 10% of the 100K plan", "CONFLICT", "1,000", "research/p_firecrawl.txt", "Firecrawl account is paid"): self.assertIn(s, sq["floor_note"], s)
+    def test_firecrawl_skipped_whenever_balance_below_floor(self):
+        fu = self._captured(["--mode", "full", "--only-providers", "firecrawl"], self.QKEYS)
+        for bal in (0, 1000, 9999, 10000):   # a 1,000-credit plan can never reach the floor: firecrawl is always skipped
+            x = self._q3(self._project(fu, meters={"firecrawl": lambda b=bal: b}))["firecrawl"]
+            self.assertTrue(x["cap_breach"], bal); self.assertIs(x["floor_reached"]["reached"], True, bal); self.assertTrue(x["reason"].startswith("firecrawl_floor_reached: "), bal)
+        ok = self._q3(self._project(fu, meters={"firecrawl": lambda: 100000}))["firecrawl"]   # the 100K plan, untouched by other tools
+        self.assertIsNone(ok["reason"]); self.assertEqual(ok["floor_reached"] | {}, {"reached": False, "balance_credits": "100000", "floor_credits": "10000", "planned_units": ok["planned_units"], "where": "pre-run"})
+    def test_main_floor_reached_log_line_and_job_summary(self):   # the owner hears it: a job-log line and a job-summary field
+        summ = self.tmp / "step_summary.md"
+        rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key", "GITHUB_STEP_SUMMARY": str(summ)}, fc_meter=9000)
+        self.assertEqual((rc, urls), (0, [])); self.assertEqual([x["provider"] for x in art["skipped_cap"]], ["firecrawl"])
+        self.assertTrue(any(l.startswith("firecrawl_floor_reached: shared balance 9000 credits, floor 10000 credits") for l in err), err)
+        self.assertIn("- firecrawl_floor_reached: true (shared balance 9000 credits, floor 10000 credits, pre-run)", summ.read_text())
+        shutil.rmtree(self.tmp / "site"); summ.unlink()
+        rc, urls, art, err = self._main(["--mode", "smoke", "--only-providers", "firecrawl"], {"FIRECRAWL_API_KEY": "mock-not-a-key", "GITHUB_STEP_SUMMARY": str(summ)})
+        self.assertEqual((rc, urls), (0, [])); self.assertIn("- firecrawl_floor_reached: unknown (shared balance unreadable; firecrawl skipped, fail closed)", summ.read_text())
+        self.assertFalse(any(l.startswith("firecrawl_floor_reached: ") for l in err))
+    def test_floor_summary_fields(self):
+        sh = CFG["shared_quota"]
+        self.assertEqual(B.floor_summary(sh, {}), ["- firecrawl_floor_reached: not checked (not called in this run)"])
+        self.assertEqual(B.floor_summary(sh, {"firecrawl": {"reached": False, "balance_credits": "50000", "floor_credits": "10000", "where": "pre-run"}}),
+                         ["- firecrawl_floor_reached: false (shared balance 50000 credits, floor 10000 credits, pre-run)"])
+    def test_exa_every_full_fits_its_quota_worst_week(self):   # Exa: 5 untrimmed worst-case fulls fit 1,428 units; per-full rows not trimmed
+        kw = self._news50(self._captured(["--mode", "full", "--only-providers", "exa"])); sch = CFG["run_schedule"]
+        self.assertNotIn("exa", sch["full_limits"])
+        x = [x for x in self._project(kw)["providers"] if x["provider"] == "exa"][0]
+        self.assertIsNone(x["reason"]); self.assertEqual(x["planned_calls"], 100 + 50); self.assertLessEqual(float(x["planned_units"]), sch["full_reserve_units"]["exa"])
+        self.assertLessEqual(sch["max_full_runs_per_month"] * sch["full_reserve_units"]["exa"], float(x["cap"]["quota_units"]))
+    def test_exa_smoke_shrunk_first_and_dropped_before_the_fulls(self):
+        sm = self._captured(["--mode", "smoke", "--only-providers", "exa"]); shutil.rmtree(self.tmp / "site")
+        fu = self._captured(["--mode", "full", "--only-providers", "exa"])
+        self.assertEqual(sm["limits"]["exa"], {"search": 1})
+        ex = lambda kw, **k: [x for x in self._project(kw, **k)["providers"] if x["provider"] == "exa"][0]
+        s = ex(sm, reserve={}); self.assertEqual(s["planned_calls"], 2)   # 1 evergreen + 1 news search (was 31)
+        res = 5 * CFG["run_schedule"]["full_reserve_units"]["exa"]; used = {"exa": 1428 - res - 1}
+        d = ex(sm, used=used, reserve={"exa": res}); self.assertTrue(d["cap_breach"]); self.assertIn(f"minus {res} reserved for the weekly full runs", d["reason"])
+        self.assertIsNone(ex(fu, used=used)["reason"])   # the full still runs on the same ledger
     def test_limit_sets_trims_and_labels(self):   # R44.2 scorecard note: set_rows is the sample run, sample_of the full set
         sets = {"search_evergreen": {"rows": [{"id": i} for i in range(100)], "sha": "a"}, "browser_tasks": {"rows": [{"id": i} for i in range(20)], "sha": "b"}}
         t = runner.limit_sets(sets, {"search": 9})

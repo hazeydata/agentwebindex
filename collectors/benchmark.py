@@ -346,9 +346,24 @@ def skipped_cap_month(runs_dir, month):
             if r.get("status") == runner.SKIPPED_CAP and not r.get("mock"): seen.setdefault(r["provider"], set()).add(r["run_id"])
     return {pid: len(ids) for pid, ids in sorted(seen.items())}
 
-def job_summary(counts, month):
-    """Spec R43: the job summary shows month-to-date skipped_cap runs per provider ($GITHUB_STEP_SUMMARY in Actions; printed always)."""
+def floor_summary(shared, hits):
+    """Owner call (Lucille 2, 2026-10-27 6:20 AM ET): one `<pid>_floor_reached` field per shared_quota provider in the job summary:
+    true (the balance is or would go below floor_credits; the provider was skipped), false, unknown (balance unreadable: skipped,
+    fail closed) or not checked (the provider was not in this run)."""
+    out = []
+    for pid in sorted(shared or {}):
+        f = (hits or {}).get(pid)
+        if f is None: v = "not checked (not called in this run)"
+        elif f["reached"] is None: v = f"unknown (shared balance unreadable; {pid} skipped, fail closed)"
+        else: v = f"{'true' if f['reached'] else 'false'} (shared balance {f['balance_credits']} credits, floor {f['floor_credits']} credits, {f['where']})"
+        out.append(f"- {pid}_floor_reached: {v}")
+    return out
+
+def job_summary(counts, month, shared=None, hits=None):
+    """Spec R43: the job summary shows month-to-date skipped_cap runs per provider ($GITHUB_STEP_SUMMARY in Actions; printed always),
+    plus the shared-quota floor fields (floor_summary)."""
     lines = [f"### skipped_cap runs, month to date ({month})", ""] + ([f"- {pid}: {n}" for pid, n in counts.items()] or ["- none"])
+    if shared: lines += ["", "### shared-quota floor", ""] + floor_summary(shared, hits)
     print("\n".join(lines))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh: fh.write("\n".join(lines) + "\n")
@@ -426,7 +441,7 @@ def main():
                            "firecrawl": lambda: firecrawl_meter(os.environ["FIRECRAWL_API_KEY"])})
       except runner.RunRefused as e: return refuse(e.report)   # R41.1: no price/cap, unknown provider, live with no cap: 0 calls, job fails (exit 2)
       if s.get("over_cap_projected"): write_alert(s["over_cap_projected"])   # R44.3: providers dropped on cap; the others ran, exit 0
-      job_summary(skipped_cap_month(BENCH / "runs", today[:7]), today[:7])
+      job_summary(skipped_cap_month(BENCH / "runs", today[:7]), today[:7], cfg.get("shared_quota"), s.get("floor_reached"))
     for p in s["providers"]: print(json.dumps(p))
     doc = tables.build(BENCH / "runs", pricing, BENCH / "sets", tos, cfg)
     out = ROOT / "data" / "benchmarks" / "latest.json"
