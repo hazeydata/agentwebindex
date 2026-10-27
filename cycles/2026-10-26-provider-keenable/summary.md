@@ -6,7 +6,7 @@ Flip-only PR (AC24e, #36). Re-lands the K2 flip. **R36 (2026-10-26 11:59 PM ET, 
 - Record: date "2026-10-25", sender "@styskin (Andrey Styskin, CEO and co-founder, Keenable)", quote "Please include @KeenableAI into your tests.", evidence_path `cycles/2026-10-26-provider-keenable/evidence/posts-api.json.txt` (the saved public X API read; archive.org 523 and archive.today 429 on the Oct 26 08:45 EDT retry; HTML capture in `evidence/post-capture-og.html.txt`, SHA256SUMS), recorded_pr https://github.com/hazeydata/agentwebindex/pull/36 (this PR; per Spec Keenable R8, changed from #30).
 - Evidence: `evidence/posts-api.json.txt`. Decisions and the fact-check citation: decisions.md.
 
-No live calls were made. Merge needs its own Weatherman SHIP at the exact head, confirmation-diff-base green at that head, and chief merging (AC11). Live runs still need Fred's go.
+No live calls were made. Merge needs its own Weatherman SHIP at the exact head, confirmation-diff-base green at that head, and chief merging (AC11). Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
 
 **Still broken:**
 - README.md (the Keenable bullet and the vendor-confirmation gate bullet) and the matching bench/README.md and SPEC-bench.md text still say keenable is `false`/`null` and "both with `vendor_confirmation: null`". R13 rejects README in a flip PR, so a docs-only PR against `main` fixes them after #36 merges (owner: implement). The contextdev flip, hazeydata/agentwebindex#41, has the same follow-up.
