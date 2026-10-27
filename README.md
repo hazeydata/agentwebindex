@@ -40,6 +40,8 @@ The price snapshot needs no secrets. Both workflows use the built-in `GITHUB_TOK
 - Price snapshot: `17 9 * * *` (daily 09:17 UTC = 05:17 ET during EDT)
 - Smoke benchmark: `41 10 * * *` (daily)
 - Full benchmark: `23 11 * * 1` (Mondays)
+- News re-probes: `23 17 * * 1` (+6 h), `23 11 * * 2` (+24 h), `23 11 * * 4` (+72 h)
+- These are the `benchmark` workflow's schedule (`.github/workflows/benchmark.yml`). Its re-enable is approved (spec R40), sequenced after paper-desk spec-002 R25 reaches Kitty; while it is `disabled_manually` in the repo's Actions settings, no scheduled run happens.
 
 ## Known v1 gaps
 - Benchmark adapters (`ADAPTERS` in benchmark.py) are empty: providers with a key are recorded as `not_implemented` until adapters are written after signups.
@@ -49,7 +51,7 @@ The price snapshot needs no secrets. Both workflows use the built-in `GITHUB_TOK
 
 ## v1.1 additions
 - **Page text out of git:** full text lives only in `data/cache/prices/<id>.txt` (gitignored). The prices workflow restores the previous run's cache via `actions/cache` (for text diffs) and uploads it as artifact `price-page-text-<run_id>` (90 days). Git keeps only `prices_found` and `text_sha256`. `collectors/migrate_text_to_cache.py` did the one-off migration.
-- **Spend cap:** set repo variable `MONTHLY_CAP_USD` (default `0` = free-tier-only). Per provider/category, `providers.json` → `costs.<cat>.{cost_per_call_usd, free_calls_per_month, source, verified_at}`, all `null` until verified. Null quota with cap 0, or null cost with cap > 0, means the provider is skipped. Usage is in `data/spend/YYYY-MM.json`.
+- **Spend cap:** `MONTHLY_CAP_USD` is set to `"0"` (free-tier-only) in `.github/workflows/benchmark.yml`, not a repo variable; the runner refuses any other value (D4). Per provider/category, `providers.json` → `costs.<cat>.{cost_per_call_usd, free_calls_per_month, source, verified_at}`, all `null` until verified. Null quota with cap 0, or null cost with cap > 0, means the provider is skipped. Usage is in `data/spend/YYYY-MM.json`.
 - **Downloads:** `build.py` writes `dist/data/prices.csv` (one row per amount) and `dist/data/prices.json`, linked from /prices/.
 - **Newsletter:** set `beehiiv_embed_url` in `site.config.json` (https only) to render the iframe; leave it empty to keep the disabled "Coming soon" form.
 - **Hooks (spec pending):** `load_test_set`, `cost_per_1k`, `freshness_score`, `ADAPTERS` in `collectors/benchmark.py`.

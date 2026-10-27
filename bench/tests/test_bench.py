@@ -4116,3 +4116,34 @@ class K3T3Mutants(Base):   # Kitty t3 survivors t5, t8, t17, i6, i19
     def test_i19_stop_statuses_are_stale(self):
         for st in guard.STOP_STATUSES: self.assertTrue(B.is_stale({"status": st}), st)
         self.assertTrue(B.is_stale({"status": "rate_limited"})); self.assertFalse(B.is_stale({"status": "ran"}))
+
+class R40ReEnableACs(unittest.TestCase):
+    """Spec AWI-PROVIDER-CONTEXTDEV-001 R40.4 (benchmark workflow re-enable): pins the ACs the committed code already meets.
+    The workflow's Actions state (disabled_manually) is a repo setting, not code; these tests do not and cannot enable it."""
+    WF = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
+    def test_r40_schedule_on_in_workflow(self):   # R40.4: the workflow schedule is on (in the file)
+        lines = self.WF.splitlines(); i = lines.index("on:")
+        self.assertEqual(lines[i + 1].strip(), "schedule:")
+        crons = re.findall(r'^\s+- cron: "([^"]+)"', self.WF, re.M)
+        self.assertEqual(crons, ["41 10 * * *", "23 11 * * 1", "23 17 * * 1", "23 11 * * 2", "23 11 * * 4"])
+        self.assertIn("python collectors/benchmark.py $ARGS", self.WF)
+    def test_r40_caps_unchanged(self):   # R40.4: the caps are unchanged in config (and the workflow's $0 cap)
+        self.assertEqual(CFG["monthly_cap_usd"], 0); self.assertIn('MONTHLY_CAP_USD: "0"', self.WF)
+        self.assertEqual(CFG["ceo_free_tier_allowlist"], [])
+        self.assertEqual(CFG["month1_free_tier_providers"], ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless", "contextdev", "keenable"])
+        g = CFG["free_tier_guard"]
+        self.assertEqual((g["contextdev"]["quota_credits"], g["contextdev"]["stop_at_credits"]), (1000, 900))
+        self.assertEqual((g["keenable"]["quota_credits"], g["keenable"]["stop_at_credits"], g["keenable"]["rate_limit"]), (900, 899, {"max_per_second": 9, "max_per_hour": 899}))
+        self.assertIs(g["keenable"]["paid_usage_allowed"], False)
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0})
+        self.assertEqual({k: CFG["spend_budget"]["brightdata"][k] for k in ("stop_usd", "cap_usd")}, {"stop_usd": 4.0, "cap_usd": 5.0})
+    def test_r40_unlisted_provider_gets_no_call(self):   # R40.4 (partly): a provider off the month-one list is never called
+        calls = []
+        with tmpd(self) as d:
+            d = Path(d)
+            s = runner.run(providers=[{"id": "newprov", "categories": ["search"], "key_env": "NEWPROV_KEY"}],
+                           sets={"search_evergreen": {"rows": [{"id": "i1", "query": "q"}], "sha": "x"}}, pricing={}, tos={},
+                           adapters={"newprov": {"search": lambda k, it: calls.append(it) or {"results": []}}}, cfg=dict(CFG),
+                           runs_dir=d / "runs", ledger_path=d / "l.json", run_date="2026-10-27", env={"NEWPROV_KEY": "x"}, mock=True,
+                           spend_dir=d / "spend", guard_dir=d / "guard")
+        self.assertEqual(calls, []); self.assertEqual([p["status"] for p in s["providers"]], ["skipped_not_month1"])
