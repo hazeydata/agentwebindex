@@ -209,7 +209,7 @@ def contextdev_meter(key):
 # "`POST /v1/search/public` takes the same body and returns the same shape, with no API key"; X-Keenable-Title is required). No key, no
 # signup; the keyed /v1/search and the x402 routes are never called, and no keenable.ai page is fetched. Built with mocks in K1; open since the K2 flip PR #36 (keyless, so
 # any harness run calls it; scheduled runs are stopped only by the benchmark workflow being disabled_manually in the repo's Actions
-# settings; its re-enable within the caps is approved by Fred, 1:36 AM ET Oct 27, sequenced after paper desk R25 reaches Kitty).
+# settings; its re-enable within the caps is approved (spec R40), sequenced after paper desk R25 reaches Kitty).
 # No live keenable call has been made yet as of this comment. Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go.
 KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search/public"
 KEENABLE_TITLE = "AgentWebIndex"

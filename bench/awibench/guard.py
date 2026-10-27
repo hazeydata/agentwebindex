@@ -15,7 +15,7 @@ the committed config and tos_matrix carry live_run_allowed True and the #36 vend
 It is keyless (KEYLESS) and publishable (not in publish_hold; AWI-KEENABLE-HOLD cancelled, Lucille 2, 1:33 AM ET Oct 27,
 agent-asserted), so any harness run calls it. The only thing stopping scheduled live calls is the benchmark workflow being
 disabled_manually in the repo's Actions settings (not in code). Its re-enable to run live on schedule within the caps is
-approved (Fred, 1:36 AM ET Oct 27), sequenced after paper desk R25 reaches Kitty. No live keenable call has been made yet
+approved (spec R40), sequenced after paper desk R25 reaches Kitty. No live keenable call has been made yet
 as of this comment. Live runs are covered by Fred's Oct 26 go within spend caps (R24, R39); there is no per-run go. Any run
 over a cap or adding a new provider stops and goes back to Lucille 2.
 - live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
