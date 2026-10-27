@@ -340,6 +340,31 @@ class T(unittest.TestCase):
     def test_ac11_nonzero_cap_refused(self):
         kw, _, _ = self._setup_run(); kw["env"] = dict(kw["env"], MONTHLY_CAP_USD="5")
         with self.assertRaises(runner.CapViolation): runner.run(**kw)
+    # R42.3: a free-quota provider ($0 USD cap) is checked by planned calls against its REMAINING free quota before any call.
+    # mockscrape: per_request, 1 unit/call; scrape_urls has 150 rows, 30 anti_bot ToS-skipped -> 120 planned calls.
+    MS = [{"id": "mockscrape", "categories": ["scrape"], "key_env": "MOCK_SCRAPE_KEY"}]
+    def _r42(self, quota, **kw2):
+        kw, ad, _ = self._setup_run(units_per_month=quota, providers=self.MS); kw.update(kw2); return kw, ad
+    def test_r42_free_quota_under_runs(self):
+        kw, ad = self._r42(121); s = runner.run(**kw)
+        self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])
+    def test_r42_free_quota_exactly_at_quota_runs(self):
+        kw, ad = self._r42(120); s = runner.run(**kw)
+        self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])
+    def test_r42_free_quota_plus_one_refuses_whole_run(self):
+        kw, ad = self._r42(119)
+        with self.assertRaises(runner.RunRefused) as e: runner.run(**kw)
+        r = e.exception.report; p = r["providers"][0]
+        self.assertEqual((p["provider"], p["planned_calls"], p["remaining_units"], p["cap"]["kind"]), ("mockscrape", 120, "119", "free_quota_units"))
+        self.assertIn("planned 120 units > remaining 119 free units", p["reason"])
+        self.assertFalse(kw["ledger_path"].exists()); self.assertFalse(kw["runs_dir"].exists())   # 0 calls, nothing written
+    def test_r42_free_quota_counts_month_to_date_ledger(self):   # remaining = quota minus this month's ledger units
+        kw, ad = self._r42(240); runner.run(**kw)   # 120 used
+        s = runner.run(**kw); self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("ran", 120)])   # 120 left: exactly at quota
+        kw3, _ = self._r42(359)
+        kw3["ledger_path"].parent.mkdir(parents=True, exist_ok=True); kw3["ledger_path"].write_text(kw["ledger_path"].read_text())   # 240 used, 119 left
+        with self.assertRaises(runner.RunRefused) as e: runner.run(**kw3)
+        self.assertIn("remaining 119 free units", e.exception.report["reason"])
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
