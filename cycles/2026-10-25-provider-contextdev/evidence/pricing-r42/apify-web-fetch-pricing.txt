@@ -1,0 +1,303 @@
+Pricing · Web Fetch · Apify
+Skip to content
+Get started
+Log in
+Solutions
+Back
+MCP server configuration
+Configure your Apify MCP server with Actors and tools for seamless integration with MCP clients.
+Start building
+Apify for
+Enterprise
+Startups
+Universities
+Nonprofits
+Use cases
+Data for generative AI
+Data for AI agents
+Lead generation
+Market research
+View more →
+Consulting
+Professional services
+Apify Partners
+Product
+Back
+Start here!
+Ready-to-run tools for your AI agents and apps. Just pick one and go.
+Browse 99,597 Actors
+Apify platform
+Apify Store
+Actors for any job on the web
+Actors
+Build and run tools for AI agents and automation
+Integrations
+Connect with apps and services
+MCP
+Give your AI access to Actors
+Anti-blocking
+Anti-blocking
+Scrape without getting blocked
+Proxy
+Rotate scraper IP addresses
+Open source
+Crawlee
+Web scraping and crawling library
+Developers
+Back
+Documentation
+Full reference for the Apify platform
+Get started
+Actor templates
+Python, JavaScript, and TypeScript
+Web scraping academy
+Courses for beginners and experts
+Monetize your code
+Publish your Actors and get paid
+Learn
+API reference
+CLI
+SDK
+MCP
+Crawlee
+Earn from your code
+$1.7M paid out last month. Many developers earn over $3k.
+Start earning now
+Resources
+Back
+Help and support
+Advice and answers about Apify
+Actor ideas
+Get inspired to build Actors
+Changelog
+See what’s new on Apify
+Customer stories
+Find out how others use Apify
+Company
+About Apify
+Contact us
+Blog
+Live events
+Doing Good
+Jobs
+We're hiring!
+Join our Discord
+Talk to other builders
+Pricing
+Contact sales
+Web Fetch
+Pricing
+from $1.00 / 1,000 fetches
+Try for free
+Go to Apify Store
+Web Fetch
+apify/web-fetch
+Try for free
+Copy setup prompt
+Copied
+Download any web page by URL and convert it to clean Markdown, plain text, HTML, and other formats. Automatically renders JavaScript and works around bot blocking. The Actor provides a real-time API for quick response times.
+Pricing
+from $1.00 / 1,000 fetches
+Rating
+5.0
+( 4 )
+Developer
+Apify
+Maintained by Apify
+Actor stats
+1
+Bookmarked
+40K
+Total users
+24K
+Monthly active users
+10 days
+Issues response
+15 hours ago
+Last modified
+Categories
+AI
+Automation
+Developer tools
+Share
+README
+Input
+Pricing
+Server
+API
+Reviews
+Issues
+Tasks
+7
+You might also like
+RAG Web Browser
+apify / rag-web-browser
+Web search and fetch tool for AI agents and RAG pipelines. It queries Google Search, scrapes the top N pages using a full web browser, and returns their content as clean Markdown for further processing by an LLM. Can also fetch individual URLs.
+Apify
+203K
+4.8
+(36)
+Google Search Results Scraper
+apify / google-search-scraper
+Scrape Google Search Engine Results Pages (SERPs). Select the country or language and extract organic and paid results, AI Mode, AI overviews, ads, queries, People Also Ask, prices, reviews, like a Google SERP API. Export data, run the scraper via API, schedule runs, or integrate with other tools.
+Apify
+218K
+4.6
+(220)
+Instagram Scraper
+apify / instagram-scraper
+Extract Instagram posts, reels, profiles, places, hashtags, carousels, and comments. Get data from Instagram using one or more Instagram URLs or search queries: content, context, metrics, metadata. Export scraped data, run the scraper via API, schedule and monitor runs or integrate with other tools.
+Apify
+449K
+4.7
+(603)
+Instagram Profile Scraper
+apify / instagram-profile-scraper
+Scrape all Instagram profile info. Just add Instagram usernames, IDs or URLs and extract name, join date, number of followers, location, bio, website, related profiles, video&post count, latest posts. Export scraped data, schedule scraper via API, and integrate with other tools or AI workflows.
+Apify
+264K
+4.7
+(175)
+YouTube Transcript & Subtitles Scraper API
+johnvc / YoutubeTranscripts
+Scrape YouTube transcripts, subtitles, and captions in bulk, the cheapest pay-per-video YouTube transcript API on Apify. Callable from any MCP client (Claude, Cursor, ChatGPT). Supports YouTube videos, Shorts, and every URL format.
+John
+6.7K
+4.8
+(11)
+Instagram Post Scraper
+apify / instagram-post-scraper
+Scrape Instagram posts. Just add one or more Instagram usernames and get your data in seconds including caption, metrics, images, mentions, coauthors, recent comments, sponsored status, video duration, views. Export scraped data, schedule scraper via API, integrate with other tools or AI workflows.
+Apify
+148K
+4.3
+(138)
+AI Web Scraper
+apify / ai-web-scraper
+AI-first web scraper that extracts structured data from any website using natural-language prompts.
+No programming knowledge required.
+No hard-coded logic that breaks when a website changes.
+Apify
+10K
+4.9
+(15)
+Website Screenshot Generator
+apify / screenshot-url
+Create a screenshot of a website based on a specified URL. The screenshot is stored as the output in a key-value store. It can be used to monitor web changes regularly after setting up the scheduler.
+Apify
+9.2K
+3.9
+(21)
+Website Content Crawler
+apify / website-content-crawler
+Crawl websites and extract text content to feed AI models, LLM applications, vector databases, or RAG pipelines. The Actor supports rich formatting using Markdown, cleans the HTML, downloads files, and integrates well with 🦜🔗 LangChain, LlamaIndex, and the wider LLM ecosystem.
+Apify
+172K
+4.6
+(235)
+URL to markdown
+apify / url-to-markdown
+An Apify Actor that takes a URL as input and returns the content of the page in Markdown format.
+Apify
+50
+5.0
+(7)
+Product
+Apify Store
+Integrations
+Proxy
+MCP
+Crawlee
+Developers
+Documentation
+Actor templates
+API reference
+Get paid on Apify
+Consulting
+Professional services
+Apify Partners
+Resources
+Help & support
+Submit your ideas
+Forum
+Agent interface
+Onboard your AI agent
+Spotlight
+APIs
+What is web scraping?
+Best web scraping tools
+Python web scraping libraries
+Scrapers
+Company
+About Apify
+Contact us
+Events
+Blog
+Jobs We're hiring!
+Brand
+Socials
+Security
+Reviews
+Loading status...
+Imprint
+Terms of use
+Privacy policy
+Cookie policy
+Cookies
+© 2026 Apify
+Free
+up to
+3,333
+fetches
+$0
+/ month
+$5 to spend in Apify Store or on your own Actors
+Start for free
+Starter
+$1.50
+/ 1,000 fetches
+$19
+/ month + pay as you go
+$19 to spend in Apify Store or on your own Actors
+Choose plan
+Scale
+$1.25
+/ 1,000 fetches
+$199
+/ month + pay as you go
+$199 to spend in Apify Store or on your own Actors
+Choose plan
+Business
+$1.00
+/ 1,000 fetches
+$999
+/ month + pay as you go
+$999 to spend in Apify Store or on your own Actors
+Choose plan
+All events
+Free
+Starter
+Scale
+Business
+Fetch
+Primary
+$1.50
+/ 1,000
+$1.50
+/ 1,000
+$1.25
+/ 1,000
+$1.00
+/ 1,000
+Actor Start
+Infrequent
+$0.00005
+$0.00005
+$0.00005
+$0.00005
+Platform usage
+Platform costs
+Included
+Included
+Included
+Included

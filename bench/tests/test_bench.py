@@ -744,7 +744,7 @@ class Collectors2(unittest.TestCase):
         try: out = B._apify_search("k", {"query": "q"})
         finally: B._get_json = old
         self.assertEqual([r["url"] for r in out["results"]][:2], ["https://a.example/1", "https://b.example/2"])
-        self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.00348 + 2 * 0.00228), places=4)
+        self.assertEqual(out["fetched_pages"], 2); self.assertAlmostEqual(out["billed_units"], 100 * (0.000225 + 0.00348 + 2 * 0.00228), places=4)   # R42.1: + one Actor Start
 
     def test_apify_t60_config_pins_60s_and_120s_client_wait(self):
         sys.path.insert(0, str(SITE / "collectors")); import benchmark as B, urllib.parse as up
@@ -2397,22 +2397,29 @@ def http_err(code, text="vendor text"):
     return f
 
 class ContextDevConfig(ContextDevBase):
-    def test_ac2_no_price_in_pricing_and_cost_na(self):   # AC2
+    def test_ac2_r42_list_price_sourced(self):   # AC2 as superseded by spec R42.1: the sourced list price (no invented values)
         for kind in ("search", "scrape"):
             e = self.pricing["contextdev"][kind]
-            for tier in e["tiers"].values():
-                for k, v in tier.items(): self.assertEqual(v, "NOT CAPTURED", (kind, k))   # no numeric price field
+            self.assertEqual((e["model"], e["checked_at"], e["verified_date"], e["pricing_url"]), ("tier", "2026-10-27", "2026-10-27", "https://www.context.dev/pricing"))
+            self.assertEqual({k: e["tiers"]["entry"][k] for k in ("plan_fee", "included_units", "overage_per_unit")}, {"plan_fee": 20, "included_units": 10000, "overage_per_unit": 0.003})
+            self.assertEqual({k: e["tiers"]["volume"][k] for k in ("plan_fee", "included_units", "overage_per_unit")}, {"plan_fee": 90, "included_units": 100000, "overage_per_unit": 0.002})
             self.assertNotRegex(json.dumps(e), r"TBD|PLACEHOLDER|XXX")
-            for q in ("$20", "$19", "7,500", "$3.00", "$2.20"): self.assertIn(q, e["note"])   # the conflict is quoted, not resolved
-            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["entry_tier_cost_per_1k"], None)
-            self.assertEqual(cost.cost_columns(e, [{"status": "pass", "billed_units": 1}] * 3)["volume_tier_cost_per_1k"], None)
+            for q in ("$20 | /month", "10,000 | $3.00 | per | 1,000 | credits overage", "1,000 | No overage", "Developer | 10,000/month", "2026-10-27", "pricing-r42"): self.assertIn(q, e["note"] + e["free_tier"]["note"])
+            self.assertNotIn("$19/mo", e["note"].split("Superseded")[0])   # the 2026-10-25 conflict is only cited as superseded
+            one = [{"status": "pass", "billed_units": 1}] * 3
+            self.assertAlmostEqual(cost.cost_columns(e, one)["entry_tier_cost_per_1k"], 2.0)    # $20 / 10,000 credits, 1 credit per AWI call
+            self.assertAlmostEqual(cost.cost_columns(e, one)["volume_tier_cost_per_1k"], 0.9)   # $90 / 100,000
+            self.assertAlmostEqual(cost.billed_usd(e, "entry", [{"status": "pass", "billed_units": 10001}]), 20.003)   # overage $3.00/1K past 10,000
             self.assertEqual((e["credits_per_call"], e["free_tier"]["units_per_month"], e["free_tier"]["needs_card"], e["free_tier"]["pool"], e["free_tier"]["refill"]),
                              ({"search": 1, "scrape": 1}, 1000, False, "contextdev", "grant-anchor day"))
             self.assertEqual(e["credits_per_call_rule"]["source_url"], "https://docs.context.dev/account/credits")
             self.assertEqual(e["credits_per_call_rule"]["scrape"], "1; 2 with browser actions")
-    def test_ac3_p0_still_not_passed(self):   # AC3: the committed state keeps P0 unpassed (recorded as still broken in summary.md, meta repo)
-        for kind in ("search", "scrape"): self.assertIsNone(cost.billed_usd(self.pricing["contextdev"][kind], "entry", []))
-        self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0]); self.assertIn("P0 pricing not passed", tables.publish_gate("contextdev", self.pricing, self.tos)[1])
+            self.assertIn("Markdown adds 1 per result returned with Markdown.", e["credits_per_call_rule"]["quote"])
+    def test_ac3_p0_passes_p1_not_and_still_held(self):   # AC3 after R42.1: P0 (sourced price) passes; P1 terms do not, and publish_hold keeps contextdev unpublished
+        for kind in ("search", "scrape"): self.assertIsNotNone(cost.billed_usd(self.pricing["contextdev"][kind], "entry", []))
+        ok, why = tables.publish_gate("contextdev", self.pricing, self.tos)
+        self.assertFalse(ok); self.assertIn("P0 pricing passed", why); self.assertIn("P1 terms not passed", why)
+        self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
     def test_ac4_tos_entry_matches_rev4_shape(self):   # AC4
         t = self.tos["contextdev"]
         self.assertEqual((t["terms_url"], t["sections"], t["verdict"], t["allowed"], t["full_read"], t["terms_last_updated"]), ("https://www.context.dev/term", 27, "unverified", None, True, "2026-10-01"))
@@ -2980,17 +2987,20 @@ class ContextDevPublish(ContextDevBase):
     def _built(self, runs, pricing, tos, cfg): return tables.build(runs, pricing, self.tmp / "sets", tos, cfg)
     def _rows(self, doc): return [r for t in doc["tables"].values() for r in t if r["provider"] == "contextdev"]
     def _gate_inputs(self): return self.pricing | {"contextdev": {"search": self.P0, "scrape": self.P0}}, self.tos | {"contextdev": self.P1}
+    def _no_price(self):   # the pre-R42.1 state (no numeric price), kept as a fixture so the P0-missing paths stay covered
+        npe = lambda e: e | {"tiers": {t: {k: "NOT CAPTURED" for k in v} for t, v in e["tiers"].items()}}
+        return self.pricing | {"contextdev": {k: npe(e) for k, e in self.pricing["contextdev"].items()}}
     def test_ac23_p0_only_is_held(self):   # AC23
         runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; p0, _ = self._gate_inputs()
         self.assertEqual(self._rows(self._built(runs, p0, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", p0, self.tos)[0])
         self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())   # run logs written in every case
     def test_ac23_p1_only_is_held(self):   # AC23
-        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; _, t1 = self._gate_inputs()
-        self.assertEqual(self._rows(self._built(runs, self.pricing, t1, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, t1)[0])
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; _, t1 = self._gate_inputs(); np = self._no_price()
+        self.assertEqual(self._rows(self._built(runs, np, t1, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", np, t1)[0])
         self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
     def test_ac23_neither_is_held(self):   # AC23
-        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}
-        self.assertEqual(self._rows(self._built(runs, self.pricing, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", self.pricing, self.tos)[0])
+        runs = self._runs(); cfg = self.cfg | {"publish_hold": []}; np = self._no_price()
+        self.assertEqual(self._rows(self._built(runs, np, self.tos, cfg)), []); self.assertFalse(tables.publish_gate("contextdev", np, self.tos)[0])
         self.assertTrue((runs / "2026-10-26/contextdev/search_evergreen.jsonl").exists())
     def test_ac23_both_passes_the_gate(self):   # AC23 (still held in this build by AC24)
         runs = self._runs(); p0, t1 = self._gate_inputs()
@@ -2999,18 +3009,21 @@ class ContextDevPublish(ContextDevBase):
             self.assertFalse(tables.publish_gate("contextdev", p0, self.tos | {"contextdev": self.P1 | bad})[0], bad)
         for bad in ({"source_url": "NOT CAPTURED"}, {"checked_at": ""}, {"tiers": {"entry": {"name": "E", "usd_per_credit": "NOT CAPTURED"}}}):
             self.assertFalse(tables.publish_gate("contextdev", {"contextdev": {"search": self.P0 | bad}}, t1)[0], bad)
-    def test_ac23_committed_files_keep_gate_closed(self):   # AC23: real pricing.yaml + tos_matrix.yaml
-        ok, why = tables.publish_gate("contextdev", self.pricing, self.tos); self.assertFalse(ok); self.assertEqual(why, "P0 pricing not passed; P1 terms not passed")
+    def test_ac23_committed_files_keep_gate_closed(self):   # AC23: real pricing.yaml + tos_matrix.yaml (R42.1: sourced price, so P0 passes; P1 terms still do not)
+        ok, why = tables.publish_gate("contextdev", self.pricing, self.tos); self.assertFalse(ok); self.assertEqual(why, "P0 pricing passed; P1 terms not passed")
+        self.assertEqual(tables.publish_gate("contextdev", self._no_price(), self.tos)[1], "P0 pricing not passed; P1 terms not passed")
         self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
     def test_ac24_publish_hold_holds_even_when_gate_passes(self):   # AC24
         runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev"])
         self.assertEqual(self._rows(self._built(runs, p0, t1, self.cfg)), [])   # gate passes, publish_hold still holds it
         self.assertTrue(self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})))   # control: the logs do build a row
         self.assertIn("contextdev", tables.held_providers(self.cfg, p0, t1))
-    def test_ac24_run_logs_cost_na_when_published_unheld(self):   # AC2/AC24 support: no price -> cost n/a even if a row were built
+    def test_ac24_run_logs_cost_na_when_published_unheld(self):   # AC2/AC24 support: no price -> cost n/a even if a row were built; R42.1 sourced price -> $2.00 / $0.90
         runs = self._runs(); L = read_jsonl(runs / "2026-10-26/contextdev/search_evergreen.jsonl"); self.assertEqual(len(L), 5)
-        doc = self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})
+        doc = self._built(runs, self._no_price(), self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})
         r = self._rows(doc)[0]; self.assertEqual((r["entry_tier_cost_per_1k"]["display"], r["volume_tier_cost_per_1k"]["display"]), ("n/a", "n/a"))
+        r = self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []}))[0]
+        self.assertEqual((r["entry_tier_cost_per_1k"]["v"], r["volume_tier_cost_per_1k"]["v"]), (2.0, 0.9))
     def test_ac5_forbidden_publishing_results_or_benchmarking_excludes(self):   # AC5
         runs = self._runs()
         for clause in ("publishing_results", "benchmarking"):

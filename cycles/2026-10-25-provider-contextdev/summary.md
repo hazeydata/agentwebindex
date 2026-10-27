@@ -21,6 +21,10 @@ State on main:
 - Keenable docs follow-up: hazeydata/agentwebindex#43 (owner implement; R37.1, Keenable R10), open; nothing else lands on main until it merges.
 - Wayback backfill for the vendor post (R27(5)). Owner: implement.
 - AWI-GATES-RECORDED-PR-001 (R37.2, recorded_pr must equal the PR's own URL in CI) is not built. Until then Kitty and Weatherman check by hand. Owner: implement.
+- Spec R42.1 list prices (data PR `data/awi-r42-list-prices`): Apify platform usage ($0.20 per compute unit) is billed on every rag-web-browser call, but the compute per call is not published, so `billed_units` and the $10.00 per 1K entry price leave it out (a lower bound). Owner: implement, when Apify publishes it or a measured per-call CU is approved as a source.
+- Spec R42.1: rag-web-browser Actor Start is "one event per GB, minimum one event"; the Standby start frequency and the Standby memory per call are not published, so AWI counts one start per call ($0.000225, the minimum). Hedge, not a sourced count. Owner: implement.
+- Spec R42.1: credit-count drift. docs.context.dev/account/credits (read 2026-10-27 02:41 ET) now says "Markdown adds 1 per result returned with Markdown", but `guard.contextdev_credits` still adds ceil(n/10) for markdown. AWI sends no markdown, so its 1-credit-per-search estimate is unaffected; out of scope for the data PR. Owner: implement.
+- Spec R42.1: the contextdev price is the public list price for new plans. Whether AWI's account has a different plan or entitlement is not checked (no account page read). Owner: implement.
 
 **Docs match code:** yes for contextdev after #42. Keenable: yes after #43 (open, keyless, publishable since #36 squash-merged as `ad262f1c`); the keenable terms line in README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden` (wrong since the committed status is `permitted_by_ruling`, already on main before #42) and is fixed in #42.
 
@@ -28,4 +32,4 @@ State on main:
 
 **Learnings:** #27 merged as a squash (`8fc84222`). R36.5: R32.2 did not specify a merge method, so this is a note, not a violation.
 
-**Links:** #27, #38 (record source), #40 (gate), #41 (flip), #42 (contextdev docs follow-up), #36 (keenable flip), #43 (keenable docs follow-up), agentwebindex-meta#33.
+**Links:** spec R42.1 data PR (list prices, `data/awi-r42-list-prices`), #27, #38 (record source), #40 (gate), #41 (flip), #42 (contextdev docs follow-up), #36 (keenable flip), #43 (keenable docs follow-up), agentwebindex-meta#33.

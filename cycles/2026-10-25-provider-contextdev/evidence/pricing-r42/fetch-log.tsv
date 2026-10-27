@@ -1,0 +1,11 @@
+file	url	read_at_toronto	http_code_final_url	bytes
+apify-pricing.html	https://apify.com/pricing	2026-10-27 02:40:21 EDT	200 https://apify.com/pricing	458114
+apify-rag-web-browser.html	https://apify.com/apify/rag-web-browser	2026-10-27 02:40:21 EDT	200 https://apify.com/apify/rag-web-browser	559722
+apify-rag-web-browser-pricing.html	https://apify.com/apify/rag-web-browser/pricing	2026-10-27 02:40:22 EDT	200 https://apify.com/apify/rag-web-browser/pricing	503583
+apify-web-fetch.html	https://apify.com/apify/web-fetch	2026-10-27 02:40:22 EDT	200 https://apify.com/apify/web-fetch	546166
+apify-web-fetch-pricing.html	https://apify.com/apify/web-fetch/pricing	2026-10-27 02:40:23 EDT	200 https://apify.com/apify/web-fetch/pricing	480300
+apify-api-acts-rag-web-browser.json	https://api.apify.com/v2/acts/apify~rag-web-browser	2026-10-27 02:40:23 EDT	200 https://api.apify.com/v2/acts/apify~rag-web-browser	15405
+apify-api-acts-web-fetch.json	https://api.apify.com/v2/acts/apify~web-fetch	2026-10-27 02:40:23 EDT	200 https://api.apify.com/v2/acts/apify~web-fetch	7532
+contextdev-pricing.html	https://www.context.dev/pricing	2026-10-27 02:40:24 EDT	200 https://www.context.dev/pricing	463983
+contextdev-docs-credits.html	https://docs.context.dev/account/credits	2026-10-27 02:40:24 EDT	200 https://docs.context.dev/account/credits	341059
+contextdev-docs-billing.html	https://docs.context.dev/account/billing	2026-10-27 02:41:05 EDT	200 https://docs.context.dev/account/billing	373717
