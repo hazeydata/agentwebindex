@@ -366,6 +366,17 @@ class T(unittest.TestCase):
         kw3["ledger_path"].parent.mkdir(parents=True, exist_ok=True); kw3["ledger_path"].write_text(kw["ledger_path"].read_text())   # 240 used, 119 left
         s = runner.run(**kw3); self.assertEqual([(p["status"], p["calls"]) for p in s["providers"]], [("skipped_cap", 0)])
         self.assertIn("remaining 119 free units", s["over_cap_projected"]["reason"])
+    def test_shared_quota_floor_checked_before_every_call(self):   # owner call 3 (firecrawl): other tools spend the shared balance mid-run
+        kw, ad, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
+        n = sum(len(v["rows"]) for k, v in kw["sets"].items() if runner.set_kind(k) == "search"); floor = 50
+        kw["cfg"] = dict(kw["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}})
+        kw["meters"] = {"mocksearch": lambda: floor + 2 * n - 10 * ad.calls}   # pre-run: exactly fits; then the balance falls 10 per AWI call
+        s = runner.run(**kw); p = s["providers"][0]
+        self.assertEqual(p["status"], "stale_quota"); self.assertIn(f"below the floor of {floor}", p["reason"])
+        self.assertTrue(0 < p["calls"] < n); self.assertGreaterEqual(floor + 2 * n - 10 * (ad.calls - 1) - 2, floor)   # the last call kept the floor
+        kw2, ad2, _ = self._setup_run(providers=[{"id": "mocksearch", "categories": ["search"], "key_env": "MOCK_SEARCH_KEY"}])
+        kw2["cfg"] = dict(kw2["cfg"], shared_quota={"mocksearch": {"floor_credits": floor}}); kw2["meters"] = {"mocksearch": lambda: floor + 2 * n - 2 * ad2.calls}
+        self.assertEqual(runner.run(**kw2)["providers"][0]["status"], "ran")   # only AWI's own use: every call runs, the floor is kept
     def test_ac11_no_free_tier_or_card_skipped_unless_ceo_listed(self):
         for upm, card, ceo, want in ((None, False, [], "skipped_no_free_tier"), ("NOT CAPTURED", False, [], "skipped_no_free_tier"),
                                      (1000, True, [], "skipped_no_free_tier"), (1000, None, [], "skipped_no_free_tier"),
@@ -445,7 +456,7 @@ class T(unittest.TestCase):
         ad = mocks.MockAdapters(); adapters = {}
         for p in provs: adapters.update(ad.table(p["id"], p["categories"]))
         return runner.run(preflight=False, providers=provs, sets=sets, pricing=pricing, tos=tos, adapters=adapters, cfg=cfg or CFG, runs_dir=self.tmp / "rruns",
-                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True, meters={"apify": lambda: 0.0},
+                          ledger_path=self.tmp / "rspend.json", spend_dir=(self.tmp / "bdspend").mkdir(exist_ok=True) or self.tmp / "bdspend", run_date="2026-10-19", env={p["key_env"]: "mock-not-a-key" for p in provs}, mock=True, meters={"apify": lambda: 0.0, "firecrawl": lambda: 100000},
                           now_fn=lambda: dt.datetime.fromisoformat("2026-10-19T11:23:00+00:00")), pricing, tos
     def test_d1_brave_excluded_from_runner_and_tables(self):
         s, pricing, tos = self._real_run()
@@ -4403,6 +4414,7 @@ class R41PreRun(unittest.TestCase):
         with mock.patch.object(B, "ROOT", root), mock.patch.object(B, "BENCH", root / "bench"), mock.patch.dict(os.environ, env, clear=True), \
              mock.patch.object(sys, "argv", ["benchmark.py", "--mode", "full", *argv]), mock.patch("urllib.request.urlopen", side_effect=no_net), \
              mock.patch.object(B, "contextdev_meter", side_effect=AssertionError("meter call")), mock.patch.object(B, "apify_meter", side_effect=AssertionError("meter call")), \
+             mock.patch.object(B, "firecrawl_meter", side_effect=AssertionError("meter call")), \
              mock.patch("builtins.print", side_effect=lambda *a, **k: err.append(" ".join(map(str, a)))):
             with (mock.patch.object(B.runner, "run", run_patch) if run_patch else contextlib.nullcontext()): rc = B.main()
         f = root / "alerts" / "over_cap_projected.json"
@@ -4441,24 +4453,28 @@ class R41PreRun(unittest.TestCase):
         rc, urls, art, err = self._main(["--only-providers", "apify"], {"APIFY_API_TOKEN": "mock-not-a-key"}, prep=self._apify_used(400))
         self.assertEqual((rc, urls), (0, [])); self.assertEqual(art["skipped_cap"][0]["remaining_usd"], "0")
         self.assertTrue(any("SKIP publish" in l for l in err))   # nothing returned data, so latest.json is not rewritten
-    def _captured(self, argv):   # main()'s runner.run kwargs, without running it
+    QKEYS = {"TAVILY_API_KEY": "mock-not-a-key", "FIRECRAWL_API_KEY": "mock-not-a-key", "BROWSERLESS_API_KEY": "mock-not-a-key"}
+    def _captured(self, argv, env=None):   # main()'s runner.run kwargs, without running it
         seen = {}
         class Stop(Exception): pass
         def cap(**kw): seen.update(kw); raise Stop()
-        with self.assertRaises(Stop): self._main(argv, {"APIFY_API_TOKEN": "mock-not-a-key", "EXA_API_KEY": "mock-not-a-key"}, run_patch=cap)
+        with self.assertRaises(Stop): self._main(argv, {"APIFY_API_TOKEN": "mock-not-a-key", "EXA_API_KEY": "mock-not-a-key"} | (env or {}), run_patch=cap)
         return seen
-    def _project(self, kw):
-        (self.tmp / "pl").mkdir(exist_ok=True)
-        return runner.check_run(providers=kw["providers"], sets=kw["sets"], pricing=kw["pricing"], tos=kw["tos"], adapters=kw["adapters"], cfg=kw["cfg"], env={"APIFY_API_TOKEN": "mock-not-a-key", "EXA_API_KEY": "mock-not-a-key"},
-                                ledger=runner.QuotaLedger(self.tmp / "pl" / "l.json", "2026-11"), spend_dir=self.tmp / "pl", guard_dir=self.tmp / "pl",
-                                run_date="2026-11-02", now=dt.datetime(2026, 11, 2, 11, 23, tzinfo=dt.timezone.utc), mock=False, only_ids=kw["only_ids"], limits=kw["limits"])
+    def _project(self, kw, used=None, meters=None, reserve=None, now=None):
+        (self.tmp / "pl").mkdir(exist_ok=True); lf = self.tmp / "pl" / "l.json"
+        lf.write_text(json.dumps({"month": "2026-11", "used": used or {}, "over_free_units": 0}))
+        return runner.check_run(providers=kw["providers"], sets=kw["sets"], pricing=kw["pricing"], tos=kw["tos"], adapters=kw["adapters"], cfg=kw["cfg"],
+                                env={"APIFY_API_TOKEN": "mock-not-a-key", "EXA_API_KEY": "mock-not-a-key"} | self.QKEYS,
+                                ledger=runner.QuotaLedger(lf, "2026-11"), spend_dir=self.tmp / "pl", guard_dir=self.tmp / "pl",
+                                run_date="2026-11-02", now=now or dt.datetime(2026, 11, 2, 11, 23, tzinfo=dt.timezone.utc), mock=False, only_ids=kw["only_ids"], limits=kw["limits"],
+                                meters=meters if meters is not None else {"firecrawl": lambda: 100000}, reserve=reserve if reserve is not None else kw.get("reserve"))
     def test_smoke_has_no_apify(self):   # R44.1: the daily smoke run does not include Apify, so it projects $0 Apify
         kw = self._captured(["--mode", "smoke"])
         self.assertNotIn("apify", [p["id"] for p in kw["providers"]]); self.assertIn("exa", [p["id"] for p in kw["providers"]])
         self.assertNotIn("apify", [x["provider"] for x in self._project(kw)["providers"]])
     def test_full_apify_projects_at_most_90_cents(self):   # R44.2: one weekly full <= $0.90, four <= $4.00 (from an empty month)
         kw = self._captured(["--mode", "full", "--only-providers", "apify"])
-        self.assertEqual(kw["limits"], {"apify": {"search": 9}})
+        self.assertEqual(kw["limits"]["apify"], {"search": 9})
         ap = [x for x in self._project(kw)["providers"] if x["provider"] == "apify"][0]
         self.assertIsNone(ap["reason"]); per = float(ap["projected_usd"])
         self.assertLessEqual(per, 0.90); self.assertLessEqual(4 * per, 4.00)
@@ -4466,9 +4482,73 @@ class R41PreRun(unittest.TestCase):
         self.assertEqual(sum(len(v["rows"]) for k, v in runner.limit_sets(kw["sets"], kw["limits"]["apify"]).items() if runner.set_kind(k) == "search"), 9 * (1 + n_news))
         worst = 9 * 2 * 4.08 + (20 + 50) * 0.155   # cents: a 50-row news week (config news total) still fits
         self.assertLessEqual(worst / 100, 0.90)
-    def test_reprobe_keeps_apify(self):   # re-probes are unchanged by R44 (no smoke exclusion, no full limits)
-        kw = self._captured(["--reprobe-offset", "6"])
-        self.assertIn("apify", [p["id"] for p in kw["providers"]]); self.assertIsNone(kw["limits"])
+    # ---- owner calls (Lucille 2, AWI owner, 2026-10-27 5:34 AM ET): 2 = Apify out of every re-probe; 3 = quota providers kept for the fulls ----
+    def test_reprobe_has_no_apify(self):   # owner call 2: re-probes never call Apify, so the weekly fulls get its whole budget
+        for off in ("6", "24", "72"):
+            kw = self._captured(["--reprobe-offset", off]); shutil.rmtree(self.tmp / "site")
+            self.assertNotIn("apify", [p["id"] for p in kw["providers"]], off); self.assertIn("exa", [p["id"] for p in kw["providers"]]); self.assertIsNone(kw["limits"])
+    def test_four_apify_fulls_fit_fifth_falls_back(self):   # owner call 2 + R44.3 (Bob's fifth-week fallback): 4 worst-case fulls fit; a 5th that does not fit is dropped
+        kw = self._captured(["--mode", "full", "--only-providers", "apify"])
+        ap = lambda used: [x for x in self._project(kw, used={"apify_usd_cents": used})["providers"] if x["provider"] == "apify"][0]
+        per = float(ap(0)["projected_usd"]); worst = 9 * 2 * 4.08 + (20 + 50) * 0.155
+        self.assertLessEqual(4 * max(per * 100, worst), 400)   # four fulls, nothing spent on re-probes or smoke
+        self.assertIsNone(ap(3 * worst)["reason"])   # the fourth full after three worst-case fulls runs
+        fifth = ap(4 * worst); self.assertTrue(fifth["cap_breach"]); self.assertIn("> remaining", fifth["reason"])
+    Q3 = ("tavily", "firecrawl", "browserless")
+    def _q3(self, rep): return {x["provider"]: x for x in rep["providers"] if x["provider"] in self.Q3}
+    def _news50(self, kw):   # the week's news set at the config maximum (50 rows) and its article fetches, so the sizes hold in the worst week
+        sets = dict(kw["sets"])
+        for k in [k for k in sets if k.startswith(("news_", "newsfetch_"))]:
+            rows = sets[k]["rows"]; sets[k] = sets[k] | {"rows": [r | {"id": f"{r['id']}-{i}"} for i in range(50) for r in rows[:1]]}
+        return kw | {"sets": sets}
+    def test_quota_full_sizes_fit_every_full_of_a_month(self):   # owner call 3: max_full_runs_per_month trimmed fulls fit the quota at worst-case units
+        kw = self._news50(self._captured(["--mode", "full"], self.QKEYS)); sch = CFG["run_schedule"]
+        self.assertEqual({k: kw["limits"][k] for k in self.Q3}, {k: sch["full_limits"][k] for k in self.Q3})
+        q = self._q3(self._project(kw)); self.assertEqual(sorted(q), sorted(self.Q3))
+        for pid, x in q.items():
+            self.assertIsNone(x["reason"], pid); self.assertLessEqual(float(x["planned_units"]), sch["full_reserve_units"][pid], pid)
+            quota = float(x["cap"]["quota_units"]); floor = CFG.get("shared_quota", {}).get(pid, {}).get("floor_credits", 0)
+            self.assertLessEqual(sch["max_full_runs_per_month"] * sch["full_reserve_units"][pid], quota - floor, pid)
+        self.assertEqual(sch["max_full_runs_per_month"], 5)   # a month has at most 5 Mondays
+    def test_quota_smoke_is_minimal(self):   # owner call 3: 1 item per set in smoke for the quota providers
+        kw = self._captured(["--mode", "smoke"], self.QKEYS)
+        self.assertEqual(kw["limits"], CFG["run_schedule"]["smoke_limits"])
+        for pid, x in self._q3(self._project(kw, reserve={})).items():
+            self.assertLessEqual(x["planned_calls"], 3, pid); self.assertLessEqual(float(x["planned_units"]), 8, pid)
+    def test_full_reserve_counts_the_fulls_left_this_month(self):
+        per = CFG["run_schedule"]["full_reserve_units"]; at = lambda *a: dt.datetime(*a, tzinfo=dt.timezone.utc)
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 10, 41), False), {k: 5 * v for k, v in per.items()})   # smoke before the Nov 2 full
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 17, 23), False), {k: 4 * v for k, v in per.items()})   # +6 h re-probe after it
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 30, 11, 24), False), {})   # after the last full of the month
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 11, 2, 10, 41), True), {})   # a full run reserves nothing
+        self.assertEqual(runner.full_reserve(CFG, at(2026, 12, 1, 10, 41), False), {k: 4 * v for k, v in per.items()})   # December: 4 Mondays
+    def test_main_passes_reserve_and_sizes_per_run_type(self):
+        def cap(argv): r = self._captured(argv); shutil.rmtree(self.tmp / "site"); return r
+        sm = cap(["--mode", "smoke"]); fu = cap(["--mode", "full"]); rp = cap(["--reprobe-offset", "24"])
+        self.assertEqual(fu["reserve"], {}); self.assertEqual(fu["limits"], CFG["run_schedule"]["full_limits"])
+        self.assertEqual(set(sm["reserve"]) | set(rp["reserve"]) <= set(self.Q3), True)
+        self.assertIn("firecrawl", sm["meters"])
+    def test_smoke_drops_quota_provider_before_the_full_reserve(self):   # owner call 3: smoke and re-probes drop them first; the full still runs
+        sm = self._captured(["--mode", "smoke", "--only-providers", "tavily"], self.QKEYS); shutil.rmtree(self.tmp / "site")
+        fu = self._captured(["--mode", "full", "--only-providers", "tavily"], self.QKEYS)
+        res = 5 * CFG["run_schedule"]["full_reserve_units"]["tavily"]; used = {"tavily": 1000 - res - 3}   # 3 units spare, smoke plans 4
+        x = self._q3(self._project(sm, used=used, reserve={"tavily": res}))["tavily"]
+        self.assertTrue(x["cap_breach"]); self.assertIn(f"minus {res} reserved for the weekly full runs", x["reason"]); self.assertEqual(x["remaining_units"], str(res + 3))
+        self.assertIsNone(self._q3(self._project(sm, used={"tavily": 1000 - res - 4}, reserve={"tavily": res}))["tavily"]["reason"])   # exactly fits
+        f = self._q3(self._project(fu, used=used))["tavily"]; self.assertIsNone(f["reason"]); self.assertLessEqual(float(f["planned_units"]), res + 3)
+    def test_firecrawl_prerun_capped_by_shared_meter(self):   # owner call 3: AWI never plans past the shared balance minus the floor
+        fu = self._captured(["--mode", "full", "--only-providers", "firecrawl"], self.QKEYS); floor = CFG["shared_quota"]["firecrawl"]["floor_credits"]
+        x = self._q3(self._project(fu))["firecrawl"]; need = int(float(x["planned_units"]))
+        self.assertIsNone(self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need}))["firecrawl"]["reason"])   # exactly at the floor
+        y = self._q3(self._project(fu, meters={"firecrawl": lambda: floor + need - 1}))["firecrawl"]
+        self.assertTrue(y["cap_breach"]); self.assertEqual(y["remaining_units"], str(need - 1)); self.assertEqual(y["cap"]["shared_floor_credits"], str(floor))
+        def down(): raise OSError("meter down")
+        z = self._q3(self._project(fu, meters={"firecrawl": down}))["firecrawl"]
+        self.assertTrue(z["cap_breach"]); self.assertIn("shared-quota meter unreadable", z["reason"])
+        self.assertTrue(self._q3(self._project(fu, meters={}))["firecrawl"]["cap_breach"])   # no meter at all: fail closed
+    def test_full_cron_matches_workflow(self):   # full_reserve counts the same Mondays benchmark.yml runs the full on
+        c = CFG["run_schedule"]["full_cron_utc"]; wf = (SITE / ".github" / "workflows" / "benchmark.yml").read_text()
+        self.assertIn(f"- cron: '{c['minute']} {c['hour']} * * {(c['weekday'] + 1) % 7}'", wf.replace('"', "'"))
     def test_limit_sets_trims_and_labels(self):   # R44.2 scorecard note: set_rows is the sample run, sample_of the full set
         sets = {"search_evergreen": {"rows": [{"id": i} for i in range(100)], "sha": "a"}, "browser_tasks": {"rows": [{"id": i} for i in range(20)], "sha": "b"}}
         t = runner.limit_sets(sets, {"search": 9})

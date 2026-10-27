@@ -120,6 +120,10 @@ def apify_meter(key):
     st, d = _get_json("https://api.apify.com/v2/users/me/limits", {"Authorization": f"Bearer {key}"}, timeout=30)
     return d["data"]["current"]["monthlyUsageUsd"]
 
+def firecrawl_meter(key):   # owner call 3: the team's remaining credits on the key shared with Fred's other tools (GET, 0 credits)
+    st, d = _get_json("https://api.firecrawl.dev/v2/team/credit-usage", {"Authorization": f"Bearer {key}"}, timeout=30)
+    return d["data"]["remainingCredits"]
+
 BROWSERLESS_CONTENT_URL = "https://production-sfo.browserless.io/content"
 
 def _html_text(h):
@@ -399,12 +403,15 @@ def main():
       if a.only_providers:
           unknown = [f"{n}: unknown provider (not in collectors/providers.json)" for n in a.only_providers.split(",") if n not in {p["id"] for p in provs}]
           provs = [p for p in provs if p["id"] in a.only_providers.split(",")]
-      sched = cfg.get("run_schedule") or {}; limits = None
-      if not a.reprobe_offset and a.mode == "smoke":   # R44.1: Apify is not in the daily smoke run (it projects $0 Apify)
-          out_smoke = [p["id"] for p in provs if p["id"] in sched.get("smoke_exclude", [])]
-          if out_smoke: print(f"R44.1: not in the smoke run: {', '.join(out_smoke)}")
-          provs = [p for p in provs if p["id"] not in out_smoke]
-      if not a.reprobe_offset and a.mode == "full": limits = sched.get("full_limits")   # R44.2: Apify's weekly full run is trimmed
+      sched = cfg.get("run_schedule") or {}; limits = None; full = not a.reprobe_offset and a.mode == "full"
+      kind_run, excl = ("re-probe", "reprobe_exclude") if a.reprobe_offset else ("smoke", "smoke_exclude") if not full else ("full", None)
+      if excl:   # R44.1: Apify is not in the daily smoke run; owner call 2: nor in any re-probe (the weekly fulls get its whole budget)
+          out_run = [p["id"] for p in provs if p["id"] in sched.get(excl, [])]
+          if out_run: print(f"not in the {kind_run} run ({excl}): {', '.join(out_run)}")
+          provs = [p for p in provs if p["id"] not in out_run]
+      if full: limits = sched.get("full_limits")   # R44.2 + owner call 3: trimmed weekly full sizes (Apify, tavily, firecrawl, browserless)
+      elif not a.reprobe_offset: limits = sched.get("smoke_limits")   # owner call 3: the quota-limited providers' smoke runs are minimal
+      reserve = runner.full_reserve(cfg, now, full)   # owner call 3: smoke and re-probes leave the weekly fulls' units unspent
       probs = unknown + runner.provider_problems(provs, cfg, tos)   # R41.2: before the keyless check, so an unknown provider always fails the job
       if probs: return refuse(runner.refusal_report(today, now, probs))
       if not keyed_providers(provs, os.environ, cfg, tos):   # a run without keys must never overwrite published data or run summaries
@@ -413,9 +420,10 @@ def main():
       try:
        s = runner.run(providers=provs, sets=sets, pricing=run_pricing(load_yaml(BENCH / "pricing.yaml")), tos=tos, adapters=ADAPTERS, cfg=cfg, runs_dir=BENCH / "runs",
                    ledger_path=ROOT / "data" / "spend" / f"{today[:7]}-quota.json", run_date=today, env=os.environ, spend_dir=BENCH / "spend", guard_dir=ROOT / "data" / "spend",
-                   offset_h=a.reprobe_offset or 0, only_ids=only, limits=limits,
+                   offset_h=a.reprobe_offset or 0, only_ids=only, limits=limits, reserve=reserve,
                    meters={"apify": lambda: apify_meter(os.environ["APIFY_API_TOKEN"]),
-                           "contextdev": lambda: contextdev_meter(os.environ["CONTEXT_DEV_API_KEY"])})
+                           "contextdev": lambda: contextdev_meter(os.environ["CONTEXT_DEV_API_KEY"]),
+                           "firecrawl": lambda: firecrawl_meter(os.environ["FIRECRAWL_API_KEY"])})
       except runner.RunRefused as e: return refuse(e.report)   # R41.1: no price/cap, unknown provider, live with no cap: 0 calls, job fails (exit 2)
       if s.get("over_cap_projected"): write_alert(s["over_cap_projected"])   # R44.3: providers dropped on cap; the others ran, exit 0
       job_summary(skipped_cap_month(BENCH / "runs", today[:7]), today[:7])
