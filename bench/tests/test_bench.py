@@ -4723,8 +4723,8 @@ class R41PreRun(unittest.TestCase):
         # Firecrawl smoke at a healthy, pre-run-low, per-call-low (2nd meter read) and unreadable balance. urllib urlopen is answered by the
         # mock and every call recorded (string or Request URL). Only the functions in `guards` below are patched to record and raise;
         # a top-up through one of them fails the test even if it swallows the error. NOT covered: ctypes, raw _socket, posix.* and
-        # os.forkpty/execv/spawnv, subprocess._fork_exec aliases bound before the patch, UDP sendto, a reload of socket, and threads,
-        # timers or atexit hooks that fire outside this block.
+        # os.forkpty/execv, subprocess._fork_exec aliases bound before the patch, UDP sendto, a reload of socket, and threads,
+        # timers or atexit hooks that fire outside this block. (os.spawnv is caught: it goes through os._spawnvef to the patched os.fork.)
         for label, bal, want in (("healthy", lambda n: 100000, []), ("prerun-low", lambda n: 9000, ["skipped_floor"]),
                                  ("percall-low", lambda n: 100000 if n <= 1 else 9000, ["skipped_floor"]), ("unknown", lambda n: None, ["skipped_balance_unknown"])):
             seen = []; esc = []; reads = [0]
