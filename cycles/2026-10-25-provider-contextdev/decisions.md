@@ -32,3 +32,13 @@ This PR records the vendor's written request and opens the context.dev live gate
 - Approval: Lucille 2 (AWI owner) approved the sequence (2b then 2c) at 11:52 PM ET on 2026-10-26, via chief; agent-asserted, wording not on file.
 - Gate: merges only on its own Weatherman SHIP, with confirmation-diff-base green at its exact head. Live runs still need Fred's go.
 - Keenable (R33 2c) is not part of this PR. Its record was never on #27 (#27's revert left keenable false/null; keenable's record lives on the open #36, whose evidence files under cycles/2026-10-26-provider-keenable/ are not on main), so a keenable flip needs a ruling on its record source and evidence first.
+
+## R37.1: contextdev docs follow-up (2026-10-27)
+- #41 merged into main as merge commit `9dd16aac5a0e97b9b4cfe5beb7d186cb14c88cb5` (12:11 AM ET). Base runs per R33.4, green at `a98dc1d6`: base-judged 40446997862, advisory 40446997693.
+- Spec R37.1 (12:12 AM ET, asked by quality-gate): after each flip PR merges, a docs-only PR into main updates README, bench/README and SPEC-bench for that provider, and nothing else lands on main until it merges. The contextdev follow-up is hazeydata/agentwebindex#42, which replaces the "docs-only PR after #41 merges" TBD above. It changes README.md, bench/README.md, SPEC-bench.md, tos_matrix `providers.contextdev.note`, config `free_tier_guard.contextdev.live_run_ruling` and this folder's summary.md and decisions.md. It changes no code, no tests and no gate values. Keenable stays described as closed.
+- R36.5: R32.2 did not specify a merge method; the #27 squash is a note, not a violation.
+
+## Kitty t1 on #42 (2026-10-27)
+- The line "Gate re-closed for #27 per R33; contextdev re-opens only in its flip PR (number TBD)." under "R33/R34" is superseded: the flip PRs are #41 (contextdev, merged as `9dd16aac`) and #36 (keenable, open). The old line stays as written (append-only).
+- Keenable terms wording: README.md, bench/README.md and SPEC-bench.md said `benchmarking: forbidden`; the committed `providers.keenable.benchmarking.status` is `permitted_by_ruling` (as bench/README.md's terms-clause line already said). Fixed to match the code.
+- Fred's-go wording, used everywhere from now: "Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO)." It replaces earlier wordings in this folder (such as "Live runs still need Fred's go" in the #41 entry), which read as both pending and already given.
