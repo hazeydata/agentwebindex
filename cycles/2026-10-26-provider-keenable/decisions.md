@@ -77,3 +77,8 @@ The fact desk (Lucille) confirmed the post, the identity and the officer role fr
   - It labels the Fred's-go line in this folder's summary.md.
   - It removes the K1 pre-flip wording from tos `providers.keenable.note` and config `free_tier_guard.keenable.live_run_ruling`; text only, gate values unchanged.
   - It replaces "mocks only" and "ships default-closed" in README.md, bench/README.md and SPEC-bench.md with the post-flip wording.
+
+## Stale K1 code comments fixed (2026-10-27)
+- Kitty and Weatherman flagged on #43 that `bench/awibench/guard.py:13` still said keenable is "mocks only, never called live in K1". The same pre-flip wording was also in `collectors/benchmark.py:210`. Both are rewritten to the post-flip state: open since #36, keyless and publishable, with scheduled runs stopped only by the benchmark workflow being `disabled_manually` in the repo's Actions settings (not in code), and no live keenable call yet. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
+- Comments and docstrings only. No code behaviour, tests or gate values change. Neither file is in `confirmation_diff.PROTECTED`.
+- Test-file comments that describe K1-era fixtures (`bench/tests/test_bench.py`, the K1 classes) are left as written: they describe what those tests check, and a test edit is out of scope here.

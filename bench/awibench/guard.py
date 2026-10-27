@@ -10,7 +10,11 @@
 - contextdev_credits: F4 credit cost of one call. contextdev_billed: F5 billing per HTTP status (cost math only).
 - make_semaphore / guarded_call: every contextdev adapter call runs inside a max_concurrent (1) BoundedSemaphore (F2).
 
-Keenable (AWI-PROVIDER-KEENABLE-001 K1, R1-R3; mocks only, never called live in K1):
+Keenable (AWI-PROVIDER-KEENABLE-001 K1, R1-R3; built with mocks in K1, open since the K2 flip PR #36, squash-merged 2026-10-27):
+the committed config and tos_matrix carry live_run_allowed True and the #36 vendor record, so live_allowed is True for keenable.
+It is keyless (KEYLESS) and publishable (not in publish_hold), so any harness run calls it; the only thing stopping scheduled
+live calls is the benchmark workflow being disabled_manually in the repo's Actions settings (not in code). No live keenable call
+has been made yet. Each live run needs Fred's go per run (agent-asserted; spec R24/R25 record an earlier go relayed via the CEO).
 - live_allowed(cfg, tos, pid) is the one live gate for every guarded provider; FREE_ONLY providers (keenable) also need
   free_tier_guard.<pid>.paid_usage_allowed to be bool False (missing or non-bool fails closed, R1).
 - request_opts / credits / billed dispatch per provider id (contextdev keeps its F4/F5 rules; keenable: 1 attempt per call, 0 billed:
