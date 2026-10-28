@@ -2,11 +2,11 @@
  "provider": "contextdev",
  "name": "Context.dev",
  "url": "https://www.context.dev/pricing",
- "fetched_at": "2026-10-27T09:30:31+00:00",
+ "fetched_at": "2026-10-28T09:22:41+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "288f146cbae456a2fa98839c4732035dcf6ed16a1541554af31ec601d8c92d56",
- "text_lines": 373,
+ "text_sha256": "bf68ceb1f1abd97821983e6f708cd9ddcd48e0f4390aab1d1bd699b124534564",
+ "text_lines": 377,
  "prices_found": [
   "$0",
   "$0 /month",
@@ -26,7 +26,27 @@
   "$950/mo"
  ],
  "diff": {
-  "previous_fetched_at": null,
-  "changed": null
+  "previous_fetched_at": "2026-10-27T09:30:31+00:00",
+  "changed": true,
+  "prices_added": [],
+  "prices_removed": [],
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -14,0 +15,4 @@",
+   "+People search",
+   "+Find people by role, company, and location.",
+   "+Company search",
+   "+Find companies by industry, size, and location.",
+   "@@ -16,0 +21,2 @@",
+   "+Create monitors",
+   "+Watch the web for changes and receive updates.",
+   "@@ -21,2 +26,0 @@",
+   "-Create monitors",
+   "-Watch the web for changes and receive updates.",
+   "@@ -248 +252 @@",
+   "-10 credits per call",
+   "+From 10 credits per call"
+  ]
  }
 }

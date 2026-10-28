@@ -2,7 +2,7 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-10-27T09:30:31+00:00",
+ "fetched_at": "2026-10-28T09:22:41+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "919fd969011afdc9f420ca529894f64a618e4db9c3f10254b20b8f0588b36dbc",
@@ -33,32 +33,10 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-26T09:39:19+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-10-27T09:30:31+00:00",
+  "changed": false,
   "prices_added": [],
-  "prices_removed": [
-   "$12 /1k requests"
-  ],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -133,16 +132,0 @@",
-   "-Get started",
-   "-Reasoning...",
-   "-{",
-   "-\"name\"",
-   "-:",
-   "-\"ceo\"",
-   "-:",
-   "-\"founded\"",
-   "-:",
-   "-}",
-   "-Deep Search",
-   "-$12",
-   "-/1k requests",
-   "-Multi-step agent workflows",
-   "-Answers with structured outputs",
-   "-Web grounded citations"
-  ]
+  "prices_removed": [],
+  "text_diff": []
  }
 }

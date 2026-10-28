@@ -2,7 +2,7 @@
  "provider": "steel",
  "name": "Steel",
  "url": "https://steel.dev/pricing",
- "fetched_at": "2026-10-27T09:30:31+00:00",
+ "fetched_at": "2026-10-28T09:22:41+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "bd603f92830b8e48a486b3e01f1851b38dcb7db807d58b1ffae74b04986eadad",
@@ -24,7 +24,7 @@
   "$6/GB"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-26T09:39:19+00:00",
+  "previous_fetched_at": "2026-10-27T09:30:31+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],
