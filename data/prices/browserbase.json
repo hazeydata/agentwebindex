@@ -2,11 +2,11 @@
  "provider": "browserbase",
  "name": "Browserbase",
  "url": "https://www.browserbase.com/pricing",
- "fetched_at": "2026-10-29T09:22:36+00:00",
+ "fetched_at": "2026-10-30T09:22:19+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "ff4b1015d6ae3fc87fdf54d7245ef0b1cd8e01c67a428a1029b2360992639bbd",
- "text_lines": 432,
+ "text_sha256": "4eab4284ca546e75eddb1dd01d50fb15f26453a306044a6ef4072189aa82c7ba",
+ "text_lines": 434,
  "prices_found": [
   "$0.10/browser hr",
   "$0.12/browser hr",
@@ -17,6 +17,7 @@
   "$1/1k calls with Extrac",
   "$1/1k for Parallel Fast",
   "$10/GB",
+  "$12/1k for Exa Deep",
   "$12/GB",
   "$20,",
   "$20/mo",
@@ -24,16 +25,32 @@
   "$5",
   "$5/1k for Parallel Adva",
   "$5/1k searches by defau",
-  "$7/1k for Exa",
+  "$7/1k for Exa Fast",
   "$7/1k w",
   "$99,",
   "$99/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-28T09:22:41+00:00",
-  "changed": false,
-  "prices_added": [],
-  "prices_removed": [],
-  "text_diff": []
+  "previous_fetched_at": "2026-10-29T09:22:36+00:00",
+  "changed": true,
+  "prices_added": [
+   "$12/1k for Exa Deep",
+   "$7/1k for Exa Fast"
+  ],
+  "prices_removed": [
+   "$7/1k for Exa"
+  ],
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -217 +217,2 @@",
+   "-- $7/1k for Exa",
+   "+- $7/1k for Exa Fast",
+   "+- $12/1k for Exa Deep",
+   "@@ -221 +222,2 @@",
+   "-- $7/1k for Exa",
+   "+- $7/1k for Exa Fast",
+   "+- $12/1k for Exa Deep"
+  ]
  }
 }

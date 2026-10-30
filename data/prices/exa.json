@@ -2,11 +2,11 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-10-29T09:22:36+00:00",
+ "fetched_at": "2026-10-30T09:22:19+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "919fd969011afdc9f420ca529894f64a618e4db9c3f10254b20b8f0588b36dbc",
- "text_lines": 302,
+ "text_sha256": "cd4b5d620c80e65f95ae000aa45972a3dfb508df69470d1e1e3b32ef68770924",
+ "text_lines": 303,
  "prices_found": [
   "$0.005 / search",
   "$0.012",
@@ -33,10 +33,15 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-28T09:22:41+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-29T09:22:36+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -13,0 +14 @@",
+   "+Exa Snapshot"
+  ]
  }
 }
