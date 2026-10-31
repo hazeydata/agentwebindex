@@ -2,11 +2,11 @@
  "provider": "scrapingbee",
  "name": "ScrapingBee",
  "url": "https://www.scrapingbee.com/pricing/",
- "fetched_at": "2026-10-30T09:22:19+00:00",
+ "fetched_at": "2026-10-31T09:18:31+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "268094556f6e4e23d678f00e0659bfc39259c4f11dbc16081648130538ccf48c",
- "text_lines": 409,
+ "text_sha256": "f3239077dfa93149f57093653755adec0a1bf84106f1ded4e7ef361a1fe357a6",
+ "text_lines": 408,
  "prices_found": [
   "$1,599 /mo",
   "$19 /mo",
@@ -20,10 +20,15 @@
   "$999 /mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-29T09:22:36+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-30T09:22:19+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -17 +16,0 @@",
+   "-View all"
+  ]
  }
 }

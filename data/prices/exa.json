@@ -2,11 +2,11 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-10-30T09:22:19+00:00",
+ "fetched_at": "2026-10-31T09:18:31+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "cd4b5d620c80e65f95ae000aa45972a3dfb508df69470d1e1e3b32ef68770924",
- "text_lines": 303,
+ "text_sha256": "855a781a167e65fb32c2442b88e170ca703b718f9b1cbbbfd4efe75775298100",
+ "text_lines": 307,
  "prices_found": [
   "$0.005 / search",
   "$0.012",
@@ -33,15 +33,39 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-29T09:22:36+00:00",
+  "previous_fetched_at": "2026-10-30T09:22:19+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -13,0 +14 @@",
-   "+Exa Snapshot"
+   "@@ -17,0 +18,12 @@",
+   "+Solutions",
+   "+Use cases",
+   "+GTM",
+   "+Coding",
+   "+AI Assistants",
+   "+Inference Providers",
+   "+Model Training",
+   "+Industries",
+   "+Enterprise",
+   "+Finance",
+   "+Legal",
+   "+Recruiting",
+   "@@ -29,8 +40,0 @@",
+   "-Use Cases",
+   "-Use cases",
+   "-Model Training",
+   "-AI Assistants",
+   "-Inference Providers",
+   "-Coding",
+   "-GTM",
+   "-Enterprise",
+   "@@ -42,0 +47 @@",
+   "+Solutions",
+   "@@ -44 +48,0 @@",
+   "-Use Cases"
   ]
  }
 }

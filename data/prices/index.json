@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-30T09:22:19+00:00",
+ "generated_at": "2026-10-31T09:18:31+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -15,7 +15,7 @@
    "http": 200,
    "n_prices": 3,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "brave",
@@ -95,7 +95,7 @@
    "http": 200,
    "n_prices": 10,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "browserbase",
@@ -103,7 +103,7 @@
    "http": 200,
    "n_prices": 21,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "steel",
@@ -127,7 +127,7 @@
    "http": 200,
    "n_prices": 16,
    "error": null,
-   "changed": false
+   "changed": true
   }
  ]
 }

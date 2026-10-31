@@ -2,10 +2,10 @@
  "provider": "contextdev",
  "name": "Context.dev",
  "url": "https://www.context.dev/pricing",
- "fetched_at": "2026-10-30T09:22:19+00:00",
+ "fetched_at": "2026-10-31T09:18:31+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "a9dfb0836bafe2fede5d37e9166f1cce7d9ce7fb473a1975f001438b8da82c23",
+ "text_sha256": "54f7ccc9dd719490a844b03b9bc0b35e06886d7ccb2d94a3406d44a093feeb28",
  "text_lines": 384,
  "prices_found": [
   "$0",
@@ -26,10 +26,16 @@
   "$950/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-10-29T09:22:36+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-10-30T09:22:19+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -2 +2 @@",
+   "-Introducing News: 200M articles indexed live",
+   "+Introducing web search monitors"
+  ]
  }
 }
