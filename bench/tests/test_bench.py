@@ -2011,7 +2011,7 @@ class ApifyMeterGuard(unittest.TestCase):
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": meter})
         return s["providers"][0]
     def test_config_meter_budget(self):
-        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd", "period")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01, "period": "calendar_month"})
+        self.assertEqual({k: CFG["meter_budget"]["apify"][k] for k in ("stop_usd", "cap_usd", "ledger_unit_usd", "period", "cycle_anchor_day")}, {"stop_usd": 4.0, "cap_usd": 5.0, "ledger_unit_usd": 0.01, "period": "billing_cycle", "cycle_anchor_day": 16})
     def test_meter_above_ledger_wins_and_trips_at_4(self):
         p = self._run(lambda: 4.0, ledger_cents=184)
         self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
@@ -2035,8 +2035,8 @@ class ApifyMeterGuard(unittest.TestCase):
         p = self._run(lambda: next(reads), ledger_cents=90)
         want = {"meter_usd": 1.5, "ledger_usd": 0.95, "meter_minus_ledger_usd": 0.55, "run_meter_usd": 0.5, "run_ledger_usd": 0.05, "run_meter_minus_ledger_usd": 0.45}
         self.assertEqual({k: p[k] for k in want}, want)
-        log = json.loads((self.tmp / "spend" / "apify-meter-2026-10.json").read_text())
-        self.assertEqual(log["runs"], [{"run_date": "2026-10-20"} | want])
+        log = json.loads((self.tmp / "spend" / "apify-meter-2026-10-16.json").read_text())
+        self.assertEqual((log["window"], log["runs"]), ("2026-10-16", [{"run_date": "2026-10-20"} | want]))
     def test_stop_at_exactly_stop_usd_even_without_next_call_term(self):
         mb = CFG["meter_budget"] | {"apify": CFG["meter_budget"]["apify"] | {"ledger_unit_usd": 0.0}}
         (self.tmp / "q.json").write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 0}, "over_free_units": 0}))
@@ -2046,25 +2046,79 @@ class ApifyMeterGuard(unittest.TestCase):
                        env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 4.0})
         self.assertEqual((s["providers"][0]["status"], self.called), ("stopped_budget", []))
 
-    def test_cap_is_month_to_date_across_runs_and_resets_on_the_1st(self):
-        """Fred 2026-10-26 8:25 AM ET: $4 Apify cap per calendar month, not per run."""
-        rows = lambda n: [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
-        def go(date, n, ledger):
-            self.called = []
-            s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows(n), "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
-                           cfg={"meter_budget": CFG["meter_budget"]}, runs_dir=self.tmp / f"runs-{date}", ledger_path=ledger, run_date=date,
-                           env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 0.0})
-            return s["providers"][0]
-        oct_l = self.tmp / "2026-10-quota.json"
-        oct_l.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 395}, "over_free_units": 0}))
-        p1 = go("2026-10-20", 2, oct_l); self.assertEqual((p1["status"], p1["calls"]), ("ran", 2))
-        self.assertEqual(json.loads(oct_l.read_text())["used"]["apify_usd_cents"], 397)   # run 1 adds to October's total
-        p2 = go("2026-10-27", 5, oct_l)   # run 2 sees run 1's spend: only 3 cents left under $4.00
+    def _go(self, date, n, ledger, mb=None):
+        self.called = []
+        rows = [{"id": f"n{i}", "query": "q", "check": {"type": "domain_in_top5", "value": "x.example"}} for i in range(n)]
+        s = runner.run(preflight=False, providers=self.PROV, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing=self.PRICING, tos={}, adapters={"apify": {"search": self._fn}},
+                       cfg={"meter_budget": {"apify": CFG["meter_budget"]["apify"] | (mb or {})}}, runs_dir=self.tmp / f"runs-{date}", ledger_path=ledger, run_date=date,
+                       env={"APIFY_API_TOKEN": "mock"}, mock=True, spend_dir=self.tmp / "spend", meters={"apify": lambda: 0.0})
+        return s["providers"][0]
+    def _oct(self, cents=395, **extra):
+        f = self.tmp / "2026-10-quota.json"; f.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": cents}, "over_free_units": 0} | extra)); return f
+    def test_cap_is_cycle_to_date_across_runs(self):
+        led = self._oct()
+        p1 = self._go("2026-10-20", 2, led); self.assertEqual((p1["status"], p1["calls"]), ("ran", 2))
+        self.assertEqual(json.loads(led.read_text())["used"]["apify_usd_cents"], 397)
+        p2 = self._go("2026-10-27", 5, led)
         self.assertEqual((p2["status"], len(self.called)), ("stopped_budget", 3))
-        self.assertEqual(json.loads(oct_l.read_text())["used"]["apify_usd_cents"], 400)
-        p3 = go("2026-11-02", 5, oct_l)   # same file carried into November: resets on the 1st
-        self.assertEqual((p3["status"], p3["calls"]), ("ran", 5))
-        self.assertEqual(json.loads(oct_l.read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 5}, "over_free_units": 0})
+        self.assertEqual(json.loads(led.read_text())["used"]["apify_usd_cents"], 400)
+    def test_nov_1_does_not_reset_and_nov_15_continues_the_oct_16_cycle(self):
+        led = self._oct(390, windows={"apify_usd_cents": "2026-10-16"})
+        p = self._go("2026-11-01", 5, led); self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("ran", 5, 395))
+        self.assertEqual(json.loads(led.read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 395}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}})
+        p = self._go("2026-11-15", 9, led); self.assertEqual((p["status"], len(self.called)), ("stopped_budget", 5))
+        self.assertEqual(json.loads(led.read_text())["used"]["apify_usd_cents"], 400)
+    def test_nov_16_starts_a_new_cycle_at_zero(self):
+        led = self._oct(400, windows={"apify_usd_cents": "2026-10-16"})
+        self.assertEqual(self._go("2026-11-15", 1, led)["status"], "stopped_budget")
+        p = self._go("2026-11-16", 5, led); self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("ran", 5, 5))
+        self.assertEqual(json.loads(led.read_text())["windows"], {"apify_usd_cents": "2026-11-16"})
+        self.assertTrue((self.tmp / "spend" / "apify-meter-2026-11-16.json").exists())
+    def _led(self, date): return self.tmp / "data" / "spend" / f"{date[:7]}-quota.json"
+    def test_collector_month_files_carry_the_cycle_across_the_1st(self):
+        oct_f = self._led("2026-10-20"); oct_f.parent.mkdir(parents=True)
+        oct_f.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 390, "tavily": 7}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}}))
+        self.assertEqual(self._go("2026-10-20", 3, oct_f)["cumulative_spend_units"], 393)
+        oct_before = oct_f.read_text()
+        p = self._go("2026-11-01", 20, self._led("2026-11-01"))
+        self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("stopped_budget", 7, 400))
+        self.assertEqual(json.loads(self._led("2026-11-01").read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 400}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}})
+        self.assertEqual(oct_f.read_text(), oct_before)
+        p = self._go("2026-11-15", 5, self._led("2026-11-15")); self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
+        p = self._go("2026-11-16", 5, self._led("2026-11-16")); self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("ran", 5, 5))
+        self.assertEqual(json.loads(self._led("2026-11-16").read_text())["windows"], {"apify_usd_cents": "2026-11-16"})
+    def test_carry_reaches_a_month_file_another_provider_already_opened(self):
+        oct_f = self._led("2026-10-30"); oct_f.parent.mkdir(parents=True)
+        oct_f.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 398}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}}))
+        self._led("2026-11-01").write_text(json.dumps({"month": "2026-11", "used": {"firecrawl": 122}, "over_free_units": 0}))
+        p = self._go("2026-11-02", 5, self._led("2026-11-02"))
+        self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("stopped_budget", 2, 400))
+        self.assertEqual(json.loads(self._led("2026-11-02").read_text())["used"], {"firecrawl": 122, "apify_usd_cents": 400})
+    def test_unreadable_previous_month_file_fails_closed(self):
+        for bad in ("{", "[]", json.dumps({"month": "2026-09", "used": {}})):
+            oct_f = self._led("2026-10-30"); oct_f.parent.mkdir(parents=True, exist_ok=True); oct_f.write_text(bad)
+            with self.assertRaises(runner.LedgerError): self._go("2026-11-02", 1, self._led("2026-11-02"))
+            self.assertEqual(self.called, []); self.assertFalse(self._led("2026-11-02").exists())
+    def test_missing_or_bad_anchor_fails_closed(self):
+        for mb in ({"cycle_anchor_day": None}, {"cycle_anchor_day": 0}, {"cycle_anchor_day": 32}, {"cycle_anchor_day": "16"}, {"cycle_anchor_day": True}):
+            led = self._oct(0)
+            with self.assertRaises(runner.RunRefused) as cm: self._go("2026-11-02", 1, led, mb)
+            self.assertEqual(self.called, []); self.assertIn("cycle_anchor_day", cm.exception.report["reason"])
+        cfg = dict(CFG["meter_budget"]["apify"]); del cfg["cycle_anchor_day"]
+        with self.assertRaises(runner.RunRefused):
+            runner.run(preflight=False, providers=self.PROV, sets={}, pricing=self.PRICING, tos={}, adapters={}, cfg={"meter_budget": {"apify": cfg}}, runs_dir=self.tmp / "r",
+                       ledger_path=self.tmp / "x.json", run_date="2026-11-02", env={}, mock=True, spend_dir=self.tmp / "spend")
+        self.assertFalse((self.tmp / "x.json").exists())
+    def test_unknown_or_missing_period_fails_closed(self):
+        for mb in ({"period": "rolling_30d"}, {"period": None}, {"period": "Billing_Cycle"}):
+            with self.assertRaises(runner.RunRefused) as cm: self._go("2026-11-02", 1, self._oct(0), mb)
+            self.assertEqual(self.called, []); self.assertIn("not calendar_month or billing_cycle", cm.exception.report["reason"])
+    def test_calendar_month_unchanged_resets_on_the_1st(self):
+        cal = {"period": "calendar_month"}; led = self._oct()
+        self.assertEqual(self._go("2026-10-27", 5, led, cal)["calls"], 5)
+        p = self._go("2026-11-02", 5, led, cal); self.assertEqual((p["status"], p["calls"]), ("ran", 5))
+        self.assertEqual(json.loads(led.read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 5}, "over_free_units": 0})
+        self.assertEqual(sorted(f.name for f in (self.tmp / "spend").glob("apify-meter-*")), ["apify-meter-2026-10.json", "apify-meter-2026-11.json"])
 
 class ApifyStopRulesSpec(unittest.TestCase):
     """AWI-RUN-2026-10-26-APIFY-001 AC2/4/5/6/8/9/12 (Kitty T1 findings). Mocks only, no network."""
