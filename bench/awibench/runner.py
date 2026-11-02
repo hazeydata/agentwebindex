@@ -90,12 +90,17 @@ class CapViolation(RuntimeError): pass
 class LedgerError(RuntimeError): pass
 
 class QuotaLedger:
-    def __init__(self, path, month):
-        self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else None
+    def __init__(self, path, month, windows=None):
+        windows = windows or {}; self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else None
         if self.path.exists() and not isinstance(self.d, dict):   # null, [], "x": unreadable counter, fail closed (AC2), never overwrite
             raise LedgerError(f"quota ledger {self.path.name} is not a JSON object ({type(self.d).__name__}); failing closed, no call made")
         if self.d is None or self.d.get("month") != month:   # calendar-month ledger: a new month starts at zero on the 1st
-            self.d = {"month": month, "used": {}, "over_free_units": 0}
+            old = self.d or {}
+            self.d = {"month": month, "used": {p: old["used"][p] for p, w in windows.items() if (old.get("windows") or {}).get(p) == w and p in (old.get("used") or {})}, "over_free_units": 0}
+        if windows:
+            for p, w in windows.items():
+                if (self.d.get("windows") or {}).get(p, w) != w: self.d["used"].pop(p, None)
+            self.d["windows"] = (self.d.get("windows") or {}) | windows
     def used(self, pool): return self.d["used"].get(pool, 0)
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
     def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); t = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp"); t.write_text(json.dumps(self.d, indent=1, sort_keys=True)); os.replace(t, self.path)   # atomic
@@ -179,13 +184,21 @@ def read_meter(meters, pid):
     except Exception: return None
     return v if _usd_ok(v) else None
 
-def meter_gap(meters, pid, m0, ledger_usd, spend_dir, run_date):
+def period_window(mb, ts):
+    p = mb.get("period")
+    if p == "calendar_month": return None
+    if p != "billing_cycle": raise ValueError(f"period {p!r} is not calendar_month or billing_cycle")
+    a = mb.get("cycle_anchor_day")
+    if type(a) is not int or not 1 <= a <= 31: raise ValueError(f"billing_cycle needs cycle_anchor_day 1-31, got {a!r}")
+    return guard.anchor_window_start(ts, a).isoformat()
+
+def meter_gap(meters, pid, m0, ledger_usd, spend_dir, run_date, window=None):
     mv = read_meter(meters, pid)
     if mv is None: return {"meter_usd": None, "ledger_usd": round(ledger_usd, 4), "meter_minus_ledger_usd": None}
     d = {"meter_usd": round(mv, 4), "ledger_usd": round(ledger_usd, 4), "meter_minus_ledger_usd": round(mv - ledger_usd, 4),
          "run_meter_usd": round(mv - m0[0], 4), "run_ledger_usd": round(ledger_usd - m0[1], 4), "run_meter_minus_ledger_usd": round((mv - m0[0]) - (ledger_usd - m0[1]), 4)}
-    f = Path(spend_dir) / f"{pid}-meter-{run_date[:7]}.json"; f.parent.mkdir(parents=True, exist_ok=True)
-    log = json.loads(f.read_text()) if f.exists() else {"provider": pid, "month": run_date[:7], "runs": []}
+    f = Path(spend_dir) / f"{pid}-meter-{window or run_date[:7]}.json"; f.parent.mkdir(parents=True, exist_ok=True)
+    log = json.loads(f.read_text()) if f.exists() else {"provider": pid, "runs": []} | ({"window": window} if window else {"month": run_date[:7]})
     log["runs"].append({"run_date": run_date} | d); _atomic_write(f, json.dumps(log, indent=1, sort_keys=True))
     return d
 
@@ -539,9 +552,14 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
     gdir = Path(guard_dir) if guard_dir else spend_dir   # credit-guard counters (config free_tier_guard.*.counter_file); live runs: data/spend
     if mock and is_under(gdir, PUBLISHED_DIRS + [Path(__file__).resolve().parent.parent / "spend"]):
         raise RuntimeError("mock run credit counters must not go to bench/spend or published dirs")
-    ledger = QuotaLedger(ledger_path, run_date[:7]); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
-    skipped_cap = {}; floor_hits = summary["floor_reached"] = {}
     t_run = now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)
+    windows = {}
+    for pid, mb in (cfg.get("meter_budget") or {}).items():
+        try: w = period_window(mb, dt.datetime.fromisoformat(run_date))
+        except ValueError as e: raise RunRefused(refusal_report(run_date, t_run, [f"{pid}: meter_budget.{pid}: {e}; failing closed"])) from None
+        if w: windows[mb["pool"]] = w
+    ledger = QuotaLedger(ledger_path, run_date[:7], windows); used_start = json.dumps(ledger.d, sort_keys=True); summary = {"run_date": run_date, "mock": mock, "offset_h": offset_h, "providers": []}
+    skipped_cap = {}; floor_hits = summary["floor_reached"] = {}
     run_id = f"{run_date}-offset{offset_h}-{t_run.astimezone(dt.timezone.utc).strftime('%H%M%S')}"
     def skip_row(row):   # R43.2/R45: one append-only line per dropped provider per run in bench/runs/<run_date>/_skipped_cap.jsonl
         sf = Path(runs_dir) / run_date / SKIPPED_CAP_FILE; sf.parent.mkdir(parents=True, exist_ok=True)
@@ -773,7 +791,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if status["status"] != "ran":   # stamp the stale run's lines so tables.collect never publishes them
                         lines = [json.dumps(json.loads(l) | {"run_status": status["status"]}) + "\n" for l in lines]
                     with open(out_f, "a") as fh: fh.write("".join(lines))
-            gap = meter_gap(meters, pid, m0, ledger.used(pool) * mb["ledger_unit_usd"], spend_dir, run_date) if mb and m0 else {}
+            gap = meter_gap(meters, pid, m0, ledger.used(pool) * mb["ledger_unit_usd"], spend_dir, run_date, windows.get(pool)) if mb and m0 else {}
             if fg and last_read and last_read[0] is not None: gap = gap | guard.meter_gap(gdir, pid, run_date, *last_read)   # logged meter vs counter gap
             spend = {"run_spend_units": round(billed, 6), "cumulative_spend_units": round(ledger.used(pool), 6)}   # AC8
             if mb: spend |= {"run_spend_usd": round(billed * mb["ledger_unit_usd"], 6), "cumulative_spend_usd": round(ledger.used(pool) * mb["ledger_unit_usd"], 6)}
