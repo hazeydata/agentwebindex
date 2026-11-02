@@ -2074,6 +2074,31 @@ class ApifyMeterGuard(unittest.TestCase):
         p = self._go("2026-11-16", 5, led); self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("ran", 5, 5))
         self.assertEqual(json.loads(led.read_text())["windows"], {"apify_usd_cents": "2026-11-16"})
         self.assertTrue((self.tmp / "spend" / "apify-meter-2026-11-16.json").exists())
+    def _led(self, date): return self.tmp / "data" / "spend" / f"{date[:7]}-quota.json"
+    def test_collector_month_files_carry_the_cycle_across_the_1st(self):
+        oct_f = self._led("2026-10-20"); oct_f.parent.mkdir(parents=True)
+        oct_f.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 390, "tavily": 7}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}}))
+        self.assertEqual(self._go("2026-10-20", 3, oct_f)["cumulative_spend_units"], 393)
+        oct_before = oct_f.read_text()
+        p = self._go("2026-11-01", 20, self._led("2026-11-01"))
+        self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("stopped_budget", 7, 400))
+        self.assertEqual(json.loads(self._led("2026-11-01").read_text()), {"month": "2026-11", "used": {"apify_usd_cents": 400}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}})
+        self.assertEqual(oct_f.read_text(), oct_before)
+        p = self._go("2026-11-15", 5, self._led("2026-11-15")); self.assertEqual((p["status"], p["calls"], self.called), ("stopped_budget", 0, []))
+        p = self._go("2026-11-16", 5, self._led("2026-11-16")); self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("ran", 5, 5))
+        self.assertEqual(json.loads(self._led("2026-11-16").read_text())["windows"], {"apify_usd_cents": "2026-11-16"})
+    def test_carry_reaches_a_month_file_another_provider_already_opened(self):
+        oct_f = self._led("2026-10-30"); oct_f.parent.mkdir(parents=True)
+        oct_f.write_text(json.dumps({"month": "2026-10", "used": {"apify_usd_cents": 398}, "over_free_units": 0, "windows": {"apify_usd_cents": "2026-10-16"}}))
+        self._led("2026-11-01").write_text(json.dumps({"month": "2026-11", "used": {"firecrawl": 122}, "over_free_units": 0}))
+        p = self._go("2026-11-02", 5, self._led("2026-11-02"))
+        self.assertEqual((p["status"], p["calls"], p["cumulative_spend_units"]), ("stopped_budget", 2, 400))
+        self.assertEqual(json.loads(self._led("2026-11-02").read_text())["used"], {"firecrawl": 122, "apify_usd_cents": 400})
+    def test_unreadable_previous_month_file_fails_closed(self):
+        for bad in ("{", "[]", json.dumps({"month": "2026-09", "used": {}})):
+            oct_f = self._led("2026-10-30"); oct_f.parent.mkdir(parents=True, exist_ok=True); oct_f.write_text(bad)
+            with self.assertRaises(runner.LedgerError): self._go("2026-11-02", 1, self._led("2026-11-02"))
+            self.assertEqual(self.called, []); self.assertFalse(self._led("2026-11-02").exists())
     def test_missing_or_bad_anchor_fails_closed(self):
         for mb in ({"cycle_anchor_day": None}, {"cycle_anchor_day": 0}, {"cycle_anchor_day": 32}, {"cycle_anchor_day": "16"}, {"cycle_anchor_day": True}):
             led = self._oct(0)

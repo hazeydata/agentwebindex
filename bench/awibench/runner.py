@@ -94,13 +94,27 @@ class QuotaLedger:
         windows = windows or {}; self.path = Path(path); self.d = json.loads(self.path.read_text()) if self.path.exists() else None
         if self.path.exists() and not isinstance(self.d, dict):   # null, [], "x": unreadable counter, fail closed (AC2), never overwrite
             raise LedgerError(f"quota ledger {self.path.name} is not a JSON object ({type(self.d).__name__}); failing closed, no call made")
+        old = self.d
         if self.d is None or self.d.get("month") != month:   # calendar-month ledger: a new month starts at zero on the 1st
-            old = self.d or {}
-            self.d = {"month": month, "used": {p: old["used"][p] for p, w in windows.items() if (old.get("windows") or {}).get(p) == w and p in (old.get("used") or {})}, "over_free_units": 0}
+            self.d = {"month": month, "used": {}, "over_free_units": 0}
         if windows:
+            prev = old if old is not None and old.get("month") != month else self._previous(month)
             for p, w in windows.items():
-                if (self.d.get("windows") or {}).get(p, w) != w: self.d["used"].pop(p, None)
+                have = (self.d.get("windows") or {}).get(p)
+                if have == w or (have is None and p in self.d["used"]): continue
+                carry = (prev.get("used") or {}).get(p) if (prev.get("windows") or {}).get(p) == w else None
+                if carry is None: self.d["used"].pop(p, None)
+                else: self.d["used"][p] = carry
             self.d["windows"] = (self.d.get("windows") or {}) | windows
+    def _previous(self, month):
+        y, m = map(int, month.split("-")); pm = f"{y - (m == 1)}-{12 if m == 1 else m - 1:02d}"
+        if month not in self.path.name: return {}
+        f = self.path.with_name(self.path.name.replace(month, pm))
+        if not f.exists(): return {}
+        try: d = json.loads(f.read_text())
+        except (OSError, ValueError): d = None
+        if not isinstance(d, dict) or d.get("month") != pm: raise LedgerError(f"previous quota ledger {f.name} is unreadable or not month {pm}; failing closed, no call made")
+        return d
     def used(self, pool): return self.d["used"].get(pool, 0)
     def add(self, pool, units): self.d["used"][pool] = self.used(pool) + units
     def save(self): self.path.parent.mkdir(parents=True, exist_ok=True); t = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp"); t.write_text(json.dumps(self.d, indent=1, sort_keys=True)); os.replace(t, self.path)   # atomic
