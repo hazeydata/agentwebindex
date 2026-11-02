@@ -4647,14 +4647,23 @@ class R41PreRun(unittest.TestCase):
         cpc = load_yaml(BENCH / "pricing.yaml")["providers"]["firecrawl"]["search"]["credits_per_call"]["search"]
         self.assertEqual(CFG["shared_quota"]["firecrawl"]["worst_case_units_per_call"], {"search": cpc * math.ceil(seen[0]["limit"] / 10)})
         for kind in ("scrape", "browser"): self.assertNotIn(kind, B.ADAPTERS.get("firecrawl", {}), kind)   # AWI calls firecrawl search only
-    def test_firecrawl_prerun_floor_uses_worst_case_units(self):
+    def test_firecrawl_prerun_floor_uses_worst_case_units(self):   # the floor alone: reserve={} pinned, since main()'s reserve depends on the Mondays left today (R45.4)
         fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS); floor = 10000
-        n = self._q3(self._project(fu, meters={"firecrawl": lambda: 100000}))["firecrawl"]["planned_calls"]
+        n = self._q3(self._project(fu, meters={"firecrawl": lambda: 100000}, reserve={}))["firecrawl"]["planned_calls"]
         cfg3 = json.loads(json.dumps(fu["cfg"])); cfg3["shared_quota"]["firecrawl"]["worst_case_units_per_call"] = {"search": 3}   # worst case above the priced 2
-        ok = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n}))["firecrawl"]
+        ok = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n}, reserve={}))["firecrawl"]
         self.assertIsNone(ok["reason"]); self.assertEqual((ok["worst_case_units"], ok["planned_units"]), (str(3 * n), str(2 * n)))
-        x = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n - 1}))["firecrawl"]   # fits at 2/call, not at the worst case
+        x = self._q3(self._project(fu | {"cfg": cfg3}, meters={"firecrawl": lambda: floor + 3 * n - 1}, reserve={}))["firecrawl"]   # fits at 2/call, not at the worst case
         self.assertTrue(x["cap_breach"]); self.assertIs(x["floor_reached"]["reached"], True); self.assertIn(f"planned worst-case {3 * n} units", x["reason"])
+    def test_firecrawl_floor_clear_smoke_still_keeps_the_full_reserve(self):   # floor and R45.4 reserve both apply, on a fixed date (Nov 2 15:40 UTC, after that day's full: 4 Monday fulls left)
+        fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS); floor = CFG["shared_quota"]["firecrawl"]["floor_credits"]
+        res = runner.full_reserve(CFG, dt.datetime(2026, 11, 2, 15, 40, tzinfo=dt.timezone.utc), False)["firecrawl"]
+        self.assertEqual(res, 4 * CFG["run_schedule"]["full_reserve_units"]["firecrawl"])   # Nov 9, 16, 23, 30
+        self.assertEqual(runner.full_reserve(CFG, dt.datetime(2026, 11, 30, 23, 0, tzinfo=dt.timezone.utc), False), {})   # no Monday full left: no reserve
+        x = self._q3(self._project(fu, meters={"firecrawl": lambda: 100000}, reserve={"firecrawl": res}))["firecrawl"]   # AWI ledger empty: 1000 - res left
+        self.assertIsNone(x["reason"]); self.assertIs(x["floor_reached"]["reached"], False)
+        y = self._q3(self._project(fu, meters={"firecrawl": lambda: floor + 6}, reserve={"firecrawl": res}))["firecrawl"]   # floor clears, the reserve does not
+        self.assertIs(y["floor_reached"]["reached"], False); self.assertEqual(y["skip_status"], "skipped_reserve"); self.assertIn(f"remaining 6 minus {res} reserved", y["reason"])
     def test_firecrawl_worst_case_missing_fails_closed(self):
         fu = self._captured(["--mode", "smoke", "--only-providers", "firecrawl"], self.QKEYS)
         cfg0 = json.loads(json.dumps(fu["cfg"])); del cfg0["shared_quota"]["firecrawl"]["worst_case_units_per_call"]
