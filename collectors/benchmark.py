@@ -242,9 +242,11 @@ def _keenable_search(key, item):   # `key` is unused (keyless); the runner passe
 
 # TinyFish Search + Fetch (AWI-TINYFISH-001; meta cycle 2026-10-26-tinyfish-scope D3). One key, X-API-Key header, env TINYFISH_API_KEY.
 # Endpoints from docs.tinyfish.ai search-api/reference.md and fetch-api/reference.md (read 2026-11-03). Both are $0 inside the free
-# allowance (bench/pricing.yaml tinyfish). Budget guard: before every call the free GET /v1/wallet is read; spent = start_usd - balance;
-# at spent >= stop_spent_usd (config tinyfish_budget, $8 of the $9 free credit) or an unreadable wallet, no call is made and the adapter
-# raises "HTTP 402: ..." so the runner stops the provider (stop_on_http 402 -> stopped_paid_usage). A real 402 from TinyFish does the same.
+# allowance (bench/pricing.yaml tinyfish). Budget guard: the first call of a run reads the free GET /v1/wallet once and stores it as the
+# run baseline (no hard-coded start); before every call the wallet is read again and spent = baseline - current balance. At spent >=
+# stop_spent_usd (config tinyfish_budget, $8) or on any failed read (baseline or current), no call is made and the adapter raises
+# "HTTP 402: ..." so the runner stops the provider (stop_on_http 402 -> stopped_paid_usage). A failed baseline read stays stopped for the
+# rest of the run. A real 402 from TinyFish does the same.
 TINYFISH_SEARCH_URL = "https://api.search.tinyfish.ai"
 TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
 TINYFISH_WALLET_URL = "https://agent.tinyfish.ai/v1/wallet"
