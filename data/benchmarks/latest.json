@@ -3937,6 +3937,294 @@
      "na_reason": null,
      "display": "$10.87"
     }
+   },
+   {
+    "provider": "tinyfish",
+    "set": "news_2026-45",
+    "run_date": "2026-11-03",
+    "set_sha": "47a1d19e2083aea971795cbb60e4a913550e529a70f1d62fe0a07bec941276d5",
+    "set_rows": 21,
+    "flags": [
+     "short week (n=21)",
+     "below minimum (n=21)"
+    ],
+    "mock": false,
+    "partial": false,
+    "grader_version": "canon-2026-10-20",
+    "attempted": {
+     "v": 21,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 17,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 4,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "17/21 answered",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.8095238095238095,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 885.371,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Pricing page 2026-11-03: TinySearch Free, 30 requests/min, 500 requests/hour, $0.00 per request (was 12,000/day on 2026-10-26). units_per_month derived = 500/h x 24 x 28 (AWI convention, D3).",
+    "cost_units_note": null,
+    "entry_tier_cost_per_1k": {
+     "v": 0.0,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tinyfish",
+       "category": "search"
+      }
+     ],
+     "tier": "TinySearch free ($0.00 per request)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$0.00"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 0.0,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/news_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tinyfish",
+       "category": "search"
+      }
+     ],
+     "tier": "TinySearch free ($0.00 per request)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$0.00"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    }
    }
   ],
   "scrape": [
@@ -6046,6 +6334,295 @@
      "na_reason": null,
      "display": "$0.76"
     }
+   },
+   {
+    "provider": "tinyfish",
+    "set": "newsfetch_2026-45",
+    "run_date": "2026-11-03",
+    "set_sha": "47a1d19e2083aea971795cbb60e4a913550e529a70f1d62fe0a07bec941276d5",
+    "set_rows": 21,
+    "flags": [
+     "short week (n=21)",
+     "below minimum (n=21)"
+    ],
+    "mock": false,
+    "partial": false,
+    "grader_version": "run-log",
+    "attempted": {
+     "v": 21,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "passed": {
+     "v": 9,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "failed": {
+     "v": 12,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "rate_limited": {
+     "v": null,
+     "src": [],
+     "label": "rate-limited (free tier)",
+     "note": null
+    },
+    "timed_out": {
+     "v": null,
+     "src": [],
+     "note": null
+    },
+    "answered_display": "9/21 answered",
+    "skipped_tos": {
+     "count": 0,
+     "src": [],
+     "tos_reason": null
+    },
+    "success_rate": {
+     "v": 0.42857142857142855,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "p50_latency_ms": {
+     "v": 3468.929,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      }
+     ]
+    },
+    "free_quota_note": "Pricing page 2026-11-03: TinyFetch Free, 150 urls/min, 1,000 urls/day (counted per successful URL, resets 00:00 UTC per docs), 'No charge, no Wallet draw, and they keep working at a $0 balance'. units_per_month derived = 1,000/day x 28 (AWI convention, meta cycle 2026-10-26-tinyfish-scope D3). scrape and browser share this pool.",
+    "cost_units_note": null,
+    "run_note": "7 misses come from errors in our test set (Hacker News titles that don't appear on the article page); 4 BBC pages likely lost their headline in TinyFish's output (unconfirmed); 1 returned a server error.",
+    "entry_tier_cost_per_1k": {
+     "v": 0.0,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tinyfish",
+       "category": "browser"
+      }
+     ],
+     "tier": "TinyFetch free ($0.00 per url)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$0.00"
+    },
+    "entry_tier_cost_per_successful_1k": {
+     "v": 0.0,
+     "src": [
+      {
+       "file": "runs/2026-11-03/tinyfish/newsfetch_2026-45.jsonl",
+       "lines": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+       ]
+      },
+      {
+       "file": "bench/pricing.yaml",
+       "provider": "tinyfish",
+       "category": "browser"
+      }
+     ],
+     "tier": "TinyFetch free ($0.00 per url)",
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "$0.00"
+    },
+    "volume_tier_cost_per_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    },
+    "volume_tier_cost_per_successful_1k": {
+     "v": null,
+     "src": [],
+     "tier": null,
+     "lower_bound": false,
+     "lower_bound_reason": null,
+     "na_reason": null,
+     "display": "n/a"
+    }
    }
   ]
  },
@@ -6265,6 +6842,12 @@
    "set": "news_2026-43",
    "run_date": "2026-10-20",
    "note": "no freshness row: ran 2026-10-20, after the set froze on 2026-10-19, so its lag is not comparable"
+  },
+  {
+   "provider": "tinyfish",
+   "set": "news_2026-45",
+   "run_date": "2026-11-03",
+   "note": "no freshness row: ran 2026-11-03, after the set froze on 2026-11-02, so its lag is not comparable"
   }
  ],
  "grader_version": "canon-2026-10-20",
@@ -6340,7 +6923,8 @@
   "2026-10-15",
   "2026-10-19",
   "2026-10-20",
-  "2026-10-23"
+  "2026-10-23",
+  "2026-11-03"
  ],
  "sets_valid": [
   "scrape_urls",

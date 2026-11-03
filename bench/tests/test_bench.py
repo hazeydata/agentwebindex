@@ -2582,7 +2582,7 @@ class ContextDevConfig(ContextDevBase):
         if committed_consistent(self): want |= {"live_run_allowed": True, "vendor_confirmation": g["vendor_confirmation"]}   # R25: open only with a valid record
         self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
                                             "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")}, want)
-        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev", "tinyfish"])
+        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev"])
         self.assertNotIn("contextdev", CFG["ceo_free_tier_allowlist"])   # needs_card is false in pricing.yaml; no allowlist exception
     def test_also_priced_helper_eleven_with_flag(self):   # AC22 support (the site repo tests the page itself): helper honours exclude_from_also_priced
         provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
@@ -2592,7 +2592,7 @@ class ContextDevConfig(ContextDevBase):
                                                 "Hyperbrowser", "ScrapingBee", "Browserbase", "Steel"]))
         self.assertEqual(len(names), 11); self.assertNotIn("Context.dev", names)
         unflagged = [{k: v for k, v in p.items() if k != "exclude_from_also_priced"} for p in provs]
-        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 13)   # contextdev + tinyfish flagged   # the flag, not chance, excludes it
+        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 12)   # contextdev flagged (tinyfish now has published rows, Nov 3 2026)   # the flag, not chance, excludes it
 
 class ContextDevLiveGate(ContextDevBase):
     def test_ac6a_live_allowed_function(self):   # AC6a
@@ -3140,7 +3140,7 @@ class ContextDevPublish(ContextDevBase):
         self.assertEqual(tables.publish_gate("contextdev", self._no_price(), self.tos)[1], "P0 pricing not passed; P1 terms not passed")
         self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
     def test_ac24_publish_hold_holds_even_when_gate_passes(self):   # AC24
-        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev", "tinyfish"])
+        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev"])
         self.assertEqual(self._rows(self._built(runs, p0, t1, self.cfg)), [])   # gate passes, publish_hold still holds it
         self.assertTrue(self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})))   # control: the logs do build a row
         self.assertIn("contextdev", tables.held_providers(self.cfg, p0, t1))
@@ -4917,7 +4917,7 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         self.assertEqual(B.ADAPTERS["tinyfish"], {"search": B._tinyfish_search, "scrape": B._tinyfish_scrape, "browser": B._tinyfish_fetch})
         prov = next(p for p in json.loads((SITE / "collectors" / "providers.json").read_text())["providers"] if p["id"] == "tinyfish")
         self.assertEqual((prov["key_env"], prov["categories"]), ("TINYFISH_API_KEY", ["search", "scrape", "browser"]))
-        self.assertIn("tinyfish", CFG["known_providers"]); self.assertIn("tinyfish", CFG["publish_hold"])
+        self.assertIn("tinyfish", CFG["known_providers"]); self.assertNotIn("tinyfish", CFG["publish_hold"])   # hold lifted per Fred, Nov 3 2026
         self.assertEqual(CFG["tinyfish_budget"]["stop_spent_usd"], 8.0); self.assertNotIn("start_usd", CFG["tinyfish_budget"])
         pr = load_yaml(BENCH / "pricing.yaml")["providers"]["tinyfish"]
         for k in ("search", "scrape", "browser"):
@@ -4925,6 +4925,18 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
             self.assertEqual(runner.eligibility("tinyfish", pr[k], CFG), (True, "free tier"))
         self.assertEqual(load_yaml(BENCH / "tos_matrix.yaml")["providers"]["tinyfish"]["benchmarking"]["status"], "unclear")
         self.assertGreaterEqual(B.TINYFISH_CLIENT_TIMEOUT_S, 150)
+
+    def test_tinyfish_rows_in_latest_json(self):   # AWI-TINYFISH-001 publish: the 2026-11-03 live run is in latest.json and equals a rebuild
+        doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
+        rows = {(k, r["set"]): r for k, t in doc["tables"].items() for r in t if r["provider"] == "tinyfish"}
+        self.assertEqual(sorted(rows), [("browser", "newsfetch_2026-45"), ("search", "news_2026-45")])
+        self.assertEqual((rows[("search", "news_2026-45")]["passed"]["v"], rows[("search", "news_2026-45")]["attempted"]["v"]), (17, 21))
+        self.assertEqual((rows[("browser", "newsfetch_2026-45")]["passed"]["v"], rows[("browser", "newsfetch_2026-45")]["attempted"]["v"]), (9, 21))
+        self.assertIn("7 misses come from errors in our test set", rows[("browser", "newsfetch_2026-45")]["run_note"])
+        self.assertNotIn("tinyfish", tables.held_providers(CFG, load_yaml(BENCH / "pricing.yaml")["providers"], load_yaml(BENCH / "tos_matrix.yaml")["providers"]))
+        built = tables.build(BENCH / "runs", load_yaml(BENCH / "pricing.yaml")["providers"], BENCH / "sets", load_yaml(BENCH / "tos_matrix.yaml")["providers"], CFG)
+        rebuilt = {(k, r["set"]): r for k, t in built["tables"].items() for r in t if r["provider"] == "tinyfish"}
+        self.assertEqual(rebuilt, rows)
 
     def test_search_maps_results_and_uses_header_key(self):
         out = self.B._tinyfish_search("k", {"query": "hello world"})

@@ -1,0 +1,41 @@
+{
+ "run_date": "2026-11-03",
+ "mock": false,
+ "offset_h": 0,
+ "providers": [
+  {
+   "provider": "tinyfish",
+   "category": "search",
+   "status": "ran",
+   "calls": 21,
+   "data_calls": 21,
+   "quota_used": 21,
+   "quota": 336000,
+   "run_spend_units": 21,
+   "cumulative_spend_units": 21
+  },
+  {
+   "provider": "tinyfish",
+   "category": "scrape",
+   "status": "ran",
+   "calls": 0,
+   "data_calls": 0,
+   "quota_used": 0,
+   "quota": 28000,
+   "run_spend_units": 0,
+   "cumulative_spend_units": 0
+  },
+  {
+   "provider": "tinyfish",
+   "category": "browser",
+   "status": "ran",
+   "calls": 21,
+   "data_calls": 21,
+   "quota_used": 21,
+   "quota": 28000,
+   "run_spend_units": 21,
+   "cumulative_spend_units": 21
+  }
+ ],
+ "floor_reached": {}
+}
