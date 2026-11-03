@@ -290,7 +290,7 @@
     "status": "unclear",
     "quote": "Terms say nothing on target sites; Fetch handles bot checks by default (pricing page 'Anti-bot handling'). allowed=no keeps anti-bot pairs skipped."
    },
-   "note": "AWI-TINYFISH-001: internal runs only; config publish_hold keeps tinyfish out of latest.json/site (meta D8). A written OK to publish was reported at https://x.com/Tiny_Fish/status/2114883360837579057; recording it as a vendor_confirmation and lifting the hold is a separate Fred-approved change."
+   "note": "AWI-TINYFISH-001: publish hold lifted per Fred (Nov 3 2026, 1:59 PM ET, relayed by chief; confirmation pending); tinyfish is no longer in config publish_hold. TinyFish's written OK to publish (X post https://x.com/Tiny_Fish/status/2114883360837579057, Oct 26 2026) is recorded as the vendor confirmation in agentwebindex-meta cycles/2026-11-03-tinyfish-implement. tinyfish has no vendor_confirmation_required flag, so no record is needed here."
   }
  }
 }
