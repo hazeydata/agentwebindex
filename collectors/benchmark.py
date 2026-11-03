@@ -240,10 +240,95 @@ def _keenable_search(key, item):   # `key` is unused (keyless); the runner passe
     if d.get("keenable/usage") is not None or d.get("usage") is not None: out["usage"] = d.get("keenable/usage") or d.get("usage")   # metered: guard.paid_stop stops
     return out
 
+# TinyFish Search + Fetch (AWI-TINYFISH-001; meta cycle 2026-10-26-tinyfish-scope D3). One key, X-API-Key header, env TINYFISH_API_KEY.
+# Endpoints from docs.tinyfish.ai search-api/reference.md and fetch-api/reference.md (read 2026-11-03). Both are $0 inside the free
+# allowance (bench/pricing.yaml tinyfish). Budget guard: the first call of a run reads the free GET /v1/wallet once and stores it as the
+# run baseline (no hard-coded start); before every call the wallet is read again and spent = baseline - current balance. At spent >=
+# stop_spent_usd (config tinyfish_budget, $8) or on any failed read (baseline or current), no call is made and the adapter raises
+# "HTTP 402: ..." so the runner stops the provider (stop_on_http 402 -> stopped_paid_usage). A failed baseline read stays stopped for the
+# rest of the run. A real 402 from TinyFish does the same.
+TINYFISH_SEARCH_URL = "https://api.search.tinyfish.ai"
+TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
+TINYFISH_WALLET_URL = "https://agent.tinyfish.ai/v1/wallet"
+TINYFISH_CLIENT_TIMEOUT_S = 150   # spec D3: client timeout >= 150 s (per-URL server budget 110 s max)
+TINYFISH_PER_URL_TIMEOUT_MS = 110000
+
+def _tinyfish_call(fn, key):
+    try: return fn()
+    except RuntimeError as e: raise RuntimeError(str(e).replace(key, "***")[:300]) from None
+    except Exception as e: raise RuntimeError(f"{type(e).__name__}: {str(e).replace(key, '***')[:200]}") from None
+
+def tinyfish_meter(key):
+    """Wallet available_balance in USD (float), or None on any error. GET, free, key in the header only."""
+    try:
+        st, d = _get_json(TINYFISH_WALLET_URL, {"X-API-Key": key}, timeout=30)
+        return float(d["available_balance"])
+    except Exception: return None
+
+# Run baseline: the wallet balance read once, on the first guarded call of this process (one runner process = one run). spent = baseline - current.
+# A failed baseline read is remembered, so every later TinyFish call in the run also stops (fail closed; no retry that could pick up a post-spend balance).
+_TINYFISH_RUN = {}
+
+def tinyfish_reset_baseline(state=None):
+    (state if state is not None else _TINYFISH_RUN).clear()
+
+def tinyfish_budget_check(key, cfg=None, meter=None, state=None):
+    """Raises RuntimeError('HTTP 402: ...') when the budget guard says stop; returns the spent USD otherwise."""
+    b = (cfg if cfg is not None else load_yaml(BENCH / "config.yaml")).get("tinyfish_budget") or {}
+    stop = b.get("stop_spent_usd")
+    if not isinstance(stop, (int, float)) or isinstance(stop, bool):
+        raise RuntimeError("HTTP 402: tinyfish budget guard: config tinyfish_budget.stop_spent_usd missing; failing closed, no call made")
+    run = state if state is not None else _TINYFISH_RUN; read = meter or tinyfish_meter
+    if "baseline_usd" not in run:
+        run["baseline_usd"] = read(key)
+        if run["baseline_usd"] is None: raise RuntimeError("HTTP 402: tinyfish budget guard: baseline wallet read failed at run start; failing closed, no call made")
+    if run["baseline_usd"] is None: raise RuntimeError("HTTP 402: tinyfish budget guard: no run baseline (start read failed); failing closed, no call made")
+    bal = read(key)
+    if bal is None: raise RuntimeError("HTTP 402: tinyfish budget guard: wallet unreadable; failing closed, no call made")
+    spent = round(run["baseline_usd"] - bal, 6)
+    if spent >= stop: raise RuntimeError(f"HTTP 402: tinyfish budget guard: spent ${spent:.2f} >= stop ${stop:.2f} (baseline ${run['baseline_usd']:.2f}); no call made")
+    return spent
+
+def _iso_or_none(v):   # TinySearch can return relative dates ("1 day ago"); only ISO 8601 values are kept
+    import datetime as _dt
+    if not isinstance(v, str) or not v: return None
+    try: _dt.datetime.fromisoformat(v.replace("Z", "+00:00")); return v
+    except ValueError: return None
+
+def _tinyfish_search(key, item):
+    import urllib.parse
+    tinyfish_budget_check(key)
+    q = urllib.parse.urlencode({"query": item["query"], "location": "US", "language": "en"})
+    st, d = _tinyfish_call(lambda: _get_json(f"{TINYFISH_SEARCH_URL}?{q}", {"X-API-Key": key}, timeout=TINYFISH_CLIENT_TIMEOUT_S), key)
+    rows = sorted(d.get("results") or [], key=lambda r: r.get("position") or 99)
+    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("snippet"),
+            "published_at": _iso_or_none(r.get("published_date") or r.get("date"))} for r in rows[:10]]}
+
+def _tinyfish_fetch_one(key, url):
+    tinyfish_budget_check(key)
+    st, d = _tinyfish_call(lambda: _post_json(TINYFISH_FETCH_URL, {"X-API-Key": key},
+                           {"urls": [url], "format": "markdown", "ttl": 0, "per_url_timeout_ms": TINYFISH_PER_URL_TIMEOUT_MS},
+                           timeout=TINYFISH_CLIENT_TIMEOUT_S), key)
+    res = (d.get("results") or []) if isinstance(d, dict) else []
+    errs = (d.get("errors") or []) if isinstance(d, dict) else []
+    if not res:   # per-URL error -> fail row (not a provider stop); not billed (counted per successful URL)
+        e = errs[0] if errs else {}
+        raise RuntimeError(f"HTTP {st}: tinyfish fetch error {str(e.get('error') or 'no result')[:40]}" + (f" (target {e['status']})" if e.get("status") else ""))
+    return st, res[0]
+
+def _tinyfish_fetch(key, item):   # browser (newsfetch_*): article URL -> markdown text
+    st, r = _tinyfish_fetch_one(key, item["start_url"])
+    return {"http_status": st, "billed_units": 1, "dom_text": r.get("text") or "", "final_url": r.get("final_url"), "config": "fetch-markdown-ttl0"}
+
+def _tinyfish_scrape(key, item):   # scrape_urls
+    st, r = _tinyfish_fetch_one(key, item["url"])
+    return {"http_status": st, "billed_units": 1, "text": r.get("text") or "", "final_url": r.get("final_url"), "config": "fetch-markdown-ttl0"}
+
 ADAPTERS = {"exa": {"search": _exa_search}, "tavily": {"search": _tavily_search}, "firecrawl": {"search": _firecrawl_search},
             "apify": {"search": _apify_search, "browser": _apify_web_fetch}, "browserless": {"browser": _browserless_fetch, "scrape": _browserless_scrape},
             "brightdata": {"scrape": _brightdata_scrape}, "contextdev": {"search": _contextdev_search, "scrape": _contextdev_scrape},
-            "keenable": {"search": _keenable_search}}
+            "keenable": {"search": _keenable_search},
+            "tinyfish": {"search": _tinyfish_search, "scrape": _tinyfish_scrape, "browser": _tinyfish_fetch}}
 # {provider_id: {"search"|"scrape"|"browser": fn(key, item) -> dict}}; see bench/README.md. Scrape/browser adapters wait for their sets.
 
 def keyed_providers(provs, env, cfg=None, tos=None):

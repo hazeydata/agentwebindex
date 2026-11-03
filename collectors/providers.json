@@ -163,6 +163,18 @@
    "pricing_url": "https://keenable.ai/pricing",
    "key_env": null,
    "exclude_from_also_priced": true
+  },
+  {
+   "id": "tinyfish",
+   "name": "TinyFish Search + Fetch",
+   "categories": [
+    "search",
+    "scrape",
+    "browser"
+   ],
+   "pricing_url": "https://www.tinyfish.ai/pricing",
+   "key_env": "TINYFISH_API_KEY",
+   "exclude_from_also_priced": true
   }
  ]
 }
