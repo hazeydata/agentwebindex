@@ -263,16 +263,28 @@ def tinyfish_meter(key):
         return float(d["available_balance"])
     except Exception: return None
 
-def tinyfish_budget_check(key, cfg=None, meter=None):
+# Run baseline: the wallet balance read once, on the first guarded call of this process (one runner process = one run). spent = baseline - current.
+# A failed baseline read is remembered, so every later TinyFish call in the run also stops (fail closed; no retry that could pick up a post-spend balance).
+_TINYFISH_RUN = {}
+
+def tinyfish_reset_baseline(state=None):
+    (state if state is not None else _TINYFISH_RUN).clear()
+
+def tinyfish_budget_check(key, cfg=None, meter=None, state=None):
     """Raises RuntimeError('HTTP 402: ...') when the budget guard says stop; returns the spent USD otherwise."""
     b = (cfg if cfg is not None else load_yaml(BENCH / "config.yaml")).get("tinyfish_budget") or {}
-    start, stop = b.get("start_usd"), b.get("stop_spent_usd")
-    if not isinstance(start, (int, float)) or not isinstance(stop, (int, float)):
-        raise RuntimeError("HTTP 402: tinyfish budget guard: config tinyfish_budget missing; failing closed, no call made")
-    bal = (meter or tinyfish_meter)(key)
+    stop = b.get("stop_spent_usd")
+    if not isinstance(stop, (int, float)) or isinstance(stop, bool):
+        raise RuntimeError("HTTP 402: tinyfish budget guard: config tinyfish_budget.stop_spent_usd missing; failing closed, no call made")
+    run = state if state is not None else _TINYFISH_RUN; read = meter or tinyfish_meter
+    if "baseline_usd" not in run:
+        run["baseline_usd"] = read(key)
+        if run["baseline_usd"] is None: raise RuntimeError("HTTP 402: tinyfish budget guard: baseline wallet read failed at run start; failing closed, no call made")
+    if run["baseline_usd"] is None: raise RuntimeError("HTTP 402: tinyfish budget guard: no run baseline (start read failed); failing closed, no call made")
+    bal = read(key)
     if bal is None: raise RuntimeError("HTTP 402: tinyfish budget guard: wallet unreadable; failing closed, no call made")
-    spent = round(start - bal, 6)
-    if spent >= stop: raise RuntimeError(f"HTTP 402: tinyfish budget guard: spent ${spent:.2f} >= stop ${stop:.2f}; no call made")
+    spent = round(run["baseline_usd"] - bal, 6)
+    if spent >= stop: raise RuntimeError(f"HTTP 402: tinyfish budget guard: spent ${spent:.2f} >= stop ${stop:.2f} (baseline ${run['baseline_usd']:.2f}); no call made")
     return spent
 
 def _iso_or_none(v):   # TinySearch can return relative dates ("1 day ago"); only ISO 8601 values are kept

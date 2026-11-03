@@ -4908,9 +4908,9 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         def p(url, headers, body, timeout):
             self.calls.append(("POST", url, headers, timeout, body))
             return 200, {"results": [{"url": body["urls"][0], "final_url": body["urls"][0] + "?r", "text": "# Big Headline here"}], "errors": []}
-        B._get_json, B._post_json = g, p
+        B._get_json, B._post_json = g, p; B.tinyfish_reset_baseline()
 
-    def tearDown(self): self.B._get_json, self.B._post_json = self.old
+    def tearDown(self): self.B._get_json, self.B._post_json = self.old; self.B.tinyfish_reset_baseline()
 
     def test_registration_and_config(self):
         B = self.B
@@ -4918,7 +4918,7 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         prov = next(p for p in json.loads((SITE / "collectors" / "providers.json").read_text())["providers"] if p["id"] == "tinyfish")
         self.assertEqual((prov["key_env"], prov["categories"]), ("TINYFISH_API_KEY", ["search", "scrape", "browser"]))
         self.assertIn("tinyfish", CFG["known_providers"]); self.assertIn("tinyfish", CFG["publish_hold"])
-        self.assertEqual(CFG["tinyfish_budget"], CFG["tinyfish_budget"] | {"start_usd": 9.0, "stop_spent_usd": 8.0})
+        self.assertEqual(CFG["tinyfish_budget"]["stop_spent_usd"], 8.0); self.assertNotIn("start_usd", CFG["tinyfish_budget"])
         pr = load_yaml(BENCH / "pricing.yaml")["providers"]["tinyfish"]
         for k in ("search", "scrape", "browser"):
             self.assertEqual((pr[k]["tiers"]["entry"]["unit_price"], pr[k]["free_tier"]["needs_card"]), (0, False))
@@ -4951,15 +4951,54 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         self.B._post_json = lambda url, headers, body, timeout: (200, {"results": [], "errors": [{"url": body["urls"][0], "error": "bot_blocked"}]})
         with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: tinyfish fetch error bot_blocked"): self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
 
-    def test_budget_guard_stops_at_8_and_on_unreadable_wallet(self):
-        B = self.B; cfg = {"tinyfish_budget": {"start_usd": 9.0, "stop_spent_usd": 8.0}}
-        self.assertEqual(B.tinyfish_budget_check("k", cfg, lambda k: 1.01), 7.99)
-        for bal in (1.0, 0.5, None):
-            with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard"): B.tinyfish_budget_check("k", cfg, lambda k, b=bal: b)
-        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): B.tinyfish_budget_check("k", {}, lambda k: 9.0)
-        self.balance = 1.0; n = len(self.calls)
-        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): B._tinyfish_search("k", {"query": "q"})
-        self.assertEqual([c[1] for c in self.calls[n:]], [B.TINYFISH_WALLET_URL])   # no search call made
+    def _seq(self, *vals):   # meter returning a baseline then current balances
+        it = iter(vals); return lambda k: next(it)
+
+    def test_budget_guard_10_start_stops_at_8_spent(self):
+        B = self.B; cfg = {"tinyfish_budget": {"stop_spent_usd": 8.0}}
+        st = {}; self.assertEqual(B.tinyfish_budget_check("k", cfg, self._seq(10.0, 10.0), st), 0.0); self.assertEqual(st["baseline_usd"], 10.0)
+        self.assertEqual(B.tinyfish_budget_check("k", cfg, lambda k: 2.01, st), 7.99)    # $7.99 spent passes
+        for bal in (2.0, 1.0, 0.0):                                                       # $8.00+ spent stops (a $9 start would have let $8-$9 through)
+            with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard: spent \$\d+\.\d\d >= stop \$8\.00 \(baseline \$10\.00\)"):
+                B.tinyfish_budget_check("k", cfg, lambda k, b=bal: b, st)
+
+    def test_budget_guard_9_start_still_works(self):
+        B = self.B; cfg = {"tinyfish_budget": {"stop_spent_usd": 8.0}}; st = {}
+        self.assertEqual(B.tinyfish_budget_check("k", cfg, self._seq(9.0, 1.01), st), 7.99)
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard: spent \$8\.00"): B.tinyfish_budget_check("k", cfg, lambda k: 1.0, st)
+
+    def test_budget_guard_fails_closed(self):
+        B = self.B; cfg = {"tinyfish_budget": {"stop_spent_usd": 8.0}}
+        st = {}   # failed baseline read stops, and stays stopped for the run even if the wallet becomes readable
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard: baseline wallet read failed"): B.tinyfish_budget_check("k", cfg, lambda k: None, st)
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard: no run baseline"): B.tinyfish_budget_check("k", cfg, lambda k: 10.0, st)
+        st = {}   # good baseline, failed current read
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard: wallet unreadable"): B.tinyfish_budget_check("k", cfg, self._seq(10.0, None), st)
+        for bad in ({}, {"tinyfish_budget": {}}, {"tinyfish_budget": {"stop_spent_usd": True}}):
+            with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): B.tinyfish_budget_check("k", bad, lambda k: 9.0, {})
+
+    def test_failed_baseline_read_stops_provider(self):
+        def g(url, headers, timeout=150):
+            self.calls.append(("GET", url)); 
+            if url == self.B.TINYFISH_WALLET_URL: raise RuntimeError("HTTP 503")
+            raise AssertionError("data call made")
+        self.B._get_json = g
+        rows = [{"id": f"n{i}", "query": f"q{i}", "expected_url": f"https://e{i}.example/a", "published_at": "2026-11-01T00:00:00Z"} for i in range(3)]
+        prov = [{"id": "tinyfish", "categories": ["search"], "key_env": "TINYFISH_API_KEY"}]
+        pr = load_yaml(BENCH / "pricing.yaml")["providers"]
+        s = runner.run(preflight=False, providers=prov, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing={"tinyfish": pr["tinyfish"]}, tos={},
+                       adapters={"tinyfish": self.B.ADAPTERS["tinyfish"]}, cfg={"stop_on_http": CFG["stop_on_http"], "challenge_signatures": []},
+                       runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-11-03", env={"TINYFISH_API_KEY": "k"}, mock=True,
+                       now_fn=lambda: dt.datetime(2026, 11, 3, 15, tzinfo=dt.timezone.utc), spend_dir=self.tmp / "spend")
+        p = s["providers"][0]
+        self.assertEqual(p["status"], "stopped_paid_usage"); self.assertEqual([c[1] for c in self.calls], [self.B.TINYFISH_WALLET_URL])
+
+    def test_adapter_reads_baseline_once_then_current(self):
+        self.balance = 10.0; self.B._tinyfish_search("k", {"query": "q"}); self.B._tinyfish_search("k", {"query": "q"})
+        self.assertEqual([c[1] == self.B.TINYFISH_WALLET_URL for c in self.calls], [True, True, False, True, False])   # baseline + current, then current only
+        self.balance = 2.0; n = len(self.calls)
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): self.B._tinyfish_search("k", {"query": "q"})
+        self.assertEqual([c[1] for c in self.calls[n:]], [self.B.TINYFISH_WALLET_URL])   # no search call made
 
     def test_key_never_in_error_text(self):
         def boom(url, headers, timeout=150):
