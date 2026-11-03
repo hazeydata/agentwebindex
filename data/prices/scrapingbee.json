@@ -2,11 +2,11 @@
  "provider": "scrapingbee",
  "name": "ScrapingBee",
  "url": "https://www.scrapingbee.com/pricing/",
- "fetched_at": "2026-11-02T09:23:11+00:00",
+ "fetched_at": "2026-11-03T09:19:25+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "f3239077dfa93149f57093653755adec0a1bf84106f1ded4e7ef361a1fe357a6",
- "text_lines": 408,
+ "text_sha256": "8d27a4feeee9d67aaf8d9cd50f6fedade1b37ab83f869c8d6e2285aa22de2a54",
+ "text_lines": 405,
  "prices_found": [
   "$1,599 /mo",
   "$19 /mo",
@@ -20,10 +20,17 @@
   "$999 /mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-01T09:17:40+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-11-02T09:23:11+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -406,3 +405,0 @@",
+   "-Auto-mode picks the configuration that successfully scrapes your page",
+   "-\u00b7",
+   "-Try it now"
+  ]
  }
 }

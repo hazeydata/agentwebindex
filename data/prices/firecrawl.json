@@ -2,11 +2,11 @@
  "provider": "firecrawl",
  "name": "Firecrawl",
  "url": "https://www.firecrawl.dev/pricing",
- "fetched_at": "2026-11-02T09:23:11+00:00",
+ "fetched_at": "2026-11-03T09:19:25+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "3b19f8245293623f4ecedc7a04251bc381e3fbab929eaeedd164f22eec757d74",
- "text_lines": 831,
+ "text_sha256": "03ca0fabf7052f4c9f74e024c2f6e8a900fd8eb475c648724af87a53c46b91e8",
+ "text_lines": 832,
  "prices_found": [
   "$ 0 /month",
   "$ 16 /month",
@@ -31,7 +31,7 @@
   "$99/month billed monthly"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-01T09:17:40+00:00",
+  "previous_fetched_at": "2026-11-02T09:23:11+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
@@ -39,8 +39,10 @@
    "--- ",
    "+++ ",
    "@@ -12 +12 @@",
-   "-197.5K",
-   "+197.8K"
+   "-197.8K",
+   "+198.1K",
+   "@@ -791,0 +792 @@",
+   "+Datasets"
   ]
  }
 }

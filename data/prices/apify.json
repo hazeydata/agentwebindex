@@ -2,10 +2,10 @@
  "provider": "apify",
  "name": "Apify",
  "url": "https://apify.com/pricing",
- "fetched_at": "2026-11-02T09:23:11+00:00",
+ "fetched_at": "2026-11-03T09:19:25+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "90dfb9f0237431ec1b0ee3d383b0b696f43edbc7f7678e42213865ac2374b9cf",
+ "text_sha256": "166d5cde0c0f0be058fff6a70e2a06d79a41035305ec3695a65ef5dd28b3bbc0",
  "text_lines": 587,
  "prices_found": [
   "$0",
@@ -70,7 +70,7 @@
   "$999 / month"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-01T09:17:40+00:00",
+  "previous_fetched_at": "2026-11-02T09:23:11+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
@@ -78,8 +78,11 @@
    "--- ",
    "+++ ",
    "@@ -28 +28 @@",
-   "-Browse 105,671 Actors",
-   "+Browse 106,892 Actors"
+   "-Browse 106,892 Actors",
+   "+Browse 107,247 Actors",
+   "@@ -525 +525 @@",
+   "-Apify offers discounts on its paid plans to both academic institutions and nonprofit organizations. Students are eligible for 30% off Starter and Scale plans, while nonprofits can get a personalized discount. Learn more at",
+   "+Apify offers discounts on its paid plans to both academic institutions and nonprofit organizations. Students are eligible for 50% off Starter, Scale, and Business plans, while nonprofits can get a personalized discount. Learn more at"
   ]
  }
 }
