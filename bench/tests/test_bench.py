@@ -531,7 +531,7 @@ class T(unittest.TestCase):
         s, pricing, tos = self._real_run(cfg=closed_cfg(), tos=closed_tos())   # R25: explicit closed fixture
         st = {(p["provider"], p["category"]): p["status"] for p in s["providers"]}
         ran = {k for k, v in st.items() if v in ("ran", "stale_quota")}
-        self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless"})
+        self.assertEqual({k[0] for k in ran}, {"exa", "tavily", "firecrawl", "brightdata", "apify", "browserless", "tinyfish"})
         self.assertEqual(st[("contextdev", "search")], "skipped_no_vendor_confirmation")   # AC6a: a closed config keeps contextdev out of live runs
         for (pid, cat), v in st.items():
             if pid == "brave": self.assertEqual(v, "excluded_tos_benchmarking")
@@ -553,7 +553,7 @@ class T(unittest.TestCase):
             for c, e in cats.items():
                 n += 1; r = cost.cost_columns(e, [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}] * 4)
                 self.assertIn("free_quota_note", r)
-        self.assertEqual(n, 24)   # 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + contextdev search/scrape + apify browser web-fetch (AWI-RUN-2026-10-26)
+        self.assertEqual(n, 27)   # +3 tinyfish search/scrape/browser (AWI-TINYFISH-001); 19 + apify search (2026-10-19) + browserless scrape (AWI-EVERGREEN-RUN-001) + contextdev search/scrape + apify browser web-fetch (AWI-RUN-2026-10-26)
         self.assertIsNone(cost.cost_columns(pricing["browserbase"]["browser"], [{"status": "pass", "billed_units": 1.0, "proxy_gb": 0}])["entry_tier_cost_per_1k"])
 
     # ---------- CEO final changes ----------
@@ -2582,7 +2582,7 @@ class ContextDevConfig(ContextDevBase):
         if committed_consistent(self): want |= {"live_run_allowed": True, "vendor_confirmation": g["vendor_confirmation"]}   # R25: open only with a valid record
         self.assertEqual({k: g[k] for k in ("pool", "quota_credits", "stop_at_credits", "grant_anchor_day", "live_run_allowed", "vendor_confirmation", "meter", "max_concurrent",
                                             "count", "retry_after_429_s", "quota_stop_errors", "paid_tier")}, want)
-        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        self.assertIn("<window-start YYYY-MM-DD>", g["counter_file"]); self.assertIn("contextdev", CFG["month1_free_tier_providers"]); self.assertEqual(CFG["publish_hold"], ["contextdev", "tinyfish"])
         self.assertNotIn("contextdev", CFG["ceo_free_tier_allowlist"])   # needs_card is false in pricing.yaml; no allowlist exception
     def test_also_priced_helper_eleven_with_flag(self):   # AC22 support (the site repo tests the page itself): helper honours exclude_from_also_priced
         provs = json.loads((SITE / "collectors/providers.json").read_text())["providers"]
@@ -2592,7 +2592,7 @@ class ContextDevConfig(ContextDevBase):
                                                 "Hyperbrowser", "ScrapingBee", "Browserbase", "Steel"]))
         self.assertEqual(len(names), 11); self.assertNotIn("Context.dev", names)
         unflagged = [{k: v for k, v in p.items() if k != "exclude_from_also_priced"} for p in provs]
-        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 12)   # the flag, not chance, excludes it
+        self.assertEqual(len(tables.also_priced_providers(self.pricing, latest, unflagged)), 13)   # contextdev + tinyfish flagged   # the flag, not chance, excludes it
 
 class ContextDevLiveGate(ContextDevBase):
     def test_ac6a_live_allowed_function(self):   # AC6a
@@ -3140,7 +3140,7 @@ class ContextDevPublish(ContextDevBase):
         self.assertEqual(tables.publish_gate("contextdev", self._no_price(), self.tos)[1], "P0 pricing not passed; P1 terms not passed")
         self.assertIn("contextdev", tables.held_providers(CFG, self.pricing, self.tos))
     def test_ac24_publish_hold_holds_even_when_gate_passes(self):   # AC24
-        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev"])
+        runs = self._runs(); p0, t1 = self._gate_inputs(); self.assertEqual(CFG["publish_hold"], ["contextdev", "tinyfish"])
         self.assertEqual(self._rows(self._built(runs, p0, t1, self.cfg)), [])   # gate passes, publish_hold still holds it
         self.assertTrue(self._rows(self._built(runs, self.pricing, self.tos, self.cfg | {"publish_hold": [], "publish_gate": []})))   # control: the logs do build a row
         self.assertIn("contextdev", tables.held_providers(self.cfg, p0, t1))
@@ -3201,7 +3201,7 @@ class VendorConfirmationGate(ContextDevBase):
         self.assertFalse(vc(self.REQ | {"vendor_confirmation": self.FULL | {"evidence_path": None}}))   # R26: quote alone (evidence_path null) fails
         self.assertTrue(vc({"vendor_confirmation_required": False})); self.assertTrue(vc({})); self.assertTrue(vc(None))
         real = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
-        old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 15)
+        old = [p for p in real if p not in ("contextdev", "keenable")]; self.assertEqual(len(old), 16)   # + tinyfish
         for pid in old:
             self.assertTrue(gates_mod.vendor_confirmed(real[pid]), pid); self.assertNotIn("vendor_confirmation_required", real[pid], pid)
             if pid != "contextdev": self.assertTrue(gates_mod.publishable(pid, self.pricing, real), pid)
@@ -3816,7 +3816,7 @@ class SnapshotPricesGate(unittest.TestCase):
         committed = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
         ids = [p["id"] for p in S.snapshot_providers(provs, closed_tos(committed))]   # R25: closed fixture
         self.assertNotIn("contextdev", ids)
-        self.assertEqual(len(ids), 15)
+        self.assertEqual(len(ids), 16)   # + tinyfish
         cids = [p["id"] for p in S.snapshot_providers(provs, committed)]   # committed: closed unless consistently open
         if committed_consistent(self): self.assertEqual(sorted(cids), sorted(ids + ["contextdev"]))
         else: self.assertEqual(cids, ids)
@@ -4291,7 +4291,7 @@ class R40ReEnableACs(unittest.TestCase):
     def test_r40_caps_unchanged(self):   # R40.4: the caps are unchanged in config (and the workflow's $0 cap)
         self.assertEqual(CFG["monthly_cap_usd"], 0); self.assertIn('MONTHLY_CAP_USD: "0"', self.WF)
         self.assertEqual(CFG["ceo_free_tier_allowlist"], [])
-        self.assertEqual(CFG["month1_free_tier_providers"], ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless", "contextdev", "keenable"])
+        self.assertEqual(CFG["month1_free_tier_providers"], ["exa", "tavily", "firecrawl", "brightdata", "apify", "browserless", "contextdev", "keenable", "tinyfish"])
         g = CFG["free_tier_guard"]
         self.assertEqual((g["contextdev"]["quota_credits"], g["contextdev"]["stop_at_credits"]), (1000, 900))
         self.assertEqual((g["keenable"]["quota_credits"], g["keenable"]["stop_at_credits"], g["keenable"]["rate_limit"]), (900, 899, {"max_per_second": 9, "max_per_hour": 899}))
@@ -4893,3 +4893,94 @@ class R42ApifySearchPrice(unittest.TestCase):
         self.assertEqual((rec["defaultRunOptions"]["memoryMbytes"], rec["actorStandby"]["memoryMbytes"]), (8192, 8192))
         self.assertEqual(B.APIFY_RAG_START_EVENTS, rec["actorStandby"]["memoryMbytes"] // 1024)
         self.assertAlmostEqual(B.APIFY_RAG_START_EVENTS * B.APIFY_FREE_EVENT_USD["start"], 0.0018, places=9)
+
+
+class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no network
+    def setUp(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B; self.B = B; self.tmp = mktmp(self)
+        self.calls = []; self.balance = 9.0
+        self.old = (B._get_json, B._post_json)
+        def g(url, headers, timeout=150):
+            self.calls.append(("GET", url, headers, timeout))
+            if url == B.TINYFISH_WALLET_URL: return 200, {"available_balance": str(self.balance), "currency": "USD"}
+            return 200, {"query": "q", "results": [{"position": 2, "url": "https://b.example/", "title": "B", "snippet": "sb"},
+                                                    {"position": 1, "url": "https://a.example/", "title": "A", "snippet": "sa"}]}
+        def p(url, headers, body, timeout):
+            self.calls.append(("POST", url, headers, timeout, body))
+            return 200, {"results": [{"url": body["urls"][0], "final_url": body["urls"][0] + "?r", "text": "# Big Headline here"}], "errors": []}
+        B._get_json, B._post_json = g, p
+
+    def tearDown(self): self.B._get_json, self.B._post_json = self.old
+
+    def test_registration_and_config(self):
+        B = self.B
+        self.assertEqual(B.ADAPTERS["tinyfish"], {"search": B._tinyfish_search, "scrape": B._tinyfish_scrape, "browser": B._tinyfish_fetch})
+        prov = next(p for p in json.loads((SITE / "collectors" / "providers.json").read_text())["providers"] if p["id"] == "tinyfish")
+        self.assertEqual((prov["key_env"], prov["categories"]), ("TINYFISH_API_KEY", ["search", "scrape", "browser"]))
+        self.assertIn("tinyfish", CFG["known_providers"]); self.assertIn("tinyfish", CFG["publish_hold"])
+        self.assertEqual(CFG["tinyfish_budget"], CFG["tinyfish_budget"] | {"start_usd": 9.0, "stop_spent_usd": 8.0})
+        pr = load_yaml(BENCH / "pricing.yaml")["providers"]["tinyfish"]
+        for k in ("search", "scrape", "browser"):
+            self.assertEqual((pr[k]["tiers"]["entry"]["unit_price"], pr[k]["free_tier"]["needs_card"]), (0, False))
+            self.assertEqual(runner.eligibility("tinyfish", pr[k], CFG), (True, "free tier"))
+        self.assertEqual(load_yaml(BENCH / "tos_matrix.yaml")["providers"]["tinyfish"]["benchmarking"]["status"], "unclear")
+        self.assertGreaterEqual(B.TINYFISH_CLIENT_TIMEOUT_S, 150)
+
+    def test_search_maps_results_and_uses_header_key(self):
+        out = self.B._tinyfish_search("k", {"query": "hello world"})
+        self.assertEqual([r["url"] for r in out["results"]], ["https://a.example/", "https://b.example/"])
+        self.assertEqual((out["http_status"], out["billed_units"]), (200, 1))
+        s = self.calls[-1]
+        self.assertTrue(s[1].startswith("https://api.search.tinyfish.ai?query=hello+world"))
+        self.assertEqual((s[2], s[3]), ({"X-API-Key": "k"}, 150))
+        self.assertEqual(self.calls[0][1], self.B.TINYFISH_WALLET_URL)   # budget guard read first
+
+    def test_search_drops_relative_dates(self):   # live 2026-11-03: TinySearch returned date "1 day ago"; checks.search_check needs ISO
+        self.assertIsNone(self.B._iso_or_none("1 day ago")); self.assertIsNone(self.B._iso_or_none(None))
+        self.assertEqual(self.B._iso_or_none("2026-11-02T10:00:00Z"), "2026-11-02T10:00:00Z")
+
+    def test_fetch_live_markdown_and_browser_check(self):
+        out = self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
+        body = self.calls[-1][4]
+        self.assertEqual(body, {"urls": ["https://a.example/x"], "format": "markdown", "ttl": 0, "per_url_timeout_ms": 110000})
+        self.assertEqual(self.calls[-1][3], 150)
+        self.assertTrue(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "big headline"}}, out)[0])
+        sc = self.B._tinyfish_scrape("k", {"url": "https://a.example/y"}); self.assertEqual(sc["text"], "# Big Headline here")
+
+    def test_per_url_error_is_a_fail_not_a_stop(self):
+        self.B._post_json = lambda url, headers, body, timeout: (200, {"results": [], "errors": [{"url": body["urls"][0], "error": "bot_blocked"}]})
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: tinyfish fetch error bot_blocked"): self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
+
+    def test_budget_guard_stops_at_8_and_on_unreadable_wallet(self):
+        B = self.B; cfg = {"tinyfish_budget": {"start_usd": 9.0, "stop_spent_usd": 8.0}}
+        self.assertEqual(B.tinyfish_budget_check("k", cfg, lambda k: 1.01), 7.99)
+        for bal in (1.0, 0.5, None):
+            with self.assertRaisesRegex(RuntimeError, r"^HTTP 402: tinyfish budget guard"): B.tinyfish_budget_check("k", cfg, lambda k, b=bal: b)
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): B.tinyfish_budget_check("k", {}, lambda k: 9.0)
+        self.balance = 1.0; n = len(self.calls)
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 402"): B._tinyfish_search("k", {"query": "q"})
+        self.assertEqual([c[1] for c in self.calls[n:]], [B.TINYFISH_WALLET_URL])   # no search call made
+
+    def test_key_never_in_error_text(self):
+        def boom(url, headers, timeout=150):
+            if url == self.B.TINYFISH_WALLET_URL: return 200, {"available_balance": "9.00"}
+            raise RuntimeError("HTTP 500: echo SECRETKEY123")
+        self.B._get_json = boom
+        with self.assertRaises(RuntimeError) as cm: self.B._tinyfish_search("SECRETKEY123", {"query": "q"})
+        self.assertNotIn("SECRETKEY123", str(cm.exception)); self.assertIn("***", str(cm.exception))
+
+    def test_runner_stops_provider_on_402(self):
+        def paid(url, headers, timeout=150):
+            if url == self.B.TINYFISH_WALLET_URL: return 200, {"available_balance": "9.00"}
+            raise RuntimeError("HTTP 402: INSUFFICIENT_CREDITS")
+        self.B._get_json = paid
+        rows = [{"id": f"n{i}", "query": f"q{i}", "expected_url": f"https://e{i}.example/a", "published_at": "2026-11-01T00:00:00Z"} for i in range(3)]
+        prov = [{"id": "tinyfish", "categories": ["search", "browser"], "key_env": "TINYFISH_API_KEY"}]
+        pr = load_yaml(BENCH / "pricing.yaml")["providers"]
+        s = runner.run(preflight=False, providers=prov, sets={"search_evergreen": {"rows": rows, "sha": "x"}}, pricing={"tinyfish": pr["tinyfish"]}, tos={},
+                       adapters={"tinyfish": self.B.ADAPTERS["tinyfish"]}, cfg={"stop_on_http": CFG["stop_on_http"], "challenge_signatures": []},
+                       runs_dir=self.tmp / "runs", ledger_path=self.tmp / "q.json", run_date="2026-11-03", env={"TINYFISH_API_KEY": "k"}, mock=True,
+                       now_fn=lambda: dt.datetime(2026, 11, 3, 15, tzinfo=dt.timezone.utc), spend_dir=self.tmp / "spend")
+        st = {p["category"]: p for p in s["providers"]}
+        self.assertEqual(st["search"]["status"], "stopped_paid_usage"); self.assertEqual(st["search"]["calls"], 1)
+        self.assertEqual((st["browser"]["status"], st["browser"]["calls"]), ("stopped_paid_usage", 0))

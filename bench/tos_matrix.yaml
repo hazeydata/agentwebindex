@@ -275,6 +275,22 @@
    "vendor_confirmation_required": true,
    "vendor_confirmation": {"date": "2026-10-25", "sender": "@styskin (Andrey Styskin, CEO and co-founder, Keenable)", "quote": "Please include @KeenableAI into your tests.", "evidence_path": "cycles/2026-10-26-provider-keenable/evidence/posts-api.json.txt", "recorded_pr": "https://github.com/hazeydata/agentwebindex/pull/36"},
    "note": "R10: Keenable's written reply is recorded in vendor_confirmation (K2 flip PR #36); keenable is publishable (not in publish_hold). Before #36: unpublished until Keenable replied in writing. Quote from sponsor-leads-draft.md (off-repo lead record). AWI-PROVIDER-KEENABLE-001 K1 (2026-10-26): adapter, config and price record added; benchmarking permitted by Fred's Oct 26 7:35 AM ruling (R4 (2)); terms re-read 2026-10-26 (Date of Last Revision: October 3, 2026), see cycles/2026-10-26-provider-keenable/evidence."
+  },
+  "tinyfish": {
+   "terms_url": "https://www.tinyfish.ai/terms",
+   "checked_at": "2026-11-03",
+   "verified_date": "2026-11-03",
+   "tos_checks": ["2026-10-26", "2026-11-03"],
+   "allowed": "no",
+   "benchmarking": {
+    "status": "unclear",
+    "quote": "Terms effective August 17, 2026 (re-read 2026-11-03): no clause on customers benchmarking or publishing comparisons. License is 'solely for your internal business purposes ... No other use of the Services is authorized'; restriction (a) 'distribute ... any information or material available on the Services' applies 'except as ... expressly permitted by us in writing'. The only 'benchmarking' hit is TinyFish's own right to use aggregated data."
+   },
+   "anti_bot_scraping": {
+    "status": "unclear",
+    "quote": "Terms say nothing on target sites; Fetch handles bot checks by default (pricing page 'Anti-bot handling'). allowed=no keeps anti-bot pairs skipped."
+   },
+   "note": "AWI-TINYFISH-001: internal runs only; config publish_hold keeps tinyfish out of latest.json/site (meta D8). A written OK to publish was reported at https://x.com/Tiny_Fish/status/2114883360837579057; recording it as a vendor_confirmation and lifting the hold is a separate Fred-approved change."
   }
  }
 }
