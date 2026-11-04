@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-03T09:19:25+00:00",
+ "generated_at": "2026-11-04T09:19:27+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -95,7 +95,7 @@
    "http": 200,
    "n_prices": 10,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "browserbase",
@@ -128,6 +128,14 @@
    "n_prices": 16,
    "error": null,
    "changed": false
+  },
+  {
+   "provider": "tinyfish",
+   "status": "ok",
+   "http": 200,
+   "n_prices": 8,
+   "error": null,
+   "changed": null
   }
  ]
 }
