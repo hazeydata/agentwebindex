@@ -1,5 +1,7 @@
 """Benchmark runner: free-tier only, hard $0 cap (D4), quota halting (AC11), ToS skips (D2/AC12),
 run log per §4: runs/YYYY-MM-DD/<provider>/<set>.jsonl.
+Browser (fetch / newsfetch) lines also carry dom_text_excerpt, at most DOM_TEXT_EXCERPT_N characters
+(AWI-NEWSFETCH-FIX-001). A derived newsfetch set (>= 2026-46) also records news_sha next to set_sha.
 
 Provider-level outcomes: skipped_no_key, skipped_no_vendor_confirmation (contextdev/keenable live gate, R9/R22), not_implemented, skipped_no_free_tier, ran, and stale_<reason>.
 Keenable (AWI-PROVIDER-KEENABLE-001): stopped_paid_usage (R1/AC20: HTTP 402, a usage block, billed units > 0, or paid_usage_allowed not false;
@@ -23,13 +25,55 @@ quota_stop (contextdev HTTP 402/401 USAGE_EXCEEDED; 0 units, not scored, stops t
 Quota ledger (units in the provider's billing unit; browser = billed minutes) lives at
 data/spend/YYYY-MM-quota.json for live runs; mock runs must use a dir outside PUBLISHED_DIRS.
 """
-import calendar, datetime as dt, fcntl, hashlib, json, math, os, re, time
+import calendar, datetime as dt, fcntl, hashlib, html, json, math, os, re, time, unicodedata
 from decimal import Decimal
 from pathlib import Path
-from .util import PUBLISHED_DIRS, is_under, not_captured
+from .util import PUBLISHED_DIRS, is_under, not_captured, norm_text
+from .secrets_scan import redact
 from . import checks, cost, guard, gates
 
 SET_KIND = {"search_evergreen": "search", "scrape_urls": "scrape", "browser_tasks": "browser"}  # news_* -> search
+DOM_TEXT_EXCERPT_N = 500   # browser log field dom_text_excerpt; AWI-NEWSFETCH-FIX-001 D2
+
+def _readable_dom(s):
+    """Excerpt text: entities decoded, NFC, whitespace collapsed. Case and punctuation stay, so a miss shows the page."""
+    t = unicodedata.normalize("NFC", html.unescape(s if isinstance(s, str) else ""))
+    return re.sub(r"\s+", " ", t).strip()
+
+def _grade_index_map(s):
+    """(norm_text(s), source index in s for each norm character). s is already readable."""
+    cf, cf_i = [], []
+    for i, ch in enumerate(s):
+        folded = ch.casefold()
+        cf.extend(folded); cf_i.extend([i] * len(folded))
+    chars, idxs = [], []
+    for ch, i in zip(cf, cf_i):
+        chars.append(" " if re.match(r"[^\w\s]", ch) else ch); idxs.append(i)
+    out, oi = [], []
+    for ch, i in zip(chars, idxs):
+        if ch.isspace():
+            if not out or out[-1] == " ": continue
+            out.append(" "); oi.append(i)
+        else: out.append(ch); oi.append(i)
+    if out and out[0] == " ": out.pop(0); oi.pop(0)
+    if out and out[-1] == " ": out.pop(); oi.pop()
+    return "".join(out), oi
+
+def dom_text_excerpt(dom_text, expected, n=DOM_TEXT_EXCERPT_N):
+    """Window of at most n characters. When the expected text matches, the window contains that match
+    (the first n characters when the match starts inside them, otherwise starting at the match).
+    With no match, the first n characters of the readable text. None when there is no dom_text.
+    Key-shaped strings are redacted with secrets_scan.PATTERNS."""
+    if not isinstance(dom_text, str): return None
+    text = _readable_dom(dom_text)
+    start = None
+    if expected:
+        graded, idxs = _grade_index_map(text)
+        needle = norm_text(unicodedata.normalize("NFC", html.unescape(expected if isinstance(expected, str) else "")))
+        at = graded.find(needle) if needle else -1
+        if at >= 0: start = idxs[at]
+    excerpt = text[:n] if start is None or start < n else text[start:start + n]
+    return redact(excerpt)
 
 def set_kind(name):
     if name.startswith("newsfetch_"): return "browser"   # browser fetch of the frozen news set's article URLs (awibench.newsfetch)
@@ -627,13 +671,16 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                     if only_ids is not None and not (only_ids(pid, item["id"]) if callable(only_ids) else item["id"] in only_ids): continue
                     line = {"ts": (now_fn() if now_fn else dt.datetime.now(dt.timezone.utc)).isoformat(timespec="seconds"), "provider": pid, "set": set_name,
                             "set_sha": s["sha"], "set_rows": len(s["rows"]), **({"sample_of": s["sample_of"]} if "sample_of" in s else {}), "set_flags": s.get("flags", []), "item_id": item["id"], "request": _request(kind, item), "offset_h": offset_h, "mock": mock}
+                    if s.get("expected_source") == "article_page" and s.get("news_sha"): line["news_sha"] = s["news_sha"]   # derived newsfetch: both shas on the line
                     if item.get("class") == "anti_bot" or item.get("category") == "anti_bot":
                         t = tos.get(pid) or {}
                         if not anti_bot_allowed(t):
                             ab = (t.get("anti_bot_scraping") or {})
                             reached += 1
-                            fh.append(json.dumps(line | {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
-                                                        "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}) + "\n")
+                            skipped = {"status": "skipped_tos", "pass": None, "billed_units": 0, "response_hash": None, "latency_ms": None,
+                                       "reason": f"tos_matrix: allowed={t.get('allowed')} anti_bot_scraping={ab.get('status')} checked_at={t.get('checked_at')} terms={t.get('terms_url')}"}
+                            if kind == "browser": skipped["dom_text_excerpt"] = None
+                            fh.append(json.dumps(line | skipped) + "\n")
                             continue
                     try: est, req = call_estimate(pid, kind, item, pr, cfg, fg, mb, pool)   # the same estimate check_run() projects
                     except UnknownCost as e:
@@ -734,6 +781,7 @@ def run(*, providers, sets, pricing, tos, adapters, cfg, runs_dir, ledger_path, 
                         rec = line | {"status": "pass" if passed else "fail", "pass": passed, "reason": reason, "latency_ms": round(lat, 3),
                                       "billed_units": units, "proxy_gb": out.get("proxy_gb", 0), "http_status": out.get("http_status"),
                                       "response_hash": hashlib.sha256(body_s.encode()).hexdigest()}
+                        if kind == "browser": rec["dom_text_excerpt"] = dom_text_excerpt(out.get("dom_text"), (item.get("pass") or {}).get("value"))
                         rec["cost_estimate_units"] = est; rec["cumulative_spend"] = ledger.used(pool)   # AC8: units this month after this call
                         if mb: rec["cumulative_usd"] = round(ledger.used(pool) * mb["ledger_unit_usd"], 6)
                         if tmo: rec["timeout"] = True   # AC4: a fail, scored; reason carries "TimeoutError"

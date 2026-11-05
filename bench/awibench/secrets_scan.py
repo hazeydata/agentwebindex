@@ -1,6 +1,12 @@
 """AC10: no API keys in the repo. Scans tracked-candidate files (everything except dist/, data/cache/, .git/).
-Exit 1 on any hit. Env var NAMES (e.g. EXA_API_KEY) are fine; values are not."""
-import re, sys
+Exit 1 on any hit. Env var NAMES (e.g. EXA_API_KEY) are fine; values are not.
+
+This module is the prepush scan: run_tests.sh and the benchmark workflow's "Unit tests + secrets scan"
+step both run `python -m awibench.secrets_scan`. JSON log lines are scanned on LOG_FIELDS, which includes
+dom_text_excerpt (AWI-NEWSFETCH-FIX-001). The runner redacts that field with the same PATTERNS before the
+line is written. A secret that sits in some other field is still caught by the whole-line scan.
+"""
+import json, re, sys
 from pathlib import Path
 from .util import SITE
 
@@ -13,6 +19,28 @@ PATTERNS = [
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 ]
 SKIP = {"dist", ".git", "cache", "__pycache__", "out"}
+LOG_FIELDS = ("dom_text_excerpt",)   # fetch-log fields the prepush scan reads by name
+
+def redact(text):
+    """Replace pattern hits with [REDACTED]. Used on dom_text_excerpt before a fetch log line is written."""
+    if not isinstance(text, str): return text
+    for _, rx in PATTERNS: text = rx.sub("[REDACTED]", text)
+    return text
+
+def scan_json_fields(line):
+    """Hits inside LOG_FIELDS of one JSON object, or [] when the line is not a JSON object."""
+    line = line.strip()
+    if not line.startswith("{"): return []
+    try: obj = json.loads(line)
+    except Exception: return []
+    if not isinstance(obj, dict): return []
+    hits = []
+    for field in LOG_FIELDS:
+        val = obj.get(field)
+        if isinstance(val, str):
+            for name, rx in PATTERNS:
+                if rx.search(val): hits.append(f"{field}: {name}")
+    return hits
 
 def scan(root):
     hits = []
@@ -20,9 +48,15 @@ def scan(root):
         if not f.is_file() or any(part in SKIP for part in f.relative_to(root).parts): continue
         try: text = f.read_text()
         except (UnicodeDecodeError, OSError): continue
+        rel = f.relative_to(root)
         for n, line in enumerate(text.splitlines(), 1):
-            for name, rx in PATTERNS:
-                if rx.search(line): hits.append(f"{f.relative_to(root)}:{n}: {name}")
+            field_hits = scan_json_fields(line)
+            named = set()
+            for h in field_hits:
+                hits.append(f"{rel}:{n}: {h}"); named.add(h.split(": ", 1)[-1])
+            for name, rx in PATTERNS:   # a secret outside LOG_FIELDS is still a hit; a field hit is not counted twice
+                if name in named: continue
+                if rx.search(line): hits.append(f"{rel}:{n}: {name}")
     return hits
 
 def main(argv=None):

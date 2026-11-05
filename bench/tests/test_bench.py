@@ -5035,3 +5035,267 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         st = {p["category"]: p for p in s["providers"]}
         self.assertEqual(st["search"]["status"], "stopped_paid_usage"); self.assertEqual(st["search"]["calls"], 1)
         self.assertEqual((st["browser"]["status"], st["browser"]["calls"]), ("stopped_paid_usage", 0))
+
+
+class NewsfetchFix001(unittest.TestCase):
+    """AWI-NEWSFETCH-FIX-001. Method (a): from news_2026-46, expected text is verified on the article page.
+    Weeks <= 2026-45 stay on the feed headline. No network: urlopen is patched for the whole class."""
+    def setUp(self):
+        self._net = mock.patch("urllib.request.urlopen", side_effect=AssertionError("network"))
+        self._net.start()
+    def tearDown(self): self._net.stop()
+    def _news(self, rows, week="2026-46"):
+        d = mktmp(self); p = d / f"news_{week}.jsonl"
+        p.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)); return p
+    def _row(self, n=1, headline="HN Submission Title", url="https://a.example/story", check="url_exact"):
+        return {"id": f"news-2026-W46-{n:03d}", "headline": headline, "check": {"type": check, "value": url}, "feed": "hn"}
+    def _fetch(self, pages, calls=None):
+        """pages: url -> {status, html, final_url?} or an exception instance."""
+        def fetch(url):
+            if calls is not None: calls.append(url)
+            page = pages[url]
+            if isinstance(page, Exception): raise page
+            return {"final_url": url, **page}
+        return fetch
+    def _build(self, rows, pages, write=False, week="2026-46"):
+        from awibench import newsfetch
+        calls = []; p = self._news(rows, week)
+        name, s = newsfetch.from_news_file(p, fetch=self._fetch(pages, calls), write=write)
+        return p, name, s, calls
+
+    def test_ac4_weeks_42_and_45_stay_byte_identical(self):
+        from awibench import newsfetch
+        for week in ("2026-42", "2026-45"):
+            f = BENCH_SETS / f"news_{week}.jsonl"; before = f.read_bytes()
+            def boom(url, week=week): raise AssertionError("fetched " + week)
+            name, s = newsfetch.from_news_file(f, fetch=boom)
+            self.assertEqual(f.read_bytes(), before)
+            self.assertEqual(name, f"newsfetch_{week}"); self.assertEqual(s["sha"], sha256_file(f)); self.assertEqual(s["news_sha"], s["sha"])
+            self.assertEqual(s["expected_source"], "feed_title"); self.assertEqual(s["excluded"], [])
+            rows = read_jsonl(f); self.assertEqual(s["rows"], newsfetch.tasks(rows))
+            self.assertNotIn("expected_source", s["rows"][0])
+            self.assertEqual(s["rows"][0]["pass"], {"type": "dom_text_contains", "value": rows[0]["headline"]})
+
+    def test_ac1_feed_title_absent_uses_on_page_h1(self):
+        from awibench import newsfetch
+        html = "<html><body><h1>On Page Headline</h1><p>The article.</p></body></html>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": html}})
+        self.assertEqual(len(s["rows"]), 1); self.assertEqual(s["excluded"], [])
+        self.assertEqual(s["rows"][0]["pass"]["value"], "On Page Headline")
+        self.assertNotEqual(s["rows"][0]["pass"]["value"], "HN Submission Title")
+        self.assertEqual(s["rows"][0]["expected_source"], "article_page"); self.assertEqual(s["expected_source"], "article_page")
+
+    def test_ac3_excluded_plus_emitted_equals_url_exact(self):
+        from awibench import newsfetch
+        rows = [self._row(1, url="https://a.example/ok"), self._row(2, url="https://a.example/missing"),
+                self._row(3, url="https://a.example/skip", check="url_domain")]
+        pages = {"https://a.example/ok": {"status": 200, "html": "<h1>Kept</h1>"},
+                 "https://a.example/missing": {"status": 404, "html": "<h1>HN Submission Title</h1>"}}
+        _, _, s, calls = self._build(rows, pages)
+        self.assertEqual(len(s["rows"]) + len(s["excluded"]), 2)   # the url_domain row is not a fetch row
+        self.assertEqual(s["excluded"][0]["id"], rows[1]["id"]); self.assertEqual(s["excluded"][0]["reason"], "fetch_http_4xx")
+        self.assertNotIn("https://a.example/skip", calls)
+        self.assertTrue(all(r["pass"]["value"] != "HN Submission Title" for r in s["rows"]))
+
+    def test_edge_http_404_and_410_excluded_once(self):
+        from awibench import newsfetch
+        for code in (404, 410):
+            calls = []
+            _, _, s, got = self._build([self._row(url="https://a.example/x")], {"https://a.example/x": {"status": code, "html": "<h1>HN Submission Title</h1>"}}, )
+            self.assertEqual([e["reason"] for e in s["excluded"]], ["fetch_http_4xx"])
+            self.assertEqual(s["rows"], []); self.assertEqual(s["excluded"][0]["attempts"], 1); self.assertEqual(got, ["https://a.example/x"])
+
+    def test_edge_5xx_retries_once_then_excludes_and_freeze_blocks_readd(self):
+        from awibench import newsfetch
+        url = "https://a.example/x"; state = {"n": 0}
+        def fetch(u):
+            state["n"] += 1
+            if state["n"] < 2: return {"status": 500, "html": "<h1>Later</h1>", "final_url": u}
+            return {"status": 503, "html": "<h1>Later</h1>", "final_url": u}
+        p = self._news([self._row(url=url)])
+        _, s = newsfetch.from_news_file(p, fetch=fetch, write=True)
+        self.assertEqual(state["n"], 2); self.assertEqual(s["excluded"][0]["reason"], "fetch_http_5xx"); self.assertEqual(s["rows"], [])
+        def later(u): raise AssertionError("refetched after freeze")
+        _, s2 = newsfetch.from_news_file(p, fetch=later)
+        self.assertEqual(s2["rows"], []); self.assertEqual(s2["excluded"][0]["reason"], "fetch_http_5xx")
+        self.assertEqual(s2["sha"], sha256_file(p.with_name("newsfetch_2026-46.jsonl")))
+        self.assertEqual(s2["news_sha"], sha256_file(p))
+        meta = json.loads(p.with_name("newsfetch_2026-46.meta.json").read_text())
+        self.assertEqual(meta["news_sha"], s2["news_sha"]); self.assertEqual(meta["sha256"], s2["sha"]); self.assertEqual(meta["method"], "a")
+        self.assertEqual(meta["count"] + meta["excluded_count"], meta["url_exact_rows"])
+
+    def test_edge_5xx_then_200_is_kept(self):
+        url = "https://a.example/x"; n = {"n": 0}
+        def fetch(u):
+            n["n"] += 1
+            if n["n"] == 1: return {"status": 500, "html": "", "final_url": u}
+            return {"status": 200, "html": "<h1>Came Back</h1>", "final_url": u}
+        from awibench import newsfetch
+        _, s = newsfetch.from_news_file(self._news([self._row(url=url)]), fetch=fetch)
+        self.assertEqual(n["n"], 2); self.assertEqual(s["rows"][0]["pass"]["value"], "Came Back"); self.assertEqual(s["excluded"], [])
+
+    def test_edge_timeout_excludes_without_retry(self):
+        n = {"n": 0}
+        def fetch(u):
+            n["n"] += 1; raise TimeoutError("slow")
+        from awibench import newsfetch
+        _, s = newsfetch.from_news_file(self._news([self._row()]), fetch=fetch)
+        self.assertEqual(n["n"], 1); self.assertEqual(s["excluded"][0]["reason"], "timeout"); self.assertEqual(s["rows"], [])
+
+    def test_edge_redirect_records_domain_change(self):
+        pages = {"https://a.example/story": {"status": 200, "html": "<h1>Moved</h1>", "final_url": "https://b.example/there"}}
+        _, _, s, _ = self._build([self._row()], pages)
+        self.assertTrue(s["rows"][0]["domain_changed"]); self.assertEqual(s["rows"][0]["final_url"], "https://b.example/there")
+        same = {"https://www.bbc.co.uk/a": {"status": 200, "html": "<h1>BBC Story</h1>", "final_url": "https://bbc.com/a"}}
+        _, _, s2, _ = self._build([self._row(url="https://www.bbc.co.uk/a")], same)
+        self.assertFalse(s2["rows"][0]["domain_changed"])   # util.domain: www stripped, bbc.com == bbc.co.uk
+
+    def test_edge_paywall_keeps_h1_and_excludes_when_nothing_is_on_page(self):
+        kept = "<h1>Real Headline</h1><p>Subscribe to continue reading.</p>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": kept}})
+        self.assertEqual(s["rows"][0]["pass"]["value"], "Real Headline"); self.assertEqual(s["excluded"], [])
+        bare = "<p>A short teaser. Subscribe to continue.</p>"
+        _, _, s2, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": bare}})
+        self.assertEqual(s2["rows"], []); self.assertEqual(s2["excluded"][0]["reason"], "paywall")
+
+    def test_edge_script_or_head_only_does_not_count(self):
+        html = "<html><head><title>HN Submission Title</title><script>HN Submission Title</script></head><body><p>A paragraph about something else.</p></body></html>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": html}})
+        self.assertEqual(s["rows"], []); self.assertEqual(s["excluded"][0]["reason"], "expected_text_not_on_page")
+
+    def test_edge_fallback_multiple_h1_then_og_then_title(self):
+        multi = "<h1>First Heading</h1><h1>Second Heading</h1>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": multi}})
+        self.assertEqual(s["rows"][0]["pass"]["value"], "First Heading")
+        og = "<html><head><meta property=\"og:title\" content=\"OG Headline\"></head><body><p>Today: OG Headline leads.</p></body></html>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": og}})
+        self.assertEqual(s["rows"][0]["pass"]["value"], "OG Headline")
+        og_only = "<html><head><meta property=\"og:title\" content=\"Not In Body\"><title>Hello - Example News</title></head><body><p>Hello is the visible line.</p></body></html>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": og_only}})
+        self.assertEqual(s["rows"][0]["pass"]["value"], "Hello")
+
+    def test_edge_unicode_and_entities_match_in_dom_text_contains(self):
+        raw = "Cafe\u0301 \u6771\u4eac \u0645\u0631\u062d\u0628\u0627"
+        html = "<h1>" + raw + "</h1>"
+        _, _, s, _ = self._build([self._row(headline="different feed title")], {"https://a.example/story": {"status": 200, "html": html}})
+        value = s["rows"][0]["pass"]["value"]
+        self.assertEqual(value, "Caf\u00e9 \u6771\u4eac \u0645\u0631\u062d\u0628\u0627")   # NFC, exact Unicode
+        self.assertTrue(checks.browser_check(s["rows"][0], {"dom_text": value})[0])
+        self.assertTrue(checks.browser_check(s["rows"][0], {"dom_text": raw})[0])   # decomposed provider text still matches
+        ent = "<h1>Say \u201chello\u201d \u2014 AT&amp;T</h1>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": ent}})
+        value = s["rows"][0]["pass"]["value"]
+        self.assertIn("AT&T", value); self.assertIn("\u201c", value); self.assertNotIn("&amp;", value); self.assertNotIn("<", value)
+        self.assertTrue(checks.browser_check(s["rows"][0], {"dom_text": "prefix " + value + " suffix"})[0])
+        self.assertTrue(checks.browser_check(s["rows"][0], {"dom_text": value.replace("AT&T", "AT&amp;T")})[0])
+
+    def test_edge_long_h1_capped_on_a_word_boundary(self):
+        from awibench import newsfetch
+        words = " ".join(["alpha"] * 80)   # well over 300 characters
+        html = "<h1>Hello <em>world</em> &amp; " + words + "</h1>"
+        _, _, s, _ = self._build([self._row()], {"https://a.example/story": {"status": 200, "html": html}})
+        value = s["rows"][0]["pass"]["value"]
+        self.assertLessEqual(len(value), newsfetch.EXPECTED_TEXT_MAX); self.assertGreater(len(value), 0)
+        self.assertTrue(value.startswith("Hello world & "))
+        self.assertNotIn("<em>", value); self.assertNotIn("&amp;", value)
+        visible = newsfetch.parse_page(html).visible()
+        self.assertIn(value, visible)
+        self.assertTrue(value.endswith("alpha"))   # cut on a word boundary, not mid-word
+        self.assertTrue(checks.browser_check(s["rows"][0], {"dom_text": visible})[0])
+
+    def test_ac5_plain_fetch_rejects_non_http_and_latest_legacy_does_not_open(self):
+        from awibench import newsfetch
+        for url in ("file:///etc/passwd", "ftp://example.com/a"):
+            out = newsfetch.plain_fetch(url); self.assertEqual(out["error"], "url_scheme")
+        self.assertEqual(newsfetch.main(["--latest", "--sets", str(BENCH_SETS)]), 0)   # newest committed week is <= 2026-45
+
+    def test_ac6_both_shas_on_the_run_log(self):
+        from awibench import newsfetch
+        url = "https://a.example/story"
+        p, _, s, _ = self._build([self._row(url=url)], {url: {"status": 200, "html": "<h1>Logged</h1>"}}, write=True)
+        d = mktmp(self)
+        def fn(key, item): return {"dom_text": "Logged", "billed_units": 1, "http_status": 200}
+        prov = [{"id": "mockp", "categories": ["browser"], "key_env": "K"}]
+        pricing = {"mockp": {"browser": {"model": "credits", "credits_per_call": {"browser": 1}, "free_tier": {"units_per_month": 10, "needs_card": False}}}}
+        runner.run(preflight=False, providers=prov, sets={"newsfetch_2026-46": s | {"flags": []}}, pricing=pricing, tos={},
+                   adapters={"mockp": {"browser": fn}}, cfg={"stop_on_http": {}}, runs_dir=d / "runs", ledger_path=d / "q.json",
+                   run_date="2026-11-09", env={"K": "mock"}, mock=True, spend_dir=d / "spend")
+        line = json.loads((d / "runs/2026-11-09/mockp/newsfetch_2026-46.jsonl").read_text().splitlines()[0])
+        self.assertEqual(line["set_sha"], s["sha"]); self.assertEqual(line["news_sha"], sha256_file(p))
+        self.assertNotEqual(line["set_sha"], line["news_sha"])
+
+    def test_ac7_ac8_excerpt_bounded_and_windowed(self):
+        from awibench.util import norm_text
+        self.assertEqual(runner.DOM_TEXT_EXCERPT_N, 500)
+        self.assertEqual(runner.dom_text_excerpt("a" * 100000, "missing"), "a" * 500)
+        self.assertIsNone(runner.dom_text_excerpt(None, "x"))
+        needle = "UniqueHeadlinePhrase"
+        text = ("pad " * 30000) + needle + " tail"
+        excerpt = runner.dom_text_excerpt(text, "uniqueheadlinephrase")
+        self.assertLessEqual(len(excerpt), 500); self.assertIn(needle, excerpt); self.assertTrue(excerpt.startswith(needle))
+        top = runner.dom_text_excerpt("Big Headline " + ("z" * 1000), "big headline")
+        self.assertLessEqual(len(top), 500); self.assertIn(norm_text("big headline"), norm_text(top)); self.assertTrue(top.startswith("Big Headline"))
+        for sample in ("Caf\u00e9 \u2014 \u201chi\u201d", "AT&T grows", "hello   world", "\u6771\u4eac \u0645\u0631\u062d\u0628\u0627"):
+            self.assertEqual(runner._grade_index_map(runner._readable_dom(sample))[0], norm_text(runner._readable_dom(sample)), sample)
+
+    def test_ac9_excerpt_redacts_and_scan_covers_the_field(self):
+        key = "sk-" + ("a" * 24)   # built here so the test file itself does not contain a key
+        body = "intro " + key + " outro"
+        excerpt = runner.dom_text_excerpt(body, None)
+        self.assertNotIn(key, excerpt); self.assertIn("[REDACTED]", excerpt); self.assertLessEqual(len(excerpt), 500)
+        raw = json.dumps({"dom_text_excerpt": body})
+        self.assertTrue(secrets_scan.scan_json_fields(raw)); self.assertEqual(secrets_scan.scan_json_fields(json.dumps({"dom_text_excerpt": excerpt})), [])
+        self.assertIn("dom_text_excerpt", secrets_scan.LOG_FIELDS)
+        d = mktmp(self); (d / "log.jsonl").write_text(raw + "\n" + json.dumps({"dom_text_excerpt": excerpt}) + "\n" + json.dumps({"reason": "ok"}) + "\n")
+        hits = secrets_scan.scan(d); self.assertEqual(len(hits), 1); self.assertIn("dom_text_excerpt", hits[0])
+        self.assertEqual(secrets_scan.scan(SITE), [])
+
+    def test_ac10_search_rows_unchanged_and_response_hash_same(self):
+        d = mktmp(self); body = "Headline " + ("q" * 800)
+        browser_out = {"dom_text": body, "billed_units": 1, "http_status": 200, "file_bytes": b"not-in-hash"}
+        search_out = {"results": [{"url": "https://a.example/a", "title": "t", "snippet": "s"}], "billed_units": 1, "http_status": 200}
+        prov = [{"id": "mockp", "categories": ["search", "browser"], "key_env": "K"}]
+        pricing = {c: {"model": "credits", "credits_per_call": {c: 1}, "free_tier": {"units_per_month": 10, "needs_card": False}} for c in ("search", "browser")}
+        sets = {"search_evergreen": {"rows": [{"id": "s1", "query": "q", "check": {"type": "url_exact", "value": "https://a.example/a"}}], "sha": "search-sha"},
+                "newsfetch_2026-46": {"rows": [{"id": "f1", "start_url": "https://a.example/a", "pass": {"type": "dom_text_contains", "value": "Headline"}, "timeout_s": 30}], "sha": "fetch-sha", "expected_source": "feed_title"}}
+        runner.run(preflight=False, providers=prov, sets=sets, pricing={"mockp": pricing}, tos={},
+                   adapters={"mockp": {"search": lambda k, i: dict(search_out), "browser": lambda k, i: dict(browser_out)}},
+                   cfg={"stop_on_http": {}, "challenge_signatures": []}, runs_dir=d / "runs", ledger_path=d / "q.json",
+                   run_date="2026-11-09", env={"K": "mock"}, mock=True, spend_dir=d / "spend")
+        search = json.loads((d / "runs/2026-11-09/mockp/search_evergreen.jsonl").read_text())
+        fetch = json.loads((d / "runs/2026-11-09/mockp/newsfetch_2026-46.jsonl").read_text())
+        self.assertNotIn("dom_text_excerpt", search); self.assertNotIn("news_sha", search)
+        self.assertLessEqual(len(fetch["dom_text_excerpt"]), runner.DOM_TEXT_EXCERPT_N)
+        self.assertIn("Headline", fetch["dom_text_excerpt"])
+        hashed = {k: v for k, v in browser_out.items() if k != "file_bytes"}
+        self.assertEqual(fetch["response_hash"], hashlib.sha256(json.dumps(hashed, sort_keys=True, default=str).encode()).hexdigest())
+        self.assertNotIn("news_sha", fetch)   # feed_title sets do not add the field
+
+    def test_ac11_only_sets_pairs_news_with_newsfetch_once(self):
+        from awibench import newsfetch
+        base = {"news_2026-42": {"rows": [1], "sha": "a", "flags": ["f"]}, "news_2026-45": {"rows": [2], "sha": "b", "flags": ["g"]},
+                "search_evergreen": {"rows": [3], "sha": "c"}}
+        def load(nk):
+            return "newsfetch_" + nk.removeprefix("news_"), {"rows": [{"id": nk}], "sha": "derived-" + nk}
+        out, skips = newsfetch.prepare_run_sets(dict(base), "news_2026-42", load)
+        self.assertEqual(set(out), {"news_2026-42", "newsfetch_2026-42"}); self.assertEqual(skips, [])
+        out, _ = newsfetch.prepare_run_sets(dict(base), "newsfetch_2026-42", load)
+        self.assertEqual(set(out), {"newsfetch_2026-42"})
+        out, _ = newsfetch.prepare_run_sets(dict(base), "news_2026-42,newsfetch_2026-42", load)
+        self.assertEqual(set(out), {"news_2026-42", "newsfetch_2026-42"}); self.assertEqual(len(out), 2)
+        out, _ = newsfetch.prepare_run_sets(dict(base), None, load)
+        self.assertEqual(set(out), {"news_2026-45", "newsfetch_2026-45", "search_evergreen"})
+        out, skips = newsfetch.prepare_run_sets(dict(base), "news_2026-46", load)
+        self.assertEqual(set(out), set()); self.assertEqual(skips, [])   # named week is not loaded
+
+    def test_ac17_tinyfish_stays_published_on_main(self):
+        self.assertNotIn("tinyfish", CFG["publish_hold"])
+
+    def test_docs_match_the_method(self):
+        sets = (SITE / "bench/sets/README.md").read_text(); spec = (SITE / "SPEC-bench.md").read_text()
+        readme = (SITE / "bench/README.md").read_text(); src = (SITE / "bench/awibench/newsfetch.py").read_text()
+        for text in (sets, spec, src, readme):
+            self.assertIn("article_page", text); self.assertIn("feed_title", text)
+        for text in (spec, readme, (SITE / "bench/awibench/runner.py").read_text(), (SITE / "bench/awibench/secrets_scan.py").read_text()):
+            self.assertIn("dom_text_excerpt", text)
+        self.assertIn("expected_text_not_on_page", sets); self.assertIn("DOM_TEXT_EXCERPT_N", readme)

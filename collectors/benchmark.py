@@ -475,11 +475,10 @@ def main():
             entry["flags"] = tables.week_labels(len(rows), cfg)   # owner ruling 1: 'below minimum (n=X)' from the real count
             for fl in entry["flags"]: flags.append({"set": name, "flag": fl}); print("FLAG", name, fl)
         sets[name] = entry
-    news = sorted(k for k in sets if k.startswith("news_"))
-    for old in news[:-1]: sets.pop(old)   # only the latest week is run
-    if news:   # browser providers fetch the same frozen week's article URLs (derived, the news file is not touched)
-        fname, fset = newsfetch.from_news_file(BENCH / "sets" / f"{news[-1]}.jsonl"); sets[fname] = fset | {"flags": sets[news[-1]]["flags"]}
-    if a.only_sets: sets = {k: v for k, v in sets.items() if k in a.only_sets.split(",")}
+    def _load_newsfetch(nk):   # frozen news file is not edited; weeks <= 2026-45 stay feed-title, later weeks need a frozen derived file
+        return newsfetch.from_news_file(BENCH / "sets" / f"{nk}.jsonl")
+    sets, nf_skips = newsfetch.prepare_run_sets(sets, a.only_sets or None, _load_newsfetch)   # --only-sets news_X also keeps newsfetch_X
+    for sk in nf_skips: skips.append(sk); print("SKIP set", sk["set"], "->", sk["reason"])
     only = None
     if a.reprobe_offset:   # §3: re-query only the misses of the latest news set at +6/+24/+72 h
         sets = {k: v for k, v in sets.items() if k.startswith("news_")}
