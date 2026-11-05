@@ -15,6 +15,7 @@ jobs:
         run: |
           cd bench
           python -m awibench.newsgen --live --seed "${{ vars.NEWS_SEED || '0' }}" --date "$(TZ=America/Toronto date +%Y-%m-%dT06:00:00%:z)"
+          python -m awibench.newsfetch --latest   # weeks >= 2026-46: plain HTTP page check, no provider call; weeks <= 2026-45: no fetch
           python -m awibench.validate --only news   # real errors (caps, meta missing, count mismatch) fail the job; a short week only warns and is flagged
       - run: |
           git config user.name "agentwebindex-bot"; git config user.email "actions@users.noreply.github.com"

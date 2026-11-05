@@ -1,5 +1,5 @@
 """Pass/fail checks for each set type (1a-1d)."""
-import datetime as dt, hashlib
+import datetime as dt, hashlib, html, unicodedata
 from html.parser import HTMLParser
 from .util import norm_url, domain, norm_text
 
@@ -61,11 +61,16 @@ def scrape_check(row, output, challenge_signatures, html_signatures=()):
     if len(text) < row["min_chars"]: return False, f"text {len(text)} < min_chars {row['min_chars']}"
     return True, "marker found, length ok"
 
+def dom_grade_text(s):
+    """dom_text_contains comparison text: HTML entities decoded, NFC, then norm_text.
+    Search grading does not use this. norm_text casefolds and turns quotes and dashes into spaces."""
+    return norm_text(unicodedata.normalize("NFC", html.unescape(s if isinstance(s, str) else "")))
+
 def browser_check(task, output):
     t, v = task["pass"]["type"], task["pass"]["value"]
     if t == "final_url_matches": ok = norm_url(output.get("final_url", "")) == norm_url(v)
     elif t == "extracted_value_equals": ok = str(output.get("extracted_value")) == str(v)
     elif t == "file_sha256": ok = output.get("file_bytes") is not None and hashlib.sha256(output["file_bytes"]).hexdigest() == v
-    elif t == "dom_text_contains": ok = norm_text(v) in norm_text(output.get("dom_text", ""))
+    elif t == "dom_text_contains": ok = dom_grade_text(v) in dom_grade_text(output.get("dom_text", ""))
     else: return False, f"unknown pass type {t}"
     return ok, f"{t} {'ok' if ok else 'mismatch'}"
