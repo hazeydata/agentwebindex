@@ -1,11 +1,11 @@
 {
- "generated_at": "2026-11-04T09:19:27+00:00",
+ "generated_at": "2026-11-05T09:20:17+00:00",
  "providers": [
   {
    "provider": "exa",
    "status": "ok",
    "http": 200,
-   "n_prices": 23,
+   "n_prices": 24,
    "error": null,
    "changed": true
   },
@@ -39,7 +39,7 @@
    "http": 200,
    "n_prices": 28,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "serper",
@@ -135,7 +135,7 @@
    "http": 200,
    "n_prices": 8,
    "error": null,
-   "changed": null
+   "changed": false
   }
  ]
 }
