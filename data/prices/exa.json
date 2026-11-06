@@ -2,7 +2,7 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-11-05T09:20:17+00:00",
+ "fetched_at": "2026-11-06T09:19:34+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "70bdb28a568d063e7a964e1ce0131ca052fa5cb7e5beeac34402617d81aee7b8",
@@ -34,39 +34,10 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-04T09:19:27+00:00",
-  "changed": true,
-  "prices_added": [
-   "$12,000"
-  ],
+  "previous_fetched_at": "2026-11-05T09:20:17+00:00",
+  "changed": false,
+  "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -90 +90,2 @@",
-   "-Everything in starter, plus:",
-   "+Includes:",
-   "+Everything in Starter",
-   "@@ -101,0 +103 @@",
-   "+Upgrade now",
-   "@@ -103 +105,5 @@",
-   "-Everything in developer, plus:",
-   "+Includes:",
-   "+Everything in Developer",
-   "+Zero data retention",
-   "+25 Search QPS",
-   "+Available on custom plans:",
-   "@@ -105 +110,0 @@",
-   "-Zero data retention",
-   "@@ -149,0 +155,8 @@",
-   "+Add Zero Data Retention with an Enterprise plan",
-   "+Upgrade to Enterprise directly from your dashboard. Enable zero retention of queries and results on supported products.",
-   "+Zero Data Retention on supported",
-   "+products",
-   "+$12,000 annual commitment in API credits",
-   "+25 Search QPS",
-   "+Upgrade now",
-   "+Read ZDR docs"
-  ]
+  "text_diff": []
  }
 }
