@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-07T09:18:08+00:00",
+ "generated_at": "2026-11-08T09:18:08+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -39,7 +39,7 @@
    "http": 200,
    "n_prices": 18,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "serper",
@@ -127,7 +127,7 @@
    "http": 200,
    "n_prices": 16,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "tinyfish",
