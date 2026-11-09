@@ -4929,9 +4929,10 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
     def test_tinyfish_rows_in_latest_json(self):   # AWI-TINYFISH-001 publish: the 2026-11-03 live run is in latest.json and equals a rebuild
         doc = json.loads((SITE / "data" / "benchmarks" / "latest.json").read_text())
         rows = {(k, r["set"]): r for k, t in doc["tables"].items() for r in t if r["provider"] == "tinyfish"}
-        self.assertEqual(sorted(rows), [("browser", "newsfetch_2026-45"), ("search", "news_2026-45")])
-        self.assertEqual((rows[("search", "news_2026-45")]["passed"]["v"], rows[("search", "news_2026-45")]["attempted"]["v"]), (17, 21))
-        self.assertEqual((rows[("browser", "newsfetch_2026-45")]["passed"]["v"], rows[("browser", "newsfetch_2026-45")]["attempted"]["v"]), (9, 21))
+        self.assertEqual(sorted(rows), [("browser", "newsfetch_2026-45"), ("browser", "newsfetch_2026-46"), ("search", "news_2026-45"), ("search", "news_2026-46")])
+        for key, passed, attempted in ((("search", "news_2026-45"), 17, 21), (("search", "news_2026-46"), 17, 24),
+                                       (("browser", "newsfetch_2026-45"), 9, 21), (("browser", "newsfetch_2026-46"), 7, 17)):
+            self.assertEqual((rows[key]["passed"]["v"], rows[key]["attempted"]["v"]), (passed, attempted), key)
         self.assertIn("7 misses come from errors in our test set", rows[("browser", "newsfetch_2026-45")]["run_note"])
         self.assertNotIn("tinyfish", tables.held_providers(CFG, load_yaml(BENCH / "pricing.yaml")["providers"], load_yaml(BENCH / "tos_matrix.yaml")["providers"]))
         built = tables.build(BENCH / "runs", load_yaml(BENCH / "pricing.yaml")["providers"], BENCH / "sets", load_yaml(BENCH / "tos_matrix.yaml")["providers"], CFG)
