@@ -1,0 +1,71 @@
+{
+ "method": "a",
+ "news_file": "news_2026-46.jsonl",
+ "news_sha": "348ace93f6cd6e262af295905aab56608fa543ae128c8bdbcf2d0b631f1591c8",
+ "rows": [
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/07/nx-s1-6032764/google-meta-and-tiktok-sue-to-block-california-youth-social-media-law",
+   "http_status": null,
+   "id": "news-2026-W46-003",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/07/nx-s1-6032764/google-meta-and-tiktok-sue-to-block-california-youth-social-media-law"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/sections/planet-money/2026/11/06/nx-s1-6030995/why-gold-prices-are-surprisingly-low",
+   "http_status": null,
+   "id": "news-2026-W46-009",
+   "reason": "timeout",
+   "url": "https://www.npr.org/sections/planet-money/2026/11/06/nx-s1-6030995/why-gold-prices-are-surprisingly-low"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/07/nx-s1-6029398/a-correspondent-finds-cubas-people-struggling",
+   "http_status": null,
+   "id": "news-2026-W46-011",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/07/nx-s1-6029398/a-correspondent-finds-cubas-people-struggling"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/07/nx-s1-6032606/israeli-president-invites-netanyahus-opposition-leader-to-broker-new-government",
+   "http_status": null,
+   "id": "news-2026-W46-013",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/07/nx-s1-6032606/israeli-president-invites-netanyahus-opposition-leader-to-broker-new-government"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/06/nx-s1-6032607/the-cybertrucks-cause-of-death-insufficient-demand",
+   "http_status": null,
+   "id": "news-2026-W46-014",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/06/nx-s1-6032607/the-cybertrucks-cause-of-death-insufficient-demand"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": true,
+   "final_url": "http://www.google.com/sorry/index?continue=http://muratbuffalo.blogspot.com/2026/11/writing-as-thinking-tool.html&q=EgQ08vK4GOq0xtcGIi0VDLBCXNzO4A_Soqw84eXBptPz_rYqq_i8WwaqwePwGJhMryd8OK8JXvZXUyEyAnJSWgFDYI2D3PTmuoPR2AE",
+   "http_status": 429,
+   "id": "news-2026-W46-016",
+   "reason": "fetch_http_4xx",
+   "url": "http://muratbuffalo.blogspot.com/2026/11/writing-as-thinking-tool.html"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/07/nx-s1-6007770/data-centers-activist-moratorium",
+   "http_status": null,
+   "id": "news-2026-W46-018",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/07/nx-s1-6007770/data-centers-activist-moratorium"
+  }
+ ],
+ "set": "newsfetch_2026-46"
+}
