@@ -3,6 +3,14 @@
  "over_free_units": 0,
  "used": {
   "brightdata": 120,
-  "firecrawl": 122
+  "browserless": 17,
+  "exa": 24,
+  "firecrawl": 170,
+  "tavily": 48,
+  "tinyfish_fetch": 17,
+  "tinyfish_search": 24
+ },
+ "windows": {
+  "apify_usd_cents": "2026-10-16"
  }
 }

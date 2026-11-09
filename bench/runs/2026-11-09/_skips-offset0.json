@@ -1,0 +1,56 @@
+{
+ "skips": [
+  {
+   "scope": "provider",
+   "provider": "exa",
+   "category": "scrape",
+   "status": "not_implemented",
+   "reason": "not_implemented"
+  },
+  {
+   "scope": "provider",
+   "provider": "firecrawl",
+   "category": "scrape",
+   "status": "not_implemented",
+   "reason": "not_implemented"
+  }
+ ],
+ "flags": [
+  {
+   "set": "news_2026-42",
+   "flag": "short week (n=16)"
+  },
+  {
+   "set": "news_2026-42",
+   "flag": "below minimum (n=16)"
+  },
+  {
+   "set": "news_2026-43",
+   "flag": "short week (n=40)"
+  },
+  {
+   "set": "news_2026-44",
+   "flag": "short week (n=21)"
+  },
+  {
+   "set": "news_2026-44",
+   "flag": "below minimum (n=21)"
+  },
+  {
+   "set": "news_2026-45",
+   "flag": "short week (n=21)"
+  },
+  {
+   "set": "news_2026-45",
+   "flag": "below minimum (n=21)"
+  },
+  {
+   "set": "news_2026-46",
+   "flag": "short week (n=24)"
+  },
+  {
+   "set": "news_2026-46",
+   "flag": "below minimum (n=24)"
+  }
+ ]
+}
