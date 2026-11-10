@@ -5393,7 +5393,11 @@ class FirecrawlV2(unittest.TestCase):   # Firecrawl v1 returns HTTP 410 from 202
         for n, t in {**planted, **allowed}.items(): (d / n).write_text(t)
         self.assertEqual(sorted({h.split(":", 1)[0] for h in self._violations(d, sorted({**planted, **allowed}))}), sorted(planted))
         self.assertFalse(self._runtime("bench/archive/old.py")); self.assertTrue(self._runtime("collectors/new_adapter.py"))
-    def test_docs_name_the_v2_search(self):
-        readme = (SITE / "bench/README.md").read_text()
-        self.assertIn("the only Firecrawl endpoints AWI calls are `POST /v2/search` and `GET /v2/team/credit-usage`", readme)
-        self.assertNotIn("and `/v1/search`", readme); self.assertNotIn("`POST /v1/search`", readme)
+    def test_docs_name_the_v2_search(self):   # both READMEs describe the R45.2 allowlist; Keenable's own `/v1/search` mentions are not Firecrawl
+        bench_readme = (SITE / "bench/README.md").read_text()
+        self.assertIn("the only Firecrawl endpoints AWI calls are `POST /v2/search` and `GET /v2/team/credit-usage`", bench_readme)
+        for name in ("README.md", "bench/README.md"):
+            readme = (SITE / name).read_text()
+            self.assertIn("allows only `GET /v2/team/credit-usage` and `/v2/search`", readme, name)
+            for stale in ("credit-usage` and `/v1/search`", "`POST /v1/search` and `GET /v2/team/credit-usage`", "api.firecrawl" + ".dev/v1"):
+                self.assertNotIn(stale, readme, name)
