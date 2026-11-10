@@ -39,11 +39,15 @@ def _tavily_search(key, item):   # basic depth; billed units left to the runner'
     return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": (r.get("content") or "")[:300],
             "published_at": r.get("published_date")} for r in d.get("results", [])]}
 
-def _firecrawl_search(key, item):   # pricing.yaml credits_per_call search = 2
-    st, d = _post("https://api.firecrawl.dev/v1/search", {"Authorization": f"Bearer {key}"}, {"query": item["query"], "limit": 10})
+FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search"   # v1 returns HTTP 410 from 2026-12-10 15:00 UTC (docs.firecrawl.dev/migrate-to-v2)
+
+def _firecrawl_search(key, item):   # pricing.yaml credits_per_call search = 2 (2 credits per 10 results; limit stays explicit: the v2 default is 10, v1's was 5)
+    st, d = _post(FIRECRAWL_SEARCH_URL, {"Authorization": f"Bearer {key}"}, {"query": item["query"], "limit": 10})
     if d.get("success") is False: raise RuntimeError(f"firecrawl error: {str(d.get('error'))[:200]}")
+    data = d.get("data") or {}   # v2: results by source under data.web (data.news / data.images only when requested with sources)
+    if not isinstance(data, dict): raise RuntimeError(f"HTTP {st}: firecrawl search data is not a v2 object ({type(data).__name__})")
     return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("description"),
-            "published_at": None} for r in d.get("data", [])]}
+            "published_at": None} for r in data.get("web") or []]}
 
 # Apify RAG Web Browser (Store Actor apify/rag-web-browser), Standby endpoint: Google search + page fetch, priced per event.
 # Event prices at the Apify Free plan (USD), spec R42.1 source read 2026-10-27 02:40 ET from https://apify.com/apify/rag-web-browser/pricing
