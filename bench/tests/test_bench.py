@@ -4695,7 +4695,7 @@ class R41PreRun(unittest.TestCase):
             self.assertEqual(fc[kind]["free_tier"]["units_per_month"], 1000, kind)   # AWI's own monthly ledger is unchanged
     def test_firecrawl_adapter_worst_case_is_the_configured_units(self):   # limit 10, no scrapeOptions -> at most 2 credits (2 per 10 results)
         seen = []
-        with mock.patch.object(B, "_post", side_effect=lambda url, h, body: seen.append(body) or (200, {"data": []})):
+        with mock.patch.object(B, "_post", side_effect=lambda url, h, body: seen.append(body) or (200, {"success": True, "data": {"web": []}})):
             B._firecrawl_search("mock-not-a-key", {"query": "q"})
         self.assertEqual(seen, [{"query": "q", "limit": 10}])
         cpc = load_yaml(BENCH / "pricing.yaml")["providers"]["firecrawl"]["search"]["credits_per_call"]["search"]
@@ -4776,7 +4776,7 @@ class R41PreRun(unittest.TestCase):
         import http.client, importlib.util, socket, _posixsubprocess
         for f in [SITE / "collectors" / "benchmark.py", *sorted((BENCH / "awibench").glob("*.py"))]:   # no such literal endpoint anywhere in the code
             for u in re.findall(r"https?://[^\s\"']+", f.read_text()): self.assertNotRegex(u, self.RECHARGE, f"{f.name}: {u}")
-        METER, SEARCH = "https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v1/search"
+        METER, SEARCH = "https://api.firecrawl.dev/v2/team/credit-usage", "https://api.firecrawl.dev/v2/search"
         requests = __import__("requests") if importlib.util.find_spec("requests") else None
         class R:
             def __init__(s, body): s.status, s.body = 200, json.dumps(body).encode()
@@ -4795,7 +4795,7 @@ class R41PreRun(unittest.TestCase):
                 u = getattr(req, "full_url", req); seen.append((req.get_method() if hasattr(req, "get_method") else "GET", str(u)))
                 if u == METER:
                     reads[0] += 1; b = bal(reads[0]); return R({"data": {"remainingCredits": b}} if b is not None else {"data": {}})
-                if u == SEARCH: return R({"success": True, "data": [{"url": "https://k.example/", "title": "t", "description": "s"}]})
+                if u == SEARCH: return R({"success": True, "data": {"web": [{"url": "https://k.example/", "title": "t", "description": "s"}]}})
                 raise OSError(f"mock: unexpected URL {u}")
             def block(kind):
                 def f(*a, **k):
@@ -5300,3 +5300,100 @@ class NewsfetchFix001(unittest.TestCase):
         for text in (spec, readme, (SITE / "bench/awibench/runner.py").read_text(), (SITE / "bench/awibench/secrets_scan.py").read_text()):
             self.assertIn("dom_text_excerpt", text)
         self.assertIn("expected_text_not_on_page", sets); self.assertIn("DOM_TEXT_EXCERPT_N", readme)
+
+
+class FirecrawlV2(unittest.TestCase):   # Firecrawl v1 returns HTTP 410 from 2026-12-10 15:00 UTC (docs.firecrawl.dev/migrate-to-v2); mocked urlopen only, no network
+    V2_SEARCH, V2_METER = "https://api.firecrawl" + ".dev/v2/search", "https://api.firecrawl" + ".dev/v2/team/credit-usage"
+    WEB = [{"url": "https://a.example/", "title": "A", "description": "da", "position": 1}, {"url": "https://b.example/", "title": "B", "description": "db", "position": 2}]
+    def setUp(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B; self.B = B; self.seen = []
+    class R:
+        def __init__(s, body): s.status, s.body = 200, (body if isinstance(body, bytes) else json.dumps(body).encode())
+        def read(s, *a): return s.body
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+    def _net(self, reply):
+        def urlopen(req, timeout=None):
+            self.seen.append((req, timeout))
+            if isinstance(reply, BaseException): raise reply
+            return self.R(reply)
+        return mock.patch("urllib.request.urlopen", urlopen)
+    @staticmethod
+    def _http(code, body, headers=None):
+        import urllib.error
+        return urllib.error.HTTPError("https://api.firecrawl" + ".dev/v2/search", code, "err", hdrs=headers or {}, fp=io.BytesIO(json.dumps(body).encode()))
+    def _search(self, reply):
+        with self._net(reply): return self.B._firecrawl_search("mock-not-a-key", {"query": "best rust web framework"})
+
+    def test_search_request_is_v2_with_the_same_body(self):   # exact request: URL, method, headers, JSON body (explicit limit 10), client timeout 60
+        self._search({"success": True, "data": {"web": self.WEB}})
+        ((req, timeout),) = self.seen
+        self.assertEqual((self.B.FIRECRAWL_SEARCH_URL, req.full_url, req.get_method()), (self.V2_SEARCH, self.V2_SEARCH, "POST"))
+        self.assertEqual(json.loads(req.data), {"query": "best rust web framework", "limit": 10}); self.assertEqual(timeout, 60)
+        self.assertEqual((req.get_header("Authorization"), req.get_header("Content-type"), req.get_header("User-agent")), ("Bearer mock-not-a-key", "application/json", "AgentWebIndexBot/1.0"))
+        self.assertEqual(self.B.ADAPTERS["firecrawl"], {"search": self.B._firecrawl_search})   # search only, still
+    def test_search_reads_data_web_only(self):   # v2 moves results from data to data.web; data.news/images are other sources (not requested)
+        out = self._search({"success": True, "data": {"web": self.WEB, "news": [{"url": "https://n.example/", "title": "N"}]}, "creditsUsed": 2})
+        self.assertEqual(out, {"http_status": 200, "results": [{"url": "https://a.example/", "title": "A", "snippet": "da", "published_at": None},
+                                                               {"url": "https://b.example/", "title": "B", "snippet": "db", "published_at": None}]})
+        for body in ({"success": True, "data": {}}, {"success": True, "data": {"web": []}}, {"success": True}):
+            self.assertEqual(self._search(body)["results"], [], body)
+    def test_v1_shaped_list_fails_loud(self):   # a list under data is the v1 shape: an error, never a silent 0-result row
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: firecrawl search data is not a v2 object \(list\)$"):
+            self._search({"success": True, "data": self.WEB})
+    def test_success_false_and_http_errors_keep_their_messages(self):   # runner retry/429 handling reads these strings (unchanged)
+        with self.assertRaisesRegex(RuntimeError, r"^firecrawl error: Insufficient credits"): self._search({"success": False, "error": "Insufficient credits"})
+        with self.assertRaisesRegex(RuntimeError, r"^HTTP 429 \(Retry-After: 7\): "): self._search(self._http(429, {"success": False, "error": "Rate limit exceeded"}, {"Retry-After": "7"}))
+        for code in (402, 410, 500):
+            with self.assertRaisesRegex(RuntimeError, rf"^HTTP {code}: "): self._search(self._http(code, {"success": False, "error": "x"}))
+        self.assertEqual(len(self.seen), 5)   # one request per call: the adapter itself never retries
+    def test_meter_is_v2_camelcase(self):   # GET /v2/team/credit-usage data.remainingCredits (0 credits); snake_case is the v1 shape
+        with self._net({"success": True, "data": {"remainingCredits": 81234, "planCredits": 100000}}): self.assertEqual(self.B.firecrawl_meter("mock-not-a-key"), 81234)
+        ((req, timeout),) = self.seen; self.assertEqual((req.full_url, req.get_method(), timeout), (self.V2_METER, "GET", 30))
+        with self._net({"success": True, "data": {"remaining_credits": 81234}}), self.assertRaises(KeyError): self.B.firecrawl_meter("mock-not-a-key")
+
+    # ---- guard: every git-tracked code/config file (by suffix, or a shebang) outside archive/archives dirs; nothing hand-picked.
+    # The standalone v1 extract, deep-research and llmstxt endpoints are outside the v2 migration, so allowed. Patterns are built
+    # from pieces so this file never matches itself.
+    HOST = re.escape("api.firecrawl" + ".dev"); APP = "Firecrawl" + "App"
+    V1_REST = re.compile(HOST + r"/v" + "1" + r"(?!/(?:extract|deep-research|llmstxt)\b)(?![\w.-])")
+    V1_SDK = re.compile("|".join([r"\b(?:Async)?V1" + APP + r"\b", r"\b" + APP + r"V1\b", r"\bfirecrawl\.v" + "1" + r"\b",
+                                  r"\bfrom\s+firecrawl\s+import\s[^\n]*\b" + APP + r"\b", r"\bnew\s+" + APP + r"\b", r"mendableai/" + "firecrawl-go", r"firecrawl-mcp@" + r"1\."]))
+    CODE = {".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".rb", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".json", ".plist", ".service", ".timer", ".conf"}
+    @classmethod
+    def _runtime(cls, rel, root=SITE):
+        p = Path(rel)
+        if {"archive", "archives"} & {x.lower() for x in p.parts[:-1]}: return False
+        if p.suffix.lower() in cls.CODE: return True
+        if p.suffix: return False
+        try:
+            with (root / p).open("rb") as f: return f.read(2) == b"#!"
+        except OSError: return False
+    @classmethod
+    def _violations(cls, root, files):
+        out = []
+        for rel in files:
+            try: raw = (root / rel).read_bytes() if (root / rel).stat().st_size <= 5_000_000 else b"\0"
+            except OSError: continue
+            if b"\0" in raw[:8192]: continue
+            out += [f"{rel}:{n}: {l.strip()[:160]}" for n, l in enumerate(raw.decode("utf-8", "replace").splitlines(), 1) if cls.V1_REST.search(l) or cls.V1_SDK.search(l)]
+        return out
+    def _tracked(self):
+        try: out = subprocess.run(["git", "-C", str(SITE), "ls-files", "-z"], capture_output=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as e: self.skipTest(f"git ls-files unavailable: {e}")
+        return [f for f in out.decode("utf-8", "surrogateescape").split("\0") if f and self._runtime(f)]
+    def test_no_runtime_code_calls_firecrawl_v1(self):
+        files = self._tracked(); self.assertGreater(len(files), 50)
+        for f in ("collectors/benchmark.py", "bench/awibench/runner.py", "bench/config.yaml", ".github/workflows/benchmark.yml"): self.assertIn(f, files)
+        self.assertEqual(self._violations(SITE, files), [])
+    def test_guard_catches_planted_v1_calls(self):
+        base, d = "https://api.firecrawl" + ".dev/v" + "1", mktmp(self)
+        planted = {"a.py": f'_post("{base}/search", {{}}, {{}})\n', "b.js": f'const BASE = "{base}";\n', "c.py": "from firecrawl import " + self.APP + "\n", "d.yaml": f"meter: {base}/team/credit-usage\n"}
+        allowed = {"e.py": f'"{base}/extract"\n"{base}/deep-research"\n"{base}/llmstxt"\n', "f.py": f'"{self.V2_SEARCH}"\nfrom firecrawl import Firecrawl\n'}
+        for n, t in {**planted, **allowed}.items(): (d / n).write_text(t)
+        self.assertEqual(sorted({h.split(":", 1)[0] for h in self._violations(d, sorted({**planted, **allowed}))}), sorted(planted))
+        self.assertFalse(self._runtime("bench/archive/old.py")); self.assertTrue(self._runtime("collectors/new_adapter.py"))
+    def test_docs_name_the_v2_search(self):
+        readme = (SITE / "bench/README.md").read_text()
+        self.assertIn("the only Firecrawl endpoints AWI calls are `POST /v2/search` and `GET /v2/team/credit-usage`", readme)
+        self.assertNotIn("and `/v1/search`", readme); self.assertNotIn("`POST /v1/search`", readme)
