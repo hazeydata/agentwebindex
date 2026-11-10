@@ -2,7 +2,7 @@
  "provider": "tinyfish",
  "name": "TinyFish Search + Fetch",
  "url": "https://www.tinyfish.ai/pricing",
- "fetched_at": "2026-11-09T09:23:20+00:00",
+ "fetched_at": "2026-11-10T09:20:16+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "742760d89cb7de6054f12769a4faaf4e9b927168034021cbd213660b700fc5a0",
@@ -18,7 +18,7 @@
   "$8"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-08T09:18:08+00:00",
+  "previous_fetched_at": "2026-11-09T09:23:20+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

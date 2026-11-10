@@ -2,7 +2,7 @@
  "provider": "browserbase",
  "name": "Browserbase",
  "url": "https://www.browserbase.com/pricing",
- "fetched_at": "2026-11-09T09:23:20+00:00",
+ "fetched_at": "2026-11-10T09:20:16+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "4eab4284ca546e75eddb1dd01d50fb15f26453a306044a6ef4072189aa82c7ba",
@@ -31,7 +31,7 @@
   "$99/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-08T09:18:08+00:00",
+  "previous_fetched_at": "2026-11-09T09:23:20+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-09T09:23:20+00:00",
+ "generated_at": "2026-11-10T09:20:16+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -37,9 +37,9 @@
    "provider": "parallel",
    "status": "ok",
    "http": 200,
-   "n_prices": 18,
+   "n_prices": 19,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "serper",
@@ -111,7 +111,7 @@
    "http": 200,
    "n_prices": 14,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "browserless",
