@@ -2,7 +2,7 @@
  "provider": "browserless",
  "name": "Browserless",
  "url": "https://www.browserless.io/pricing",
- "fetched_at": "2026-11-11T09:19:30+00:00",
+ "fetched_at": "2026-11-12T09:19:48+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "6927357f3e78e68d23e5687cb33eddfa63843d3c68e2a258a2038bbcfd04b74c",
@@ -17,7 +17,7 @@
   "$0.0020 per unit overages"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-10T09:20:16+00:00",
+  "previous_fetched_at": "2026-11-11T09:19:30+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],
