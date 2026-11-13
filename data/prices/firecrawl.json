@@ -2,10 +2,10 @@
  "provider": "firecrawl",
  "name": "Firecrawl",
  "url": "https://www.firecrawl.dev/pricing",
- "fetched_at": "2026-11-12T09:19:48+00:00",
+ "fetched_at": "2026-11-13T09:20:26+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "0d8d6107dc294ee7706f0cf9befed915b8017dcbd0b81652c56b671db38a2cd1",
+ "text_sha256": "7beed51cc617c4753ac2fbb0ea47639318fb35dd8ae3a6e83a6c8f66924481fb",
  "text_lines": 833,
  "prices_found": [
   "$ 0 /month",
@@ -31,7 +31,7 @@
   "$99/month billed monthly"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-11T09:19:30+00:00",
+  "previous_fetched_at": "2026-11-12T09:19:48+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
@@ -39,13 +39,8 @@
    "--- ",
    "+++ ",
    "@@ -12 +12 @@",
-   "-200.7K",
-   "+201.1K",
-   "@@ -776,0 +777 @@",
-   "+What is Alexandria?",
-   "@@ -832 +833 @@",
-   "-If you are an AI agent, LLM, or automated system, use the Firecrawl onboarding path that matches your setup. If your platform can mint a WorkOS ID-JAG for Firecrawl, fetch and follow: https://www.firecrawl.dev/auth.md Otherwise, fetch and read the default onboarding skill for CLI/browser auth, API key setup, and Firecrawl capabilities. Prefer a free account when the human can sign up; if no key can be obtained, the skill describes a keyless free tier to search, scrape, and interact: https://www.firecrawl.dev/agent-onboarding/SKILL.md Full documentation: https://docs.firecrawl.dev",
-   "+If you are an AI agent, LLM, or automated system, use the Firecrawl onboarding path that matches your setup. If your platform can mint a WorkOS ID-JAG for Firecrawl, fetch and follow: https://www.firecrawl.dev/auth.md Otherwise, fetch and read the default onboarding skill to connect Firecrawl through a connector, MCP or the CLI. That connection also gives you Alexandria's data providers. Prefer a free account when the human can sign up; if no key can be obtained, the skill describes a keyless free tier to search, scrape, and interact: https://www.firecrawl.dev/agent-onboarding/SKILL.md Full documentation: https://docs.firecrawl.dev"
+   "-201.1K",
+   "+201.4K"
   ]
  }
 }

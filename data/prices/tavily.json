@@ -2,21 +2,30 @@
  "provider": "tavily",
  "name": "Tavily",
  "url": "https://www.tavily.com/pricing",
- "fetched_at": "2026-11-12T09:19:48+00:00",
+ "fetched_at": "2026-11-13T09:20:26+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "9bbf65737c3b907cf535c9f53d36b377863badefb368e201c8eff819c5ee6d4c",
- "text_lines": 157,
+ "text_sha256": "f46f5a3605d17e4f7f2f75802b8ce06cf0d0428ee9930dcbb3e6747d51376292",
+ "text_lines": 160,
  "prices_found": [
   "$ 0",
   "$0.008 / credit",
   "$30"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-11T09:19:30+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-11-12T09:19:48+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -22,0 +23 @@",
+   "+Technology",
+   "@@ -128,0 +130 @@",
+   "+Technology",
+   "@@ -129,0 +132 @@",
+   "+Company Data"
+  ]
  }
 }

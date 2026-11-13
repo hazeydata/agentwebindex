@@ -2,10 +2,10 @@
  "provider": "steel",
  "name": "Steel",
  "url": "https://steel.dev/pricing",
- "fetched_at": "2026-11-12T09:19:48+00:00",
+ "fetched_at": "2026-11-13T09:20:26+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "b91c2dc21c9392c84a7da0038c6e833b26faf090d9050c05fc8233c7515ac7f6",
+ "text_sha256": "47745cfbf51222ef5b38eacddfe69d794d13638dff16303769f9eed0fb908d71",
  "text_lines": 258,
  "prices_found": [
   "$0 per month",
@@ -24,18 +24,16 @@
   "$6/GB"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-11T09:19:30+00:00",
+  "previous_fetched_at": "2026-11-12T09:19:48+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -1 +1 @@",
-   "-Steel | Pricing",
-   "+Steel | Pricing: Browser Infrastructure for AI Agents",
-   "@@ -256,0 +257 @@",
-   "+Steel is a product of Nen Labs, Inc."
+   "@@ -23 +23 @@",
+   "-7.9K",
+   "+8K"
   ]
  }
 }
