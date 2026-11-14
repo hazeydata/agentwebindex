@@ -2,7 +2,7 @@
  "provider": "jina",
  "name": "Jina Reader",
  "url": "https://jina.ai/reader/",
- "fetched_at": "2026-11-13T09:20:26+00:00",
+ "fetched_at": "2026-11-14T09:18:11+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "61e04f7068bde12f99613eced35d2c56c8306e5f1c41edb4fa9851c92d1a8254",
@@ -10,7 +10,7 @@
  "prices_found": [],
  "note": "Page fetched but no $ amounts visible in static HTML (likely JS-rendered).",
  "diff": {
-  "previous_fetched_at": "2026-11-12T09:19:48+00:00",
+  "previous_fetched_at": "2026-11-13T09:20:26+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

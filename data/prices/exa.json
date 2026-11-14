@@ -2,11 +2,11 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-11-13T09:20:26+00:00",
+ "fetched_at": "2026-11-14T09:18:11+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "c4067756b5ee6cead3efe074ed0755f01dc91bbe959968a3e655654291c87f20",
- "text_lines": 324,
+ "text_sha256": "c3044ebaa08f26611619b4971a80930f1fd0c10defd1b3d50ac73b464548695f",
+ "text_lines": 325,
  "prices_found": [
   "$0.005 / search",
   "$0.012",
@@ -34,29 +34,18 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-12T09:19:48+00:00",
+  "previous_fetched_at": "2026-11-13T09:20:26+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -43,0 +44,3 @@",
-   "+Sign in",
-   "+Sign up",
-   "+API Dashboard",
-   "@@ -45 +47,0 @@",
-   "-Sign up",
-   "@@ -49 +50,0 @@",
-   "-Blog",
-   "@@ -51 +51,0 @@",
-   "-Enterprise",
-   "@@ -52,0 +53 @@",
-   "+Sign in",
-   "@@ -54,0 +56 @@",
-   "+API Dashboard",
-   "@@ -283,0 +286 @@",
-   "+Go to dashboard"
+   "@@ -131 +131 @@",
+   "-Configurable latency: 450ms to 1s",
+   "+Configurable latency: 300ms to 1s",
+   "@@ -294,0 +295 @@",
+   "+EU Data Residency"
   ]
  }
 }
