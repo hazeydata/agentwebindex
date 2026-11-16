@@ -1,7 +1,7 @@
 {
- "est_usd": 0.18,
+ "est_usd": 0.525,
  "month": "2026-11",
  "provider": "brightdata",
- "requests": 120,
+ "requests": 350,
  "usd_per_1k": 1.5
 }
