@@ -14,6 +14,7 @@ Spec: `../PLAN.md`. Nothing here contains hard-coded prices or benchmark numbers
 - `collectors/providers.json` provider list, pricing URLs, key env-var names
 - `collectors/snapshot_prices.py` daily pricing-page snapshot + diff → `data/prices/<id>.json`, `data/prices/history/<id>.jsonl`, `data/prices/index.json`. It skips any provider whose `tos_matrix.yaml` entry fails `gates.vendor_confirmed` (`snapshot_providers()`, AC24g): an unconfirmed vendor's pricing page (Context.dev today) is never fetched and gets no published `data/prices` file.
 - `collectors/benchmark.py` harness → `data/benchmarks/latest.json` (+ `smoke-latest.json` / `full-latest.json`)
+- `data/benchmarks/staged/latest-2026-47.json`: a staged regeneration from `bench/runs` (it has native firecrawl search rows and a brightdata scrape row), not published. The published `data/benchmarks/latest.json` (the W46 data-only splice, which has no firecrawl or brightdata rows) is unchanged, and publishing the staged file is a separate ticket. `bench/awibench/tables.py` `missing_from_latest()` lists every provider with a run log under `bench/runs` (minus terms-excluded and held providers) that has no row in a latest.json doc, and the `LatestHasEveryRunProvider` tests require that list to be empty for a fresh build and for the staged file (bench/README.md).
 - `.github/workflows/prices.yml`, `.github/workflows/benchmark.yml`
 
 ## Run locally

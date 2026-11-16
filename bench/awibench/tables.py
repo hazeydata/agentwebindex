@@ -110,10 +110,23 @@ def regrade(set_name, lines, sets_dir):
         out.append((n, r))
     return out, checks.GRADER_VERSION
 
+def rowless(pricing, tos, cfg):
+    """Providers that intentionally get no table row: terms exclusions plus held providers (the set build() skips)."""
+    return {e["provider"] for e in exclusions(tos)} | held_providers(cfg, pricing, tos)
+
+def run_providers(runs_dir, pricing=None, tos=None, cfg=None):
+    """AWI-W47-BASE-RUN-001: sorted provider ids with at least one run log runs_dir/*/<provider>/*.jsonl, minus rowless() providers."""
+    return sorted({f.parent.name for f in Path(runs_dir).glob("*/*/*.jsonl")} - rowless(pricing or {}, tos, cfg))
+
+def missing_from_latest(doc, runs_dir, pricing=None, tos=None, cfg=None):
+    """AWI-W47-BASE-RUN-001 guard: run providers with no row in any doc["tables"][kind]. Empty list = every provider that ran is shown."""
+    shown = {r["provider"] for t in ((doc or {}).get("tables") or {}).values() for r in t}
+    return [pid for pid in run_providers(runs_dir, pricing, tos, cfg) if pid not in shown]
+
 def build(runs_dir, pricing, sets_dir=None, tos=None, cfg=None):
     logs = collect(runs_dir); doc = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                                      "source": "run logs only (SPEC-bench §4)", "tables": {"search": [], "scrape": [], "browser": []}, "freshness": []}
-    doc["exclusions"] = exclusions(tos); excluded = {e["provider"] for e in doc["exclusions"]} | held_providers(cfg, pricing, tos)   # excluded + held: no row
+    doc["exclusions"] = exclusions(tos); excluded = rowless(pricing, tos, cfg)   # excluded + held: no row
     for (pid, set_name), (rel, lines) in sorted(logs.items()):
         if pid in excluded: continue          # never shown in benchmark tables, even if a stray log exists
         kind = set_kind(set_name); lines, gv = regrade(set_name, lines, sets_dir)

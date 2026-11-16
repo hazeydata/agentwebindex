@@ -5401,3 +5401,31 @@ class FirecrawlV2(unittest.TestCase):   # Firecrawl v1 returns HTTP 410 from 202
             self.assertIn("allows only `GET /v2/team/credit-usage` and `/v2/search`", readme, name)
             for stale in ("credit-usage` and `/v1/search`", "`POST /v1/search` and `GET /v2/team/credit-usage`", "api.firecrawl" + ".dev/v1"):
                 self.assertNotIn(stale, readme, name)
+
+
+class LatestHasEveryRunProvider(unittest.TestCase):
+    """AWI-W47-BASE-RUN-001 (W46 leftover 5): a provider with a run log under bench/runs (and not excluded/held) always has a row in latest.json."""
+    STAGED = SITE / "data/benchmarks/staged/latest-2026-47.json"
+    def _real(self):   # the same pricing, sets, tos and config tables.main uses
+        return (tables.load_pricing(BENCH / "pricing.yaml"), BENCH / "sets", load_yaml(BENCH / "tos_matrix.yaml")["providers"], load_yaml(BENCH / "config.yaml"))
+    def _native(self, doc):
+        self.assertIn("firecrawl", {r["provider"] for r in doc["tables"]["search"]}); self.assertIn("brightdata", {r["provider"] for r in doc["tables"]["scrape"]})
+    def test_build_from_committed_runs_misses_no_provider(self):
+        pricing, sets, tos, cfg = self._real(); doc = tables.build(BENCH / "runs", pricing, sets, tos, cfg)
+        self.assertEqual(tables.missing_from_latest(doc, BENCH / "runs", pricing, tos, cfg), []); self._native(doc)
+        self.assertTrue({"firecrawl", "brightdata"} <= set(tables.run_providers(BENCH / "runs", pricing, tos, cfg)))
+    def test_staged_latest_misses_no_provider(self):
+        self.assertTrue(self.STAGED.exists(), f"staged regeneration {self.STAGED} is required and absent")
+        pricing, _, tos, cfg = self._real(); doc = json.loads(self.STAGED.read_text())
+        self.assertEqual(tables.missing_from_latest(doc, BENCH / "runs", pricing, tos, cfg), []); self._native(doc)
+    def test_planted_missing_firecrawl_is_reported(self):   # the guard really fails when a run provider's rows are gone
+        pricing, _, tos, cfg = self._real(); doc = json.loads(self.STAGED.read_text())
+        for kind in doc["tables"]: doc["tables"][kind] = [r for r in doc["tables"][kind] if r["provider"] != "firecrawl"]
+        self.assertEqual(tables.missing_from_latest(doc, BENCH / "runs", pricing, tos, cfg), ["firecrawl"])
+    def test_synthetic_run_log_without_row_is_reported(self):
+        runs = self.tmp_path / "runs"; day = runs / "2026-11-16"
+        for pid in ("alpha", "beta"): (day / pid).mkdir(parents=True); (day / pid / "news_2026-47.jsonl").write_text(json.dumps({"status": "pass"}) + "\n")
+        (day / "notes-run-001").mkdir(); (day / "notes-run-001" / "README.md").write_text("no jsonl here\n")   # a non-log dir is not a provider
+        doc = {"tables": {"search": [{"provider": "alpha"}], "scrape": [], "browser": []}}
+        self.assertEqual(tables.run_providers(runs), ["alpha", "beta"]); self.assertEqual(tables.missing_from_latest(doc, runs), ["beta"])
+        self.assertEqual(tables.missing_from_latest(doc, runs, cfg={"publish_hold": ["beta"]}), [])   # a held provider is intentionally rowless
