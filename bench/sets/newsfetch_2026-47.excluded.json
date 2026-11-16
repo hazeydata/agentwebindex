@@ -1,0 +1,62 @@
+{
+ "method": "a",
+ "news_file": "news_2026-47.jsonl",
+ "news_sha": "a21d44a6f0896ca3b2f94a31ec4a2e2a47967fe0ace58921ff4c00b85667c895",
+ "rows": [
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/13/nx-s1-6040264/is-there-an-opening-for-nvidias-competitors-now-that-jensen-huang-is-out",
+   "http_status": null,
+   "id": "news-2026-W47-001",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/13/nx-s1-6040264/is-there-an-opening-for-nvidias-competitors-now-that-jensen-huang-is-out"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/15/nx-s1-6002935/being-heumann-new-generation-disability-rights",
+   "http_status": null,
+   "id": "news-2026-W47-002",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/15/nx-s1-6002935/being-heumann-new-generation-disability-rights"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/14/nx-s1-6040158/these-economists-say-in-person-work-boosts-creativity-but-office-mandates-fall-short",
+   "http_status": null,
+   "id": "news-2026-W47-003",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/14/nx-s1-6040158/these-economists-say-in-person-work-boosts-creativity-but-office-mandates-fall-short"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/14/nx-s1-6041089/spacex-makes-history-with-starship-catch",
+   "http_status": null,
+   "id": "news-2026-W47-005",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/14/nx-s1-6041089/spacex-makes-history-with-starship-catch"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/14/nx-s1-6041152/judge-trump-golf-course-blocks",
+   "http_status": null,
+   "id": "news-2026-W47-009",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/14/nx-s1-6041152/judge-trump-golf-course-blocks"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.spacex.com/launches/starship-flight-15",
+   "http_status": 200,
+   "id": "news-2026-W47-014",
+   "reason": "expected_text_not_on_page",
+   "url": "https://www.spacex.com/launches/starship-flight-15"
+  }
+ ],
+ "set": "newsfetch_2026-47"
+}
