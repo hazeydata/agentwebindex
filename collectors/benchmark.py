@@ -320,9 +320,24 @@ def _tinyfish_fetch_one(key, url):
         raise RuntimeError(f"HTTP {st}: tinyfish fetch error {str(e.get('error') or 'no result')[:40]}" + (f" (target {e['status']})" if e.get("status") else ""))
     return st, res[0]
 
-def _tinyfish_fetch(key, item):   # browser (newsfetch_*): article URL -> markdown text
+# AWI-TINYFISH-NEWSFETCH-001: TinyFetch markdown is main content after "automatic boilerplate removal" (docs.tinyfish.ai
+# fetch-api/reference.md, read 2026-11-17), which often drops the page h1; the page title comes back separately in results[].title
+# ("Page title, preferring og:title over <title>"). W47 newsfetch: 10/14 misses, every one HTTP 200 with a body that starts after the
+# headline. The browser adapter now puts that title line above the markdown, so dom_text holds the same document's headline the
+# other providers' full-page text holds. New config label so runs before and after the change stay apart. Scrape is unchanged.
+TINYFISH_FETCH_CONFIG = "fetch-markdown-ttl0-title"
+
+def tinyfish_dom_text(r):
+    """Browser dom_text from one TinyFetch result: '# <title>' then a blank line then the markdown text.
+    A missing, empty or non-string title (or text) is left out; never raises."""
+    title = r.get("title") if isinstance(r.get("title"), str) else ""
+    text = r.get("text") if isinstance(r.get("text"), str) else ""
+    title = title.strip()
+    return f"# {title}\n\n{text}" if title else text
+
+def _tinyfish_fetch(key, item):   # browser (newsfetch_*): article URL -> title line + markdown text
     st, r = _tinyfish_fetch_one(key, item["start_url"])
-    return {"http_status": st, "billed_units": 1, "dom_text": r.get("text") or "", "final_url": r.get("final_url"), "config": "fetch-markdown-ttl0"}
+    return {"http_status": st, "billed_units": 1, "dom_text": tinyfish_dom_text(r), "final_url": r.get("final_url"), "config": TINYFISH_FETCH_CONFIG}
 
 def _tinyfish_scrape(key, item):   # scrape_urls
     st, r = _tinyfish_fetch_one(key, item["url"])

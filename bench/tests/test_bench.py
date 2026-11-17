@@ -4960,6 +4960,50 @@ class TinyFishAdapters(unittest.TestCase):   # AWI-TINYFISH-001: mocked only, no
         self.assertTrue(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "big headline"}}, out)[0])
         sc = self.B._tinyfish_scrape("k", {"url": "https://a.example/y"}); self.assertEqual(sc["text"], "# Big Headline here")
 
+    # AWI-TINYFISH-NEWSFETCH-001: W47 newsfetch 4/14. Every miss was HTTP 200 with markdown that starts below the h1 (TinyFetch
+    # boilerplate removal); results[].title carries the page title. The browser adapter puts '# <title>' above the text.
+    W47_L3_TEXT = ("Image source, Rockstar Games / Take-Two Interactive Image caption, GTA 6 will feature brand new protagonists Jason and "
+                   "Lucia - the first playable female character in any of the 3D games ByLaura Cress Technology reporter * Published 14 November 2026")
+    W47_L3_EXPECT = "Even Grand Theft Auto's original creators haven't been able to play GTA 6"
+
+    def _fetch_with(self, result):
+        self.B._post_json = lambda url, headers, body, timeout: (200, {"results": [dict(result, url=body["urls"][0])], "errors": []})
+        return self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
+
+    def test_w47_miss_reproduces_without_title(self):   # bench/runs/2026-11-16/tinyfish/newsfetch_2026-47.jsonl line 3 excerpt
+        out = self._fetch_with({"text": self.W47_L3_TEXT, "title": None})
+        self.assertEqual(out["dom_text"], self.W47_L3_TEXT)
+        self.assertEqual(checks.browser_check({"pass": {"type": "dom_text_contains", "value": self.W47_L3_EXPECT}}, out), (False, "dom_text_contains mismatch"))
+
+    def test_fetch_puts_title_above_markdown(self):
+        out = self._fetch_with({"text": self.W47_L3_TEXT, "title": self.W47_L3_EXPECT})
+        self.assertEqual(out["dom_text"], "# " + self.W47_L3_EXPECT + "\n\n" + self.W47_L3_TEXT)
+        self.assertEqual(checks.browser_check({"pass": {"type": "dom_text_contains", "value": self.W47_L3_EXPECT}}, out), (True, "dom_text_contains ok"))
+        self.assertEqual((out["config"], self.B.TINYFISH_FETCH_CONFIG), ("fetch-markdown-ttl0-title", "fetch-markdown-ttl0-title"))
+
+    def test_request_body_unchanged(self):
+        self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
+        self.assertEqual(self.calls[-1][4], {"urls": ["https://a.example/x"], "format": "markdown", "ttl": 0, "per_url_timeout_ms": 110000})
+
+    def test_site_suffixed_title_still_contains_headline(self):   # GitHub changelog og:title shape, W47 lines 7/10/12/13
+        out = self._fetch_with({"text": "Back to changelog You can now", "title": "Gemini 4 Hydrogen in GitHub Copilot - GitHub Changelog"})
+        self.assertTrue(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "Gemini 4 Hydrogen in GitHub Copilot"}}, out)[0])
+
+    def test_site_banner_expected_text_still_misses(self):   # W47 line 4: expected text is the site banner h1, not the article title
+        out = self._fetch_with({"text": "## I Can't Believe It Can Sort! The algorithm", "title": "I Can't Believe It Can Sort!"})
+        self.assertFalse(checks.browser_check({"pass": {"type": "dom_text_contains", "value": "Welcome to Yugen, a space I dedicate to learning new things."}}, out)[0])
+
+    def test_dom_text_bad_or_missing_fields(self):
+        f = self.B.tinyfish_dom_text
+        for r, want in (({"text": "body"}, "body"), ({"text": "body", "title": ""}, "body"), ({"text": "body", "title": "   "}, "body"),
+                        ({"text": "body", "title": 7}, "body"), ({"title": "T"}, "# T\n\n"), ({"text": None, "title": None}, ""),
+                        ({"text": {"tree": 1}, "title": " T "}, "# T\n\n"), ({}, "")):
+            self.assertEqual(f(r), want, r)
+
+    def test_scrape_unchanged_by_title(self):
+        sc = self._fetch_with({"text": "# Body", "title": "Title"}) and self.B._tinyfish_scrape("k", {"url": "https://a.example/y"})
+        self.assertEqual((sc["text"], sc["config"]), ("# Body", "fetch-markdown-ttl0"))
+
     def test_per_url_error_is_a_fail_not_a_stop(self):
         self.B._post_json = lambda url, headers, body, timeout: (200, {"results": [], "errors": [{"url": body["urls"][0], "error": "bot_blocked"}]})
         with self.assertRaisesRegex(RuntimeError, r"^HTTP 200: tinyfish fetch error bot_blocked"): self.B._tinyfish_fetch("k", {"start_url": "https://a.example/x"})
