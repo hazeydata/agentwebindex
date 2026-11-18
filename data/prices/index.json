@@ -1,11 +1,11 @@
 {
- "generated_at": "2026-11-17T09:20:08+00:00",
+ "generated_at": "2026-11-18T09:19:45+00:00",
  "providers": [
   {
    "provider": "exa",
    "status": "ok",
    "http": 200,
-   "n_prices": 24,
+   "n_prices": 26,
    "error": null,
    "changed": true
   },
@@ -117,9 +117,9 @@
    "provider": "browserless",
    "status": "ok",
    "http": 200,
-   "n_prices": 7,
+   "n_prices": 17,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "contextdev",
@@ -135,7 +135,7 @@
    "http": 200,
    "n_prices": 11,
    "error": null,
-   "changed": true
+   "changed": false
   }
  ]
 }
