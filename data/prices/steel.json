@@ -2,11 +2,11 @@
  "provider": "steel",
  "name": "Steel",
  "url": "https://steel.dev/pricing",
- "fetched_at": "2026-11-18T09:19:45+00:00",
+ "fetched_at": "2026-11-19T09:20:05+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "c2fa00f5be32043c87311a59d514a22f68c1eb874bfb1dac247722e481a17005",
- "text_lines": 266,
+ "text_sha256": "67f338d2d03e5f318b216dd7bab0121c7f82f6defd962336fc4306729a3a6efb",
+ "text_lines": 264,
  "prices_found": [
   "$0 per month",
   "$0.08",
@@ -24,27 +24,17 @@
   "$6/GB"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-17T09:20:08+00:00",
+  "previous_fetched_at": "2026-11-18T09:19:45+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -9,0 +10,2 @@",
-   "+Startups",
-   "+Research",
-   "@@ -21 +22,0 @@",
-   "-(opens in a new tab)",
-   "@@ -42,0 +44,2 @@",
-   "+Startups",
-   "+Research",
-   "@@ -54 +56,0 @@",
-   "-(opens in a new tab)",
-   "@@ -261,0 +264,3 @@",
-   "+Light",
-   "+Dark",
-   "+System"
+   "@@ -10 +9,0 @@",
+   "-Startups",
+   "@@ -44 +42,0 @@",
+   "-Startups"
   ]
  }
 }

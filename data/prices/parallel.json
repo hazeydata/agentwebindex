@@ -2,11 +2,11 @@
  "provider": "parallel",
  "name": "Parallel",
  "url": "https://parallel.ai/pricing",
- "fetched_at": "2026-11-18T09:19:45+00:00",
+ "fetched_at": "2026-11-19T09:20:05+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "16d6108d583b84dac7b883864ecddfb184d848cf0b136f9b2d0818891e431c68",
- "text_lines": 1276,
+ "text_sha256": "2ff79b427246a905c4c146576e8896dbbb3736dca377f097987f10ef97ea2bd9",
+ "text_lines": 1283,
  "prices_found": [
   "$1 per 1",
   "$1 per 1k URLs",
@@ -29,10 +29,21 @@
   "$80"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-17T09:20:08+00:00",
-  "changed": false,
+  "previous_fetched_at": "2026-11-18T09:19:45+00:00",
+  "changed": true,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": []
+  "text_diff": [
+   "--- ",
+   "+++ ",
+   "@@ -941,0 +942,7 @@",
+   "+Demos",
+   "+[",
+   "+Demos",
+   "+]",
+   "+(",
+   "+https://parallel.ai/demos",
+   "+)"
+  ]
  }
 }
