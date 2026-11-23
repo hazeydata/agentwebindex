@@ -1967,7 +1967,8 @@ class UrlExactList(unittest.TestCase):
         self.assertFalse(checks.search_check(ch, self.res("https://www.rfc-editor.org/rfc/rfc8258.html"))[0])
     def test_string_value_unchanged(self):
         ch = {"type": "url_exact", "value": self.ALLOW[1]}
-        self.assertTrue(checks.search_check(ch, self.res(self.ALLOW[1]))[0]); self.assertFalse(checks.search_check(ch, self.res(self.ALLOW[0]))[0])
+        self.assertTrue(checks.search_check(ch, self.res(self.ALLOW[1]))[0]); self.assertTrue(checks.search_check(ch, self.res(self.ALLOW[0]))[0])   # canon-2026-11-23: rfcN.html and /rfc/rfcN are one document (M01)
+        self.assertFalse(checks.search_check(ch, self.res("https://www.rfc-editor.org/rfc/rfc8258"))[0])
     def test_prefix_match_rejected(self):
         for v in (self.ALLOW[0], self.ALLOW):   # string and list forms
             ch = {"type": "url_exact", "value": v}

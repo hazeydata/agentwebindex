@@ -55,3 +55,14 @@ def is_under(path, parents):
 
 def not_captured(v):
     return v is None or v == "NOT CAPTURED"
+
+SNIPPET_MAX_CHARS = 300   # one snippet budget for every search provider (SPEC-bench 1a/3a, issue #60)
+
+def snippet_text(v):
+    """Adapter snippet: None/empty -> None; list/tuple of strings joined with a space; whitespace collapsed;
+    cut to SNIPPET_MAX_CHARS."""
+    if not v: return None
+    if isinstance(v, (list, tuple)): v = " ".join(x for x in v if isinstance(x, str) and x)
+    if not isinstance(v, str): return None
+    v = re.sub(r"\s+", " ", v).strip()[:SNIPPET_MAX_CHARS].strip()
+    return v or None

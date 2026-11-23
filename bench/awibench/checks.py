@@ -1,16 +1,18 @@
 """Pass/fail checks for each set type (1a-1d)."""
 import datetime as dt, hashlib, html, unicodedata
 from html.parser import HTMLParser
-from .util import norm_url, domain, norm_text
+from .util import norm_url, domain, norm_text, SNIPPET_MAX_CHARS
+from . import urlmatch
 
-GRADER_VERSION = "canon-2026-10-20"
+GRADER_VERSION = "canon-2026-11-23"
 
 def search_check(check, results, published_at=None, now=None):
     """results: list of {url,title,snippet,published_at?} in rank order. Returns (pass, reason)."""
     t, v = check["type"], check["value"]
     if t == "url_exact":
         top = {norm_url(r["url"]) for r in results[:10]}
-        ok = any(norm_url(u) in top for u in ([v] if isinstance(v, str) else v)); return ok, "url_exact in top10" if ok else "url_exact not in top10"
+        ok = any(norm_url(u) in top for u in ([v] if isinstance(v, str) else v)) or urlmatch.match(v, results, top=10)[0]   # v2 never loses a v1 pass
+        return ok, "url_exact in top10" if ok else "url_exact not in top10"
     if t == "url_domain":
         hits = [r for r in results[:5] if domain(r["url"]) == domain(v if "//" in v else "https://" + v)]
         if check.get("within_h") and published_at:
@@ -18,7 +20,7 @@ def search_check(check, results, published_at=None, now=None):
             hits = [r for r in hits if r.get("published_at") and abs((dt.datetime.fromisoformat(r["published_at"]) - ref).total_seconds()) <= check["within_h"] * 3600]
         return bool(hits), "domain in top5" if hits else "domain not in top5"
     if t == "snippet_contains":
-        nv = norm_text(v); ok = any(nv in norm_text((r.get("title") or "") + " " + (r.get("snippet") or "")) for r in results[:5])
+        nv = norm_text(v); ok = any(nv in norm_text((r.get("title") or "") + " " + (r.get("snippet") or "")[:SNIPPET_MAX_CHARS]) for r in results[:5])
         return ok, "snippet match" if ok else "snippet not found in top5"
     return False, f"unknown check {t}"
 
