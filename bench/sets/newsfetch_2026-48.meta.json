@@ -1,0 +1,11 @@
+{
+ "count": 12,
+ "excluded_count": 4,
+ "expected_source": "article_page",
+ "method": "a",
+ "news_file": "news_2026-48.jsonl",
+ "news_sha": "cf8de514210d38fddbd567c49cb006d6ec0f7e8ec0e468f59a61f7a1361766ba",
+ "set": "newsfetch_2026-48",
+ "sha256": "e7031a8403e24b5dd76473484f8b83b97fd98beb34db7c6fb31c78d604edb480",
+ "url_exact_rows": 16
+}

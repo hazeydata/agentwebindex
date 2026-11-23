@@ -1,0 +1,44 @@
+{
+ "method": "a",
+ "news_file": "news_2026-48.jsonl",
+ "news_sha": "cf8de514210d38fddbd567c49cb006d6ec0f7e8ec0e468f59a61f7a1361766ba",
+ "rows": [
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/21/nx-s1-6048729/ai-stock-markets-anthropic-nvidia",
+   "http_status": null,
+   "id": "news-2026-W48-006",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/21/nx-s1-6048729/ai-stock-markets-anthropic-nvidia"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/21/nx-s1-6044647/highlights-and-challenges-from-covering-an-historic-month-in-south-america",
+   "http_status": null,
+   "id": "news-2026-W48-008",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/21/nx-s1-6044647/highlights-and-challenges-from-covering-an-historic-month-in-south-america"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/20/g-s1-154797/nasdaq-sp500-stock-market-ai-sink-negative",
+   "http_status": null,
+   "id": "news-2026-W48-009",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/20/g-s1-154797/nasdaq-sp500-stock-market-ai-sink-negative"
+  },
+  {
+   "attempts": 1,
+   "domain_changed": false,
+   "final_url": "https://www.npr.org/2026/11/20/nx-s1-5860971/trumps-impact-on-ohio-steel-plant",
+   "http_status": null,
+   "id": "news-2026-W48-010",
+   "reason": "timeout",
+   "url": "https://www.npr.org/2026/11/20/nx-s1-5860971/trumps-impact-on-ohio-steel-plant"
+  }
+ ],
+ "set": "newsfetch_2026-48"
+}
