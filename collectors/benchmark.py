@@ -29,9 +29,9 @@ def _post(url, headers, body):
         ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None   # AC6: the runner waits this long (bounded)
         raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
-def _exa_search(key, item):
-    st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto"})
-    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": None,
+def _exa_search(key, item):   # snippet = the result's highlights joined, cut to 300 chars like Tavily's content; billed the same 1 search unit
+    st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto", "contents": {"highlights": True}})
+    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": " ".join(r.get("highlights") or [])[:300] or None,
             "published_at": r.get("publishedDate")} for r in d.get("results", [])]}
 
 def _tavily_search(key, item):   # basic depth; billed units left to the runner's 2-credit guard (unverified)

@@ -5346,6 +5346,34 @@ class NewsfetchFix001(unittest.TestCase):
         self.assertIn("expected_text_not_on_page", sets); self.assertIn("DOM_TEXT_EXCERPT_N", readme)
 
 
+class ExaSearchHighlights(unittest.TestCase):   # Exa search asks for highlights so snippet_contains checks see result text, not only titles; mocked urlopen only, no network
+    SEARCH = "https://api.exa" + ".ai/search"
+    def setUp(self):
+        sys.path.insert(0, str(SITE / "collectors")); import benchmark as B; self.B = B; self.seen = []
+    def _search(self, reply):
+        def urlopen(req, timeout=None):
+            self.seen.append((req, timeout)); return FirecrawlV2.R(reply)
+        with mock.patch("urllib.request.urlopen", urlopen): return self.B._exa_search("mock-not-a-key", {"query": "speed of light"})
+
+    def test_request_asks_for_highlights(self):   # exact request: URL, method, key header, JSON body, client timeout 60
+        self._search({"results": []})
+        ((req, timeout),) = self.seen
+        self.assertEqual((req.full_url, req.get_method(), timeout), (self.SEARCH, "POST", 60))
+        self.assertEqual(json.loads(req.data), {"query": "speed of light", "numResults": 10, "type": "auto", "contents": {"highlights": True}})
+        self.assertEqual(req.get_header("X-api-key"), "mock-not-a-key")
+    def test_snippet_is_joined_highlights_cut_to_300(self):   # same 300-char budget as Tavily's content; no highlights -> None (title only, as before)
+        long = "x" * 400
+        out = self._search({"results": [{"url": "https://a.example/", "title": "A", "highlights": ["c = 299 792 458 m/s", "exact"], "publishedDate": "2026-10-25"},
+                                         {"url": "https://b.example/", "title": "B", "highlights": [long]},
+                                         {"url": "https://c.example/", "title": "C", "highlights": []}, {"url": "https://d.example/", "title": "D"}]})
+        self.assertEqual(out, {"http_status": 200, "billed_units": 1, "results": [
+            {"url": "https://a.example/", "title": "A", "snippet": "c = 299 792 458 m/s exact", "published_at": "2026-10-25"},
+            {"url": "https://b.example/", "title": "B", "snippet": "x" * 300, "published_at": None},
+            {"url": "https://c.example/", "title": "C", "snippet": None, "published_at": None},
+            {"url": "https://d.example/", "title": "D", "snippet": None, "published_at": None}]})
+        self.assertEqual(checks.search_check({"type": "snippet_contains", "value": "299 792 458"}, out["results"]), (True, "snippet match"))
+
+
 class FirecrawlV2(unittest.TestCase):   # Firecrawl v1 returns HTTP 410 from 2026-12-10 15:00 UTC (docs.firecrawl.dev/migrate-to-v2); mocked urlopen only, no network
     V2_SEARCH, V2_METER = "https://api.firecrawl" + ".dev/v2/search", "https://api.firecrawl" + ".dev/v2/team/credit-usage"
     WEB = [{"url": "https://a.example/", "title": "A", "description": "da", "position": 1}, {"url": "https://b.example/", "title": "B", "description": "db", "position": 2}]
