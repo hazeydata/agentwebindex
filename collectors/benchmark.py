@@ -7,6 +7,7 @@
 - run log        -> bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl -> awibench.tables -> data/benchmarks/latest.json
 Free tier only, hard $0 cap (D4). Providers without a key, adapter, known free quota or ToS clearance are skipped.
 Search adapters only (run 1); there is no mock path here (mocks live in bench/tests).
+CLI flags: --mode smoke|full, --only-providers IDS, --only-sets NAMES, --only-check-types TYPES (keep only rows with those check types; needs --only-sets; not with --reprobe-offset/--rebuild-only; sets the kept rows' sample_of), --reprobe-offset H, --rebuild-only DATES.
 Adapter output contract: every search adapter returns snippet <= 300 chars (util.snippet_text; Exa requests highlights), so all providers get the same budget (issue #60).
 """
 import argparse, datetime as dt, json, os, sys
@@ -480,7 +481,11 @@ def main():
     ap.add_argument("--reprobe-offset", type=int, choices=freshness.REPROBE_OFFSETS_H)
     ap.add_argument("--only-providers", help="comma-separated provider ids to call (others are not called and not listed)")
     ap.add_argument("--rebuild-only", metavar="RUN_DATE", help="no provider calls: rescore existing run logs and the saved run summary for RUN_DATE")
-    ap.add_argument("--only-sets", help="comma-separated set names to run (others are not loaded)"); a = ap.parse_args()
+    ap.add_argument("--only-sets", help="comma-separated set names to run (others are not loaded)")
+    ap.add_argument("--only-check-types", help="comma-separated check types (e.g. snippet_contains): keep only rows whose check type is listed; needs --only-sets; not with --reprobe-offset or --rebuild-only"); a = ap.parse_args()
+    if a.only_check_types is not None:
+        if not a.only_sets: print("error: --only-check-types requires --only-sets"); return 2
+        if a.reprobe_offset or a.rebuild_only: print("error: --only-check-types cannot be combined with --reprobe-offset or --rebuild-only"); return 2
     cfg = load_yaml(BENCH / "config.yaml"); provs = json.loads((ROOT / "collectors/providers.json").read_text())["providers"]
     pricing = load_yaml(BENCH / "pricing.yaml")["providers"]; tos = load_yaml(BENCH / "tos_matrix.yaml")["providers"]
     today = dt.date.today().isoformat(); sets = {}; skips = []; flags = []
@@ -500,6 +505,15 @@ def main():
         return newsfetch.from_news_file(BENCH / "sets" / f"{nk}.jsonl")
     sets, nf_skips = newsfetch.prepare_run_sets(sets, a.only_sets or None, _load_newsfetch)   # --only-sets news_X also keeps newsfetch_X
     for sk in nf_skips: skips.append(sk); print("SKIP set", sk["set"], "->", sk["reason"])
+    if a.only_check_types is not None:   # before runner.run, so the full_limits trim cannot cut a kept row
+        types = {t.strip() for t in a.only_check_types.split(",") if t.strip()}; shown = ",".join(sorted(types))
+        for name in list(sets):
+            rows = sets[name]["rows"]
+            if not any(isinstance(r.get("check"), dict) for r in rows): continue
+            kept = [r for r in rows if isinstance(r.get("check"), dict) and r["check"].get("type") in types]
+            print(f"only-check-types: {name} n={len(kept)} of {len(rows)} ({shown})")
+            if kept: sets[name] = sets[name] | {"rows": kept, "sample_of": len(rows)}
+            else: del sets[name]; print(f"only-check-types: {name} dropped (no rows with check type in {shown})")
     only = None
     if a.reprobe_offset:   # §3: re-query only the misses of the latest news set at +6/+24/+72 h
         sets = {k: v for k, v in sets.items() if k.startswith("news_")}

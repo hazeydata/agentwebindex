@@ -1,0 +1,37 @@
+name: snippet-rerun
+on: workflow_dispatch   # manual only; artifact only, never pushes or publishes
+permissions: {contents: read}
+concurrency: {group: benchmark, cancel-in-progress: false}
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    env:
+      MONTHLY_CAP_USD: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Unit tests + secrets scan (mock only)
+        run: pip install pytest && cd bench && python -m pytest -q -p no:cacheprovider tests/test_issue60.py tests/test_snippet_rerun.py && python -m awibench.secrets_scan
+      - name: Re-run snippet_contains items (Exa, Tavily)
+        env:
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          set -euo pipefail
+          python collectors/benchmark.py --mode full --only-providers exa,tavily --only-sets search_evergreen --only-check-types snippet_contains
+      - name: Stop check (no secrets)
+        run: python bench/tools/snippet_rerun_check.py
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snippet-rerun-logs
+          path: |
+            bench/runs
+            bench/spend
+            data/spend
+          if-no-files-found: warn
+          retention-days: 14
