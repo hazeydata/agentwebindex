@@ -104,6 +104,7 @@ Timeouts (Apify): a client timeout on an Apify call is a fail (`status: fail`, `
 ## Adapter contract (collectors/benchmark.py `ADAPTERS`)
 `fn(key, item) -> dict`, plus optional `billed_units` (the provider's billing unit; browser = raw minutes), `proxy_gb` and `http_status`.
 - search: `{"results": [{"url","title","snippet","published_at"?}, ...]}`
+  `snippet` is at most 300 characters or null, produced by `util.snippet_text` in every search adapter (Exa requests highlights); `checks.snippet_contains` grades the same 300 characters of logged snippets (SPEC-bench §3a.1).
 - scrape: `{"text", "html"?}`
 - browser: `{"final_url"?, "extracted_value"?, "dom_text"?, "file_bytes"?}`
 
@@ -112,3 +113,10 @@ Browser log lines (newsfetch and browser_tasks) include `dom_text_excerpt`. It i
 Marker `selector_text` value format: `"<selector>::<text>"`, with selector = `tag`, `#id`, `.class` or `tag.class`.
 
 **Stale and stopped runs still write their run log.** A `stale_<reason>` or `stopped_<reason>` run's lines go to `bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl` stamped `run_status: stale_<reason>` / `stopped_<reason>` (spend audit); `tables.collect` never publishes a stamped or incomplete log. Only a provider with no data call and nothing billed writes no lines.
+
+## URL equivalence tools (issue #60, grader `canon-2026-11-23`)
+Rules and examples: SPEC-bench §3a.1 (`awibench/urlmatch.py`). Expected-URL redirect log (the only networked step; run by hand, plain GETs, `AgentWebIndexBot/1.0`, 20 s timeout, at most 5 redirects, no bodies stored):
+`cd bench && python -m awibench.redirects resolve --set search_evergreen [--out PATH]` (merges into `sets/url_redirects.json`).
+Offline rescore of logged results (stdlib only, no network; `--bench-dir` picks which awibench is imported, e.g. an `origin/main` checkout for "before"; `--no-redirects` = v2 rules only):
+`python3 bench/tools/rescore.py --bench-dir bench --set search_evergreen --set-file bench/sets/search_evergreen.jsonl --log exa=bench/runs/2026-10-23/exa/search_evergreen.jsonl --log tavily=bench/runs/2026-10-23/tavily/search_evergreen.jsonl [--no-redirects] --out-csv out.csv`
+It prints passed/denominator per provider and check type and the sha256 of every input file.

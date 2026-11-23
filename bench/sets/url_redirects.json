@@ -1,0 +1,431 @@
+{
+ "entries": {
+  "https://arxiv.org/abs/1301.3781": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1301.3781",
+   "resolved_at": "2026-11-23T19:13:08Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/1406.2661": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1406.2661",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/1412.6980": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1412.6980",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/1512.03385": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1512.03385",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/1706.03762": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1706.03762",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/1810.04805": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/1810.04805",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/2005.11401": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/2005.11401",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/2005.14165": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/2005.14165",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/2010.11929": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/2010.11929",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://arxiv.org/abs/2106.09685": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://arxiv.org/abs/2106.09685",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://datatracker.ietf.org/doc/html/rfc8259": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://datatracker.ietf.org/doc/html/rfc8259",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-direction": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-direction"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/flex-direction",
+   "resolved_at": "2026-11-23T19:13:09Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://doc.rust-lang.org/std/vec/struct.Vec.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://doc.rust-lang.org/std/vec/struct.Vec.html",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://docs.python.org/3/library/asyncio-task.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://docs.python.org/3/library/asyncio-task.html",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://docs.python.org/3/library/json.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://docs.python.org/3/library/json.html",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://docs.python.org/3/library/stdtypes.html": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://docs.python.org/3/library/stdtypes.html"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://docs.python.org/3/builtins/stdtypes.html",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://git-scm.com/docs/git-rebase": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://git-scm.com/docs/git-rebase",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://nodejs.org/api/fs.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://nodejs.org/api/fs.html",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://pkg.go.dev/net/http": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://pkg.go.dev/net/http",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc1118": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc1118"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc1118/",
+   "resolved_at": "2026-11-23T19:13:10Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc1149": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc1149"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc1149/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc1925": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc1925"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc1925/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc2119": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc2119"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc2119/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc2549": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc2549"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc2549/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc2795": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc2795"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc2795/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc3339": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc3339"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc3339/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc3514": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc3514"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc3514/",
+   "resolved_at": "2026-11-23T19:13:11Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc4824": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc4824"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc4824/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc6214": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc6214"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc6214/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc6749": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc6749"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc6749/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc7168": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc7168"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc7168/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc748": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc748"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc748/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc7519": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc7519"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc7519/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc8259": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc8259"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc8259/",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc8259.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/rfc/rfc8259.html",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc8259.txt": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/rfc/rfc8259.txt",
+   "resolved_at": "2026-11-23T19:13:12Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc8446": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc8446"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc8446/",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc8771": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc8771"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc8771/",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc9110": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc9110"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc9110/",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc9309": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc9309"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc9309/",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.rfc-editor.org/rfc/rfc9564": {
+   "chain": [
+    {
+     "status": 301,
+     "url": "https://www.rfc-editor.org/rfc/rfc9564"
+    }
+   ],
+   "final_status": 200,
+   "final_url": "https://www.rfc-editor.org/info/rfc9564/",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  },
+  "https://www.sqlite.org/lang_upsert.html": {
+   "chain": [],
+   "final_status": 200,
+   "final_url": "https://www.sqlite.org/lang_upsert.html",
+   "resolved_at": "2026-11-23T19:13:13Z",
+   "user_agent": "AgentWebIndexBot/1.0"
+  }
+ },
+ "note": "How each url_exact expected URL resolved when fetched (GET, no auth, <=5 redirects). chain = the redirect hops (url, status). awibench.urlmatch uses an entry only when final_status is 200, there is >=1 hop and final_url differs (rule RD); candidates are never resolved.",
+ "schema": 1
+}

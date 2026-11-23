@@ -7,12 +7,13 @@
 - run log        -> bench/runs/YYYY-MM-DD/<provider>/<set>.jsonl -> awibench.tables -> data/benchmarks/latest.json
 Free tier only, hard $0 cap (D4). Providers without a key, adapter, known free quota or ToS clearance are skipped.
 Search adapters only (run 1); there is no mock path here (mocks live in bench/tests).
+Adapter output contract: every search adapter returns snippet <= 300 chars (util.snippet_text; Exa requests highlights), so all providers get the same budget (issue #60).
 """
 import argparse, datetime as dt, json, os, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(ROOT / "bench"))
 from awibench import runner, tables, validate, cost, freshness, newsfetch, guard, gates
-from awibench.util import load_yaml, read_jsonl, sha256_file
+from awibench.util import load_yaml, read_jsonl, sha256_file, snippet_text
 
 BENCH = ROOT / "bench"
 def _body(r):
@@ -30,13 +31,14 @@ def _post(url, headers, body):
         raise RuntimeError(f"HTTP {e.code}" + (f" (Retry-After: {ra})" if ra else "") + f": {e.read()[:200].decode('utf-8', 'replace')}") from None
 
 def _exa_search(key, item):
-    st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto"})
-    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": None,
+    # billed_units 1: Exa pricing page (read 2026-11-23): /search auto base price includes up to 10 results; only AI page summaries bill on top (highlights do not)
+    st, d = _post("https://api.exa.ai/search", {"x-api-key": key}, {"query": item["query"], "numResults": 10, "type": "auto", "contents": {"highlights": True}})
+    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": snippet_text(r.get("highlights")),
             "published_at": r.get("publishedDate")} for r in d.get("results", [])]}
 
 def _tavily_search(key, item):   # basic depth; billed units left to the runner's 2-credit guard (unverified)
     st, d = _post("https://api.tavily.com/search", {"Authorization": f"Bearer {key}"}, {"query": item["query"], "max_results": 10, "search_depth": "basic"})
-    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": (r.get("content") or "")[:300],
+    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": snippet_text(r.get("content")),
             "published_at": r.get("published_date")} for r in d.get("results", [])]}
 
 FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search"   # v1 returns HTTP 410 from 2026-12-10 15:00 UTC (docs.firecrawl.dev/migrate-to-v2)
@@ -46,7 +48,7 @@ def _firecrawl_search(key, item):   # pricing.yaml credits_per_call search = 2 (
     if d.get("success") is False: raise RuntimeError(f"firecrawl error: {str(d.get('error'))[:200]}")
     data = d.get("data") or {}   # v2: results by source under data.web (data.news / data.images only when requested with sources)
     if not isinstance(data, dict): raise RuntimeError(f"HTTP {st}: firecrawl search data is not a v2 object ({type(data).__name__})")
-    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("description"),
+    return {"http_status": st, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": snippet_text(r.get("description")),
             "published_at": None} for r in data.get("web") or []]}
 
 # Apify RAG Web Browser (Store Actor apify/rag-web-browser), Standby endpoint: Google search + page fetch, priced per event.
@@ -86,7 +88,7 @@ def _apify_search(key, item):
     for x in d:
         md, sr = x.get("metadata") or {}, x.get("searchResult") or {}
         res.append({"url": md.get("url") or md.get("canonicalUrl") or sr.get("url"), "title": sr.get("title") or md.get("title"),
-                    "snippet": sr.get("description"), "published_at": None})
+                    "snippet": snippet_text(sr.get("description") or md.get("description")), "published_at": None})
     fetched = sum(1 for x in d if (x.get("crawl") or {}).get("requestStatus") == "handled")
     cents = 100 * (APIFY_RAG_START_EVENTS * APIFY_FREE_EVENT_USD["start"] + APIFY_FREE_EVENT_USD["search"] + fetched * APIFY_FREE_EVENT_USD["fetch"])
     return {"http_status": st, "billed_units": round(cents, 4), "fetched_pages": fetched, "results": res, "config": name}
@@ -204,7 +206,7 @@ def _contextdev_search(key, item):   # request options come from guard.contextde
     st, d = _contextdev_post(key, CONTEXTDEV_SEARCH_URL, {"query": item["query"], "maxResults": o["max_results"]} | {k: True for k in ("markdown", "highlights") if o.get(k)})
     rows = d.get("results") or d.get("data") or []
     return {"http_status": st, "billed_units": guard.contextdev_credits("search", o, len(rows)), "results": [{"url": r.get("url"), "title": r.get("title"),
-            "snippet": r.get("snippet") or r.get("description"), "published_at": r.get("published_at") or r.get("publishedDate")} for r in rows]}
+            "snippet": snippet_text(r.get("snippet") or r.get("description")), "published_at": r.get("published_at") or r.get("publishedDate")} for r in rows]}
 
 def _contextdev_scrape(key, item):
     st, d = _contextdev_post(key, CONTEXTDEV_SCRAPE_URL, {"url": item["url"]})
@@ -239,7 +241,7 @@ def _keenable_search(key, item):   # `key` is unused (keyless); the runner passe
     except urllib.error.HTTPError as e:   # status + Retry-After only (AC23: no vendor text that could carry results)
         ra = (e.headers or {}).get("Retry-After") if e.code == 429 else None
         raise RuntimeError(f"HTTP {e.code}: {f'Retry-After: {ra}; ' if ra else ''}keenable error") from None
-    out = {"http_status": st, "billed_units": 0, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("snippet") or r.get("description"),
+    out = {"http_status": st, "billed_units": 0, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": snippet_text(r.get("snippet") or r.get("description")),
            "published_at": r.get("published_at")} for r in (d.get("results") or [])]}
     if d.get("keenable/usage") is not None or d.get("usage") is not None: out["usage"] = d.get("keenable/usage") or d.get("usage")   # metered: guard.paid_stop stops
     return out
@@ -305,7 +307,7 @@ def _tinyfish_search(key, item):
     q = urllib.parse.urlencode({"query": item["query"], "location": "US", "language": "en"})
     st, d = _tinyfish_call(lambda: _get_json(f"{TINYFISH_SEARCH_URL}?{q}", {"X-API-Key": key}, timeout=TINYFISH_CLIENT_TIMEOUT_S), key)
     rows = sorted(d.get("results") or [], key=lambda r: r.get("position") or 99)
-    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": r.get("snippet"),
+    return {"http_status": st, "billed_units": 1, "results": [{"url": r.get("url"), "title": r.get("title"), "snippet": snippet_text(r.get("snippet")),
             "published_at": _iso_or_none(r.get("published_date") or r.get("date"))} for r in rows[:10]]}
 
 def _tinyfish_fetch_one(key, url):
