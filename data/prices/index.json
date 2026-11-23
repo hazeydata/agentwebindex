@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-22T09:18:42+00:00",
+ "generated_at": "2026-11-23T09:24:19+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -101,9 +101,9 @@
    "provider": "browserbase",
    "status": "ok",
    "http": 200,
-   "n_prices": 21,
+   "n_prices": 25,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "steel",
@@ -111,7 +111,7 @@
    "http": 200,
    "n_prices": 14,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "browserless",

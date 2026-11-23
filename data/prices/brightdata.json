@@ -2,7 +2,7 @@
  "provider": "brightdata",
  "name": "Bright Data Web Unlocker",
  "url": "https://brightdata.com/pricing/web-unlocker",
- "fetched_at": "2026-11-22T09:18:42+00:00",
+ "fetched_at": "2026-11-23T09:24:19+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "becde83a40b303aa69c1a7c6d3e75eab8e83894e994d31236d67118ec4ea7ab0",
@@ -26,7 +26,7 @@
   "$500"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-21T09:18:35+00:00",
+  "previous_fetched_at": "2026-11-22T09:18:42+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],
