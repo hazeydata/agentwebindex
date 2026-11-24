@@ -1,0 +1,20 @@
+{
+ "run_date": "2026-11-24",
+ "mock": false,
+ "offset_h": 0,
+ "providers": [
+  {
+   "provider": "brightdata",
+   "category": "scrape",
+   "status": "stale_error",
+   "calls": 120,
+   "data_calls": 119,
+   "reason": "incomplete set: scrape_urls 149/150; not published",
+   "quota_used": 357,
+   "quota": 5000,
+   "run_spend_units": 119,
+   "cumulative_spend_units": 357
+  }
+ ],
+ "floor_reached": {}
+}

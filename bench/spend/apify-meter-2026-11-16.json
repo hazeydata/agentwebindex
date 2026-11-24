@@ -18,6 +18,24 @@
    "run_ledger_usd": 0.0217,
    "run_meter_minus_ledger_usd": 0.015,
    "run_meter_usd": 0.0367
+  },
+  {
+   "ledger_usd": 0.2969,
+   "meter_minus_ledger_usd": -0.0343,
+   "meter_usd": 0.2626,
+   "run_date": "2026-11-24",
+   "run_ledger_usd": 0.0954,
+   "run_meter_minus_ledger_usd": -0.0207,
+   "run_meter_usd": 0.0747
+  },
+  {
+   "ledger_usd": 0.3155,
+   "meter_minus_ledger_usd": -0.0393,
+   "meter_usd": 0.2762,
+   "run_date": "2026-11-24",
+   "run_ledger_usd": 0.0186,
+   "run_meter_minus_ledger_usd": -0.005,
+   "run_meter_usd": 0.0136
   }
  ],
  "window": "2026-11-16"

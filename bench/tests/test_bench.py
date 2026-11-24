@@ -5450,7 +5450,7 @@ class FirecrawlV2(unittest.TestCase):   # Firecrawl v1 returns HTTP 410 from 202
 
 class LatestHasEveryRunProvider(unittest.TestCase):
     """AWI-W47-BASE-RUN-001 (W46 leftover 5): a provider with a run log under bench/runs (and not excluded/held) always has a row in latest.json."""
-    STAGED = SITE / "data/benchmarks/staged/latest-2026-47.json"
+    STAGED = SITE / "data/benchmarks/staged/latest-2026-48.json"
     def _real(self):   # the same pricing, sets, tos and config tables.main uses
         return (tables.load_pricing(BENCH / "pricing.yaml"), BENCH / "sets", load_yaml(BENCH / "tos_matrix.yaml")["providers"], load_yaml(BENCH / "config.yaml"))
     def _native(self, doc):
