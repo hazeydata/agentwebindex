@@ -2,14 +2,14 @@
  "month": "2026-11",
  "over_free_units": 0,
  "used": {
-  "apify_usd_cents": 20.146000000000015,
-  "brightdata": 238,
-  "browserless": 31,
-  "exa": 44,
-  "firecrawl": 210,
-  "tavily": 88,
-  "tinyfish_fetch": 31,
-  "tinyfish_search": 44
+  "apify_usd_cents": 31.546000000000028,
+  "brightdata": 357,
+  "browserless": 43,
+  "exa": 60,
+  "firecrawl": 242,
+  "tavily": 120,
+  "tinyfish_fetch": 43,
+  "tinyfish_search": 60
  },
  "windows": {
   "apify_usd_cents": "2026-11-16"
