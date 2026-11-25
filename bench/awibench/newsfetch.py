@@ -8,6 +8,9 @@ Weeks >= 2026-46 (method (a), AWI-NEWSFETCH-FIX-001): the set build reads the ar
 (no provider call) and sets pass.value to text it verified on the visible page. Fallback order:
 the first non-empty h1; else og:title only when that text is also in the visible body; else <title>
 with a trailing " - Site" / " | Site" suffix removed, only when the trimmed text is in the visible body.
+Among those verified candidates, the first one whose graded text contains the graded feed headline wins; if
+none does, the order above applies unchanged (AWI-SET-BANNER-EXPECTED-001; applies to sets built from W49 on;
+frozen W46-W48 files are not rebuilt).
 Visible text is the body with script, style, noscript, template and head left out, so a string that
 appears only in script or head does not count. Stored text is HTML-unescaped, Unicode NFC, and
 whitespace-collapsed. Case, quotes and dashes are kept. It is capped at EXPECTED_TEXT_MAX (300)
@@ -132,20 +135,22 @@ def parse_page(html_text):
     except Exception: pass
     return p
 
-def pick_expected(page):
-    """First verified candidate, or None. Each candidate must be a substring of the visible body."""
+def pick_expected(page, headline=None):
+    """First verified candidate, or None. Each candidate must be a substring of the visible body.
+    If headline is given, the first verified candidate whose graded text contains the graded headline wins."""
     from .checks import dom_grade_text
     visible = page.visible()
     graded = dom_grade_text(visible)
     def ok(raw):
         c = cap_expected(raw)
         return c if c and c in visible and dom_grade_text(c) and dom_grade_text(c) in graded else None
-    for h in page.h1s:
-        c = ok(h)
-        if c: return c
-    c = ok(page.og_title or "")
-    if c: return c
-    return ok(trim_site_suffix(page.title()))
+    raws = list(page.h1s) + [page.og_title or "", trim_site_suffix(page.title())]
+    verified = [c for c in (ok(r) for r in raws) if c]
+    g = dom_grade_text(normalize_expected(headline)) if headline else ""
+    if g:
+        for c in verified:
+            if g in dom_grade_text(c): return c
+    return verified[0] if verified else None
 
 def _paywalled(visible):
     low = visible.casefold()
@@ -179,7 +184,7 @@ def derive_row(row, fetch, timeout_s=30):
     if urlsplit(final).scheme not in ("http", "https"):
         return None, _excl(row, url, "fetch_error", status, final, attempts)
     page = parse_page((last or {}).get("html") or "")
-    expected = pick_expected(page)
+    expected = pick_expected(page, row.get("headline"))
     changed = _domain_changed(url, final)
     if not expected:
         reason = "paywall" if _paywalled(page.visible()) else "expected_text_not_on_page"

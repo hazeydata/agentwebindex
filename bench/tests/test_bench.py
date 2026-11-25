@@ -5131,6 +5131,27 @@ class NewsfetchFix001(unittest.TestCase):
         self.assertNotEqual(s["rows"][0]["pass"]["value"], "HN Submission Title")
         self.assertEqual(s["rows"][0]["expected_source"], "article_page"); self.assertEqual(s["expected_source"], "article_page")
 
+    def _value(self, headline, html):
+        _, _, s, _ = self._build([self._row(headline=headline)], {"https://a.example/story": {"status": 200, "html": html}})
+        return s["rows"][0]["pass"]["value"]
+
+    def test_set_banner_yugen_shape_prefers_headline_candidate(self):
+        html = ("<html><head><title>I Can't Believe It Can Sort!</title></head><body>"
+                "<h1>Welcome to Yugen, a space I dedicate to learning new things.</h1>"
+                "<h2>I Can't Believe It Can Sort!</h2><p>text</p></body></html>")
+        self.assertEqual(self._value("I Can't Believe It Can Sort", html), "I Can't Believe It Can Sort!")
+
+    def test_set_banner_cornell_shape_picks_second_h1(self):
+        t = "Researchers track whole body movement with just a smartwatch"
+        html = (f"<html><head><title>{t} | Cornell Chronicle</title>"
+                f"<meta property='og:title' content='{t} | Cornell Chronicle'></head><body>"
+                f"<h1>Cornell Chronicle</h1><h1>{t}</h1><p>text</p></body></html>")
+        self.assertEqual(self._value(t, html), t)
+
+    def test_set_banner_fallback_unchanged_when_no_candidate_has_headline(self):
+        html = "<html><head><title>Something Else</title></head><body><h1>Site Banner</h1><h1>Other</h1><p>x</p></body></html>"
+        self.assertEqual(self._value("Totally Different Feed Headline", html), "Site Banner")
+
     def test_ac3_excluded_plus_emitted_equals_url_exact(self):
         from awibench import newsfetch
         rows = [self._row(1, url="https://a.example/ok"), self._row(2, url="https://a.example/missing"),
