@@ -2,7 +2,7 @@
  "provider": "brave",
  "name": "Brave Search API",
  "url": "https://brave.com/search/api/",
- "fetched_at": "2026-11-25T09:20:30+00:00",
+ "fetched_at": "2026-11-26T09:19:59+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "ffe66609dfbe22f9150601b512681270ce2134e69246c2c1687ff4b4a434cfa7",
@@ -25,7 +25,7 @@
   "$89"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-24T09:20:25+00:00",
+  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

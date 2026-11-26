@@ -2,7 +2,7 @@
  "provider": "apify",
  "name": "Apify",
  "url": "https://apify.com/pricing",
- "fetched_at": "2026-11-25T09:20:30+00:00",
+ "fetched_at": "2026-11-26T09:19:59+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "3777025618aba2ca43b501014f9bbfcbe3a3324588dd11b244199f80f27412b4",
@@ -70,22 +70,10 @@
   "$999 / month"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-24T09:20:25+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
+  "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -3 +3 @@",
-   "-Get started",
-   "+Start for free",
-   "@@ -28 +28 @@",
-   "-Browse 131,507 Actors",
-   "+Browse 134,123 Actors",
-   "@@ -577 +577 @@",
-   "-Add to Preferred Sources",
-   "+Add to preferred sources"
-  ]
+  "text_diff": []
  }
 }

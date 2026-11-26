@@ -2,11 +2,11 @@
  "provider": "contextdev",
  "name": "Context.dev",
  "url": "https://www.context.dev/pricing",
- "fetched_at": "2026-11-25T09:20:30+00:00",
+ "fetched_at": "2026-11-26T09:19:59+00:00",
  "status": "ok",
  "http_status": 200,
- "text_sha256": "0a5333baacc33c1a5ad379193f8363feb0971954c503597ff817d62bbd85ffc9",
- "text_lines": 487,
+ "text_sha256": "b2706e0c91aa05ec4de7a61c9e1dae50046fcc323699bd005aeab1b06cff5717",
+ "text_lines": 490,
  "prices_found": [
   "$0",
   "$0 /month",
@@ -35,16 +35,18 @@
   "$950/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-24T09:20:25+00:00",
+  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
   "changed": true,
   "prices_added": [],
   "prices_removed": [],
   "text_diff": [
    "--- ",
    "+++ ",
-   "@@ -425 +425 @@",
-   "-The Free plan includes 1,000 API credits that renew every month. Paid plans can use Auto-Topup in 1K-credit blocks: Developer $3.00, Pro $2.00, Growth $1.50, Scale $1.00, and Scale 2.5M $0.75 for new subscriptions. Existing subscriptions keep their rates. With insufficient credits and no available top-up, any plan returns 401 USAGE_EXCEEDED. Logo Link has a separate quota.",
-   "+The Free plan includes 1,000 API credits that renew every month. Paid plans can use Auto-Topup in 1K-credit blocks: Developer $3.00, Pro $2.00, Growth $1.50, Scale $1.00, and Scale 2.5M $0.75 for new subscriptions. Existing subscriptions keep their rates. With insufficient credits and no available top-up, any plan returns 402 USAGE_EXCEEDED. Logo Link has a separate quota."
+   "@@ -364,0 +365,2 @@",
+   "+Search Scholar",
+   "+1 credit per 10 results",
+   "@@ -474,0 +477 @@",
+   "+Careers"
   ]
  }
 }

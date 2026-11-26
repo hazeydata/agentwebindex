@@ -2,7 +2,7 @@
  "provider": "exa",
  "name": "Exa",
  "url": "https://exa.ai/pricing",
- "fetched_at": "2026-11-25T09:20:30+00:00",
+ "fetched_at": "2026-11-26T09:19:59+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "c520298d10eb99fca50071e0141b21826f96d211542fb4027c472c969fad6443",
@@ -38,26 +38,10 @@
   "$7"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-24T09:20:25+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
+  "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -6,3 +6,3 @@",
-   "-Introducing Exa 3.0",
-   "-Introducing Exa 3.0: Our largest ever improvement to search quality",
-   "-Learn more",
-   "+Meet Exa at re:Invent ->",
-   "+Meet Exa at AWS re:Invent:",
-   "+Book a meeting ->",
-   "@@ -85 +85 @@",
-   "-$10 of free credits per month",
-   "+$10 of free credits per month (about 2,500 Lite searches)",
-   "@@ -365 +365 @@",
-   "-$1",
-   "+-"
-  ]
+  "text_diff": []
  }
 }

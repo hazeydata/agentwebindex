@@ -2,7 +2,7 @@
  "provider": "linkup",
  "name": "Linkup",
  "url": "https://www.linkup.so/pricing",
- "fetched_at": "2026-11-25T09:20:30+00:00",
+ "fetched_at": "2026-11-26T09:19:59+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "4562e6461a1db05e039130025a61af1ff7188b1163fe402f78855b651560b9cd",
@@ -16,41 +16,10 @@
   "$20,000"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-24T09:20:25+00:00",
-  "changed": true,
-  "prices_added": [
-   "$20,000"
-  ],
-  "prices_removed": [
-   "$5000"
-  ],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -4,5 +4,2 @@",
-   "-Documentation",
-   "-Product",
-   "-+",
-   "-Use cases",
-   "-+",
-   "+Products",
-   "+Solutions",
-   "@@ -10,3 +7,2 @@",
-   "-+",
-   "-Enterprise",
-   "-+",
-   "+Blog",
-   "+Docs",
-   "@@ -13,0 +10 @@",
-   "+Contact Sales",
-   "@@ -66 +63 @@",
-   "-Apply for $5000 in free credits for startups",
-   "+Apply for $20,000 in free credits for startups",
-   "@@ -68,2 +65,2 @@",
-   "-Production-grade Web Search API",
-   "-for AI.",
-   "+Web Search API",
-   "+for AI"
-  ]
+  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
+  "changed": false,
+  "prices_added": [],
+  "prices_removed": [],
+  "text_diff": []
  }
 }
