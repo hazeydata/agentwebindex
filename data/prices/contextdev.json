@@ -2,7 +2,7 @@
  "provider": "contextdev",
  "name": "Context.dev",
  "url": "https://www.context.dev/pricing",
- "fetched_at": "2026-11-26T09:19:59+00:00",
+ "fetched_at": "2026-11-27T09:19:53+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "b2706e0c91aa05ec4de7a61c9e1dae50046fcc323699bd005aeab1b06cff5717",
@@ -35,18 +35,10 @@
   "$950/mo"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-11-26T09:19:59+00:00",
+  "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -364,0 +365,2 @@",
-   "+Search Scholar",
-   "+1 credit per 10 results",
-   "@@ -474,0 +477 @@",
-   "+Careers"
-  ]
+  "text_diff": []
  }
 }

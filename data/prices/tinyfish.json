@@ -2,7 +2,7 @@
  "provider": "tinyfish",
  "name": "TinyFish Search + Fetch",
  "url": "https://www.tinyfish.ai/pricing",
- "fetched_at": "2026-11-26T09:19:59+00:00",
+ "fetched_at": "2026-11-27T09:19:53+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "356092778c17332b1bbe8f33d690ed5f384c273b9730c34d9ae8be2a07aa162e",
@@ -21,20 +21,10 @@
   "$8"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-25T09:20:30+00:00",
-  "changed": true,
+  "previous_fetched_at": "2026-11-26T09:19:59+00:00",
+  "changed": false,
   "prices_added": [],
   "prices_removed": [],
-  "text_diff": [
-   "--- ",
-   "+++ ",
-   "@@ -178,3 +178,3 @@",
-   "-VPC deployment",
-   "-\u2013",
-   "-99.99% uptime SLA",
-   "+Custom deployment",
-   "+\u2013",
-   "+SLA terms agreed per contract"
-  ]
+  "text_diff": []
  }
 }
