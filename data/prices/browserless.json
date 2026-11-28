@@ -2,7 +2,7 @@
  "provider": "browserless",
  "name": "Browserless",
  "url": "https://www.browserless.io/pricing",
- "fetched_at": "2026-11-27T09:19:53+00:00",
+ "fetched_at": "2026-11-28T09:18:43+00:00",
  "status": "ok",
  "http_status": 200,
  "text_sha256": "3fbc6cc9333fa3060ce19b5f971f44dd03e763c76aa8e5c386acad10c9572350",
@@ -27,7 +27,7 @@
   "$0.24/hr"
  ],
  "diff": {
-  "previous_fetched_at": "2026-11-26T09:19:59+00:00",
+  "previous_fetched_at": "2026-11-27T09:19:53+00:00",
   "changed": false,
   "prices_added": [],
   "prices_removed": [],

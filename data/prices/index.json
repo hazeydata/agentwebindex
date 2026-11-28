@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-27T09:19:53+00:00",
+ "generated_at": "2026-11-28T09:18:43+00:00",
  "providers": [
   {
    "provider": "exa",
@@ -7,7 +7,7 @@
    "http": 200,
    "n_prices": 28,
    "error": null,
-   "changed": true
+   "changed": false
   },
   {
    "provider": "tavily",
@@ -31,7 +31,7 @@
    "http": 200,
    "n_prices": 6,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "parallel",
@@ -95,7 +95,7 @@
    "http": 200,
    "n_prices": 10,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "browserbase",
@@ -125,9 +125,9 @@
    "provider": "contextdev",
    "status": "ok",
    "http": 200,
-   "n_prices": 25,
+   "n_prices": 29,
    "error": null,
-   "changed": false
+   "changed": true
   },
   {
    "provider": "tinyfish",
